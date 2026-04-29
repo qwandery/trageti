@@ -40,10 +40,12 @@ export async function reindexNamespace(
       batch.map((item) => options.embeddingProvider(item.id, item.content)),
     )
 
-    embeddingRepo.insertBatch(
-      newTable,
-      batch.map((item, i) => ({ assertionId: item.id, embedding: embeddings[i]! })),
-    )
+    const items = batch.map((item, i) => {
+      const embedding = embeddings[i]
+      if (!embedding) throw new Error(`embedding missing for assertion ${item.id}`)
+      return { assertionId: item.id, embedding }
+    })
+    embeddingRepo.insertBatch(newTable, items)
 
     offset += batch.length
     if (batch.length < BATCH_SIZE) break

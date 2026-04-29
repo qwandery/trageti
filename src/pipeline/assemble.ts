@@ -1,4 +1,9 @@
-import type { ContextAssemblyOptions, AssembledContext, ContextFormatter } from '../domain/types.js'
+import type {
+  ContextAssemblyOptions,
+  AssembledContext,
+  ContextFormatter,
+  RetrievalQuery,
+} from '../domain/types.js'
 import type { TemporalStore } from '../store/TemporalStore.js'
 
 interface AssembleOptions extends ContextAssemblyOptions {
@@ -6,7 +11,7 @@ interface AssembleOptions extends ContextAssemblyOptions {
 }
 
 export function assembleContext(store: TemporalStore, options: AssembleOptions): AssembledContext {
-  const query: import('../domain/types.js').RetrievalQuery = {
+  const query: RetrievalQuery = {
     namespace: options.namespace,
     queryEmbedding: options.queryEmbedding,
     temporalAnchor: options.temporalAnchor,

@@ -11,7 +11,6 @@ import type {
   RetrievedAssertion,
   ContextAssemblyOptions,
   AssembledContext,
-  SchemaExtensions,
 } from '../domain/types.js'
 import { MigrationRunner } from '../db/migrations/runner.js'
 import { SchemaExtensionApplier } from '../db/schema/extensions.js'
@@ -85,8 +84,8 @@ export class TemporalStore {
 
     // (c) schema extensions validate + apply
     this.extensionApplier = new SchemaExtensionApplier()
-    this.extensionApplier.validate(this.options.schemaExtensions as SchemaExtensions | undefined)
-    this.extensionApplier.apply(this.db, this.options.schemaExtensions as SchemaExtensions | undefined)
+    this.extensionApplier.validate(this.options.schemaExtensions)
+    this.extensionApplier.apply(this.db, this.options.schemaExtensions)
 
     // (d) namespace registration
     this.namespaceRepo = new NamespaceRepository(this.db)
@@ -296,8 +295,7 @@ export class TemporalStore {
 
   deleteNamespace(namespace: string): void {
     this.requireInit()
-    const extensions = this.options.schemaExtensions as SchemaExtensions | undefined
-    const refTables = (extensions?.tables ?? []).filter((t) => t.referencesNamespace)
+    const refTables = (this.options.schemaExtensions.tables ?? []).filter((t) => t.referencesNamespace)
     if (refTables.length > 0) {
       structuredWarn('DELETE_NAMESPACE_HAS_REFERENCES', {
         namespace,

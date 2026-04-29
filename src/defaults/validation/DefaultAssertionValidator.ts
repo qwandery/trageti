@@ -11,22 +11,17 @@ export class DefaultAssertionValidator implements AssertionValidator {
   validate(assertion: Omit<Assertion, 'createdAt' | 'extensions'>): ValidationResult {
     const errors: string[] = []
 
-    if (!assertion.id?.trim()) errors.push('id is required')
-    if (!assertion.namespace?.trim()) errors.push('namespace is required')
-    if (!assertion.type?.trim()) errors.push('type is required')
-    if (!assertion.content?.trim()) errors.push('content is required')
-    if (typeof assertion.validFrom !== 'number') errors.push('validFrom must be a number')
-    if (!assertion.sourceEpisodeId?.trim()) errors.push('sourceEpisodeId is required')
+    if (!assertion.id.trim()) errors.push('id is required')
+    if (!assertion.namespace.trim()) errors.push('namespace is required')
+    if (!assertion.type.trim()) errors.push('type is required')
+    if (!assertion.content.trim()) errors.push('content is required')
+    if (!assertion.sourceEpisodeId.trim()) errors.push('sourceEpisodeId is required')
 
-    if (assertion.validUntil !== null && assertion.validUntil !== undefined) {
-      if (typeof assertion.validUntil !== 'number') {
-        errors.push('validUntil must be null or a number')
-      } else if (assertion.validUntil <= assertion.validFrom) {
-        errors.push('validUntil must be strictly greater than validFrom')
-      }
+    if (assertion.validUntil !== null && assertion.validUntil <= assertion.validFrom) {
+      errors.push('validUntil must be strictly greater than validFrom')
     }
 
-    if (typeof assertion.confidence !== 'number' || assertion.confidence < 0 || assertion.confidence > 1) {
+    if (assertion.confidence < 0 || assertion.confidence > 1) {
       errors.push('confidence must be a number in [0.0, 1.0]')
     }
 

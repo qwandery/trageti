@@ -48,7 +48,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
   ): AssertionLink[] {
     if (fromIds.length === 0) return []
 
-    const { temporalAnchor, maxDepth, linkTypes, includeSuperseded: _inc } = options
+    const { temporalAnchor, maxDepth, linkTypes } = options
 
     // Build the link type filter snippet
     const linkTypeFilter =

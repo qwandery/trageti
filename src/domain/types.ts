@@ -172,7 +172,7 @@ export interface TraversalOptions {
   includeSuperseded?: boolean
 }
 
-export interface PathOptions extends TraversalOptions {}
+export type PathOptions = TraversalOptions
 
 // ─── Extension interfaces (contracts) ────────────────────────────────────────
 
