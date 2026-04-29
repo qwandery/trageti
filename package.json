@@ -1,0 +1,89 @@
+{
+  "name": "trageti",
+  "version": "0.1.0",
+  "description": "Temporally-aware retrieval-augmented generation over SQLite — episodic assertions with explicit validity windows and hybrid vector + keyword retrieval",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests",
+    "test:unit": "vitest run test/unit --passWithNoTests",
+    "test:integration": "vitest run test/integration --passWithNoTests",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "release": "changeset publish",
+    "prepublishOnly": "npm run build && npm run typecheck"
+  },
+  "peerDependencies": {
+    "better-sqlite3": ">=9.0.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^20.14.0",
+    "better-sqlite3": "^11.2.0",
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.0",
+    "sqlite-vec": "^0.1.6",
+    "tsup": "^8.2.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.3.0",
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0"
+  },
+  "keywords": [
+    "rag",
+    "retrieval-augmented-generation",
+    "sqlite",
+    "temporal",
+    "vector",
+    "embeddings",
+    "knowledge-base",
+    "episodic-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qwandery/trageti.git"
+  },
+  "homepage": "https://github.com/qwandery/trageti#readme",
+  "bugs": {
+    "url": "https://github.com/qwandery/trageti/issues"
+  },
+  "license": "MIT",
+  "author": "Qwandery"
+}

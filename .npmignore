@@ -1,0 +1,14 @@
+src/
+test/
+.github/
+.changeset/
+coverage/
+eslint.config.js
+tsconfig*.json
+tsup.config.ts
+vitest.config.ts
+.editorconfig
+.prettierrc.json
+trageti-spec-v0.1.md
+*.test.ts
+*.spec.ts

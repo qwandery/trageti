@@ -1,0 +1,146 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import type { Database } from 'better-sqlite3'
+import { openTestDb } from '../helpers/openTestDb.js'
+import { MigrationRunner } from '../../src/db/migrations/runner.js'
+import { SchemaExtensionApplier } from '../../src/db/schema/extensions.js'
+import { SchemaExtensionError } from '../../src/errors/index.js'
+
+function setupDb(db: Database): void {
+  new MigrationRunner().applyMigrations(db)
+}
+
+describe('SchemaExtensionApplier.validate', () => {
+  it('accepts valid extensions without throwing', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({
+        columns: [
+          { table: 'trl_assertions', column: 'approval_status', definition: "TEXT NOT NULL DEFAULT 'pending'" },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  it('rejects column names starting with trl_', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({ columns: [{ table: 'trl_assertions', column: 'trl_foo', definition: 'TEXT' }] }),
+    ).toThrow(SchemaExtensionError)
+  })
+
+  it('rejects SQLite reserved keywords as column names', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({ columns: [{ table: 'trl_assertions', column: 'select', definition: 'TEXT' }] }),
+    ).toThrow(SchemaExtensionError)
+  })
+
+  it('rejects columns that shadow library columns', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({ columns: [{ table: 'trl_assertions', column: 'content', definition: 'TEXT' }] }),
+    ).toThrow(SchemaExtensionError)
+  })
+
+  it('rejects table names starting with trl_', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({
+        tables: [{ tableName: 'trl_my_table', createSQL: 'CREATE TABLE IF NOT EXISTS trl_my_table (id TEXT)', referencesNamespace: false }],
+      }),
+    ).toThrow(SchemaExtensionError)
+  })
+
+  it('accumulates multiple violations in one error', () => {
+    const applier = new SchemaExtensionApplier()
+    let err: SchemaExtensionError | undefined
+    try {
+      applier.validate({
+        columns: [
+          { table: 'trl_assertions', column: 'trl_bad', definition: 'TEXT' },
+          { table: 'trl_assertions', column: 'select', definition: 'TEXT' },
+        ],
+      })
+    } catch (e) {
+      err = e as SchemaExtensionError
+    }
+    expect(err).toBeInstanceOf(SchemaExtensionError)
+    expect(err?.violations.length).toBe(2)
+  })
+})
+
+describe('SchemaExtensionApplier.apply', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openTestDb()
+    setupDb(db)
+  })
+
+  it('adds a new column to trl_assertions', () => {
+    const applier = new SchemaExtensionApplier()
+    applier.apply(db, {
+      columns: [{ table: 'trl_assertions', column: 'approval_status', definition: "TEXT NOT NULL DEFAULT 'pending'" }],
+    })
+    const cols = db.prepare(`PRAGMA table_info(trl_assertions)`).all() as Array<{ name: string }>
+    expect(cols.map((c) => c.name)).toContain('approval_status')
+  })
+
+  it('is idempotent — second apply does not error or duplicate', () => {
+    const applier = new SchemaExtensionApplier()
+    const ext = {
+      columns: [{ table: 'trl_assertions' as const, column: 'my_flag', definition: 'INTEGER DEFAULT 0' }],
+    }
+    applier.apply(db, ext)
+    applier.apply(db, ext)
+    const cols = db.prepare(`PRAGMA table_info(trl_assertions)`).all() as Array<{ name: string }>
+    expect(cols.filter((c) => c.name === 'my_flag').length).toBe(1)
+  })
+
+  it('creates extension tables', () => {
+    const applier = new SchemaExtensionApplier()
+    applier.apply(db, {
+      tables: [
+        {
+          tableName: 'app_approvals',
+          createSQL: 'CREATE TABLE IF NOT EXISTS app_approvals (id TEXT PRIMARY KEY)',
+          referencesNamespace: false,
+        },
+      ],
+    })
+    const tables = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='app_approvals'`)
+      .all() as Array<{ name: string }>
+    expect(tables.length).toBe(1)
+  })
+})
+
+describe('SchemaExtensionApplier.getExtensionColumns', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = openTestDb()
+    setupDb(db)
+  })
+
+  it('returns empty array when no extensions added', () => {
+    const applier = new SchemaExtensionApplier()
+    expect(applier.getExtensionColumns(db, 'trl_assertions')).toEqual([])
+  })
+
+  it('returns added extension columns', () => {
+    const applier = new SchemaExtensionApplier()
+    applier.apply(db, {
+      columns: [{ table: 'trl_assertions', column: 'approval_status', definition: 'TEXT' }],
+    })
+    expect(applier.getExtensionColumns(db, 'trl_assertions')).toContain('approval_status')
+  })
+
+  it('does not include library columns', () => {
+    const applier = new SchemaExtensionApplier()
+    const cols = applier.getExtensionColumns(db, 'trl_assertions')
+    expect(cols).not.toContain('content')
+    expect(cols).not.toContain('id')
+    expect(cols).not.toContain('namespace')
+  })
+})
