@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import type { RetrievalMiddleware, RetrievalQuery, RetrievedAssertion } from '../../src/domain/types.js'
+import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'test-ns'
 const DIM = 4
@@ -12,7 +13,7 @@ function makeStoreWithMiddleware(middleware: RetrievalMiddleware[]): TemporalSto
   const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, middleware })
   store.init()
   store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-  store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test assertion alpha.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+  store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test assertion alpha.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
   store.indexAssertion('a-1', VEC_A)
   return store
 }
@@ -104,7 +105,7 @@ describe('TemporalStore — middleware', () => {
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, middleware: [mw1, mw2, mw3] })
     store.init()
     store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
     store.indexAssertion('a-1', VEC_A)
     store.retrieve({ namespace: NS, queryEmbedding: VEC_A, temporalAnchor: 1 })
     expect(order).toEqual(['mw1', 'mw2', 'mw3'])
@@ -119,7 +120,7 @@ describe('TemporalStore — middleware', () => {
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, middleware: [mw1, mw2, mw3] })
     store.init()
     store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
     store.indexAssertion('a-1', VEC_A)
     store.retrieve({ namespace: NS, queryEmbedding: VEC_A, temporalAnchor: 1 })
     expect(order).toEqual(['mw3', 'mw2', 'mw1'])

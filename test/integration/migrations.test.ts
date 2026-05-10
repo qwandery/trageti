@@ -22,28 +22,29 @@ describe('MigrationRunner', () => {
     db = openTestDb()
   })
 
-  it('applies v001 on a fresh database', () => {
+  it('applies all migrations on a fresh database', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
-    expect(runner.getCurrentVersion(db)).toBe(1)
+    expect(runner.getCurrentVersion(db)).toBe(2)
 
     const tables = getObjects(db, 'table').map((r) => r.name)
     expect(tables).toContain('trl_namespaces')
     expect(tables).toContain('trl_episodes')
     expect(tables).toContain('trl_assertions')
     expect(tables).toContain('trl_links')
+    expect(tables).toContain('trl_citations')
     expect(tables).toContain('trl_schema_version')
   })
 
-  it('is idempotent — second applyMigrations does not re-apply v001', () => {
+  it('is idempotent — second applyMigrations does not re-apply', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     runner.applyMigrations(db)
-    expect(runner.getCurrentVersion(db)).toBe(1)
+    expect(runner.getCurrentVersion(db)).toBe(2)
 
     const versionRows = db.prepare('SELECT COUNT(*) AS cnt FROM trl_schema_version').get() as { cnt: number }
-    expect(versionRows.cnt).toBe(1)
+    expect(versionRows.cnt).toBe(2)
   })
 
   it('creates FTS5 table', () => {
@@ -72,6 +73,42 @@ describe('MigrationRunner', () => {
     expect(indexes).toContain('trl_idx_links_from')
     expect(indexes).toContain('trl_idx_links_to')
     expect(indexes).toContain('trl_idx_episodes_ns_pos')
+    // v002: citations + reverse-supersession lookup
+    expect(indexes).toContain('trl_idx_citations_assertion')
+    expect(indexes).toContain('trl_idx_assertions_supersedes')
+  })
+
+  it('upgrades a v001-only DB to v002 cleanly with legacy citation-less assertions', async () => {
+    const { createV001Migration } = await import('../../src/db/migrations/v001_initial.js')
+    const v001 = createV001Migration()
+    db.exec(`CREATE TABLE IF NOT EXISTS trl_schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')), description TEXT NOT NULL)`)
+    v001.up(db)
+    db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(1, v001.description)
+
+    // Insert a legacy citation-less assertion via direct SQL (bypassing the validator)
+    db.prepare('INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)').run('legacy', 4, 'trl_embeddings_legacy')
+    db.prepare(`INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run('ep-old', 'legacy', 1, '2024-01-01', 'doc', 'old')
+    db.prepare(`INSERT INTO trl_assertions (id, namespace, type, content, valid_from, valid_until, confidence, source_episode_id, supersedes_id, entity_id, entity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('a-legacy', 'legacy', 'fact', 'pre-v002 row', 1, null, 1.0, 'ep-old', null, null, null)
+
+    expect(new MigrationRunner().getCurrentVersion(db)).toBe(1)
+
+    // Now run the full runner — should upgrade to v002 cleanly
+    new MigrationRunner().applyMigrations(db)
+    expect(new MigrationRunner().getCurrentVersion(db)).toBe(2)
+
+    // trl_citations exists and is empty
+    const tables = getObjects(db, 'table').map((r) => r.name)
+    expect(tables).toContain('trl_citations')
+    const citCount = db.prepare('SELECT COUNT(*) AS c FROM trl_citations').get() as { c: number }
+    expect(citCount.c).toBe(0)
+
+    // The legacy row is still readable; we don't go through TemporalStore here
+    // because instantiating one would trigger its own init/migrations,
+    // but the row's existence at this schema version proves the upgrade is non-destructive.
+    const a = db.prepare('SELECT id FROM trl_assertions WHERE id = ?').get('a-legacy') as { id: string } | undefined
+    expect(a?.id).toBe('a-legacy')
   })
 
   it('records tokenizer args in FTS5 table DDL', () => {

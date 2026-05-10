@@ -12,7 +12,7 @@ import type { AssertionRepository } from '../db/repositories/AssertionRepository
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
 import { buildCandidateJson } from '../db/candidates.js'
 import { applyMiddleware } from './middleware.js'
-import { DefaultScorer } from '../defaults/scoring/DefaultScorer.js'
+import { ValidationError } from '../errors/index.js'
 
 interface RetrieveContext {
   assertionRepo: AssertionRepository
@@ -59,6 +59,7 @@ function retrieveCore(
 ): RetrievedAssertion[] {
   const limit = query.limit ?? 10
   const oversample = limit * 3
+  const mode = query.mode ?? 'snapshot'
 
   // Step 1: Temporal filter
   const step1 = runStep1(db, query)
@@ -71,71 +72,68 @@ function retrieveCore(
   const step2 = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
   if (step2.length === 0) return []
 
-  // Step 3: BM25 scoring (optional)
+  // Step 3: BM25 scoring (optional). v0.2: raw FTS5 values pass through unmodified.
   const bm25Map = new Map<string, number>()
   if (query.queryText) {
     const step3 = runStep3(db, candidateJson, query.queryText)
-    // Min-max normalise BM25 scores to [0, 1] over the candidate set
-    // FTS5 BM25 is negative; more negative = better match
-    const scores = step3.map((r) => r.bm25_score)
-    const minScore = Math.min(...scores)
-    const maxScore = Math.max(...scores)
-    const range = maxScore - minScore
     for (const row of step3) {
-      const normalised = range > 0 ? (row.bm25_score - minScore) / range : 1
-      // Invert: more negative raw = better = should be higher normalised
-      bm25Map.set(row.assertion_id, 1 - normalised)
+      bm25Map.set(row.assertion_id, row.bm25_score)
     }
   }
 
-  // Step 4: Score
-  const scorer = query.scorer ?? ctx.globalScorer
-  const positionRange = ctx.getPositionRange(query.namespace)
-
+  // Step 4: Score. Hydrate ScoredCandidate.assertion (decision §8).
   const step1Map = new Map(step1.map((r) => [r.id, r]))
-  const candidates: Array<{ id: string; semanticDistance: number; score: number }> = []
+  const oversampledIds = step2.map((r) => r.assertion_id).filter((id) => step1Map.has(id))
+  const hydrated = ctx.assertionRepo.getByIds(oversampledIds)
+  const hydratedById = new Map(hydrated.map((a) => [a.id, a]))
 
+  const candidates: Array<{ id: string; candidate: ScoredCandidate }> = []
   for (const s2row of step2) {
     const s1row = step1Map.get(s2row.assertion_id)
-    if (!s1row) continue
-
-    const candidate: ScoredCandidate = {
-      assertion: {} as Assertion, // placeholder — full row fetched after ranking
-      semanticDistance: s2row.semantic_distance,
-      bm25Score: bm25Map.get(s2row.assertion_id) ?? null,
-      position: s1row.valid_from,
-    }
-
-    const score = scorer.score(candidate, {
-      temporalAnchor: query.temporalAnchor,
-      namespacePositionRange: positionRange,
-      query,
+    const assertion = hydratedById.get(s2row.assertion_id)
+    if (!s1row || !assertion) continue
+    candidates.push({
+      id: s2row.assertion_id,
+      candidate: {
+        assertion,
+        semanticDistance: s2row.semantic_distance,
+        bm25Score: bm25Map.get(s2row.assertion_id) ?? null,
+        position: s1row.valid_from,
+      },
     })
-
-    candidates.push({ id: s2row.assertion_id, semanticDistance: s2row.semantic_distance, score })
   }
+
+  const scorer = query.scorer ?? ctx.globalScorer
+  const positionRange = ctx.getPositionRange(query.namespace)
+  const scoringContext = { temporalAnchor: query.temporalAnchor, namespacePositionRange: positionRange, query }
+
+  let scores: number[]
+  if (scorer.scoreBatch) {
+    scores = scorer.scoreBatch(candidates.map((c) => c.candidate), scoringContext)
+    if (scores.length !== candidates.length) {
+      throw new ValidationError([
+        `RetrievalScorer.scoreBatch returned ${String(scores.length)} scores for ${String(candidates.length)} candidates`,
+      ])
+    }
+  } else {
+    scores = candidates.map((c) => scorer.score(c.candidate, scoringContext))
+  }
+
+  const ranked = candidates.map((c, i) => ({ ...c, score: scores[i] ?? 0 }))
 
   // Step 5: Rank and truncate
-  candidates.sort((a, b) => b.score - a.score)
-  const topCandidates = candidates.slice(0, limit)
+  ranked.sort((a, b) => b.score - a.score)
+  const topCandidates = ranked.slice(0, limit)
 
-  // Fetch full assertion rows for top results
-  const results: RetrievedAssertion[] = []
-  for (const c of topCandidates) {
-    const assertion = ctx.assertionRepo.getById(c.id)
-    if (!assertion) continue
-
-    const result: RetrievedAssertion = {
-      ...assertion,
-      score: c.score,
-      scoreComponents: {
-        semanticDistance: c.semanticDistance,
-        bm25Score: bm25Map.get(c.id) ?? null,
-        position: assertion.validFrom,
-      },
-    }
-    results.push(result)
-  }
+  const results: RetrievedAssertion[] = topCandidates.map((c) => ({
+    ...c.candidate.assertion,
+    score: c.score,
+    scoreComponents: {
+      semanticDistance: c.candidate.semanticDistance,
+      bm25Score: c.candidate.bm25Score,
+      position: c.candidate.assertion.validFrom,
+    },
+  }))
 
   // Step 6: Graph expansion (optional)
   if (query.expandLinks && results.length > 0) {
@@ -164,6 +162,17 @@ function retrieveCore(
     }
   }
 
+  // Step 7: Trajectory expansion (v0.2). Always populate supersessionChain
+  // when mode === 'trajectory' (using [] when there are no predecessors);
+  // omit it entirely otherwise.
+  if (mode === 'trajectory') {
+    for (const result of results) {
+      const chain = ctx.assertionRepo.getSupersessionChain(result.id)
+      // Helper returns oldest-first INCLUDING the result itself; slice off the last entry.
+      result.supersessionChain = chain.length > 0 ? chain.slice(0, -1) : []
+    }
+  }
+
   return results
 }
 
@@ -175,8 +184,11 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
   ]
   const params: unknown[] = [query.namespace, query.temporalAnchor, query.temporalAnchor]
 
+  // v0.2: spec wording for includeSuperseded (decision §12).
+  // includeSuperseded:false includes current replacements (supersedes_id IS NOT NULL,
+  // valid_until IS NULL) and excludes closed rows (valid_until IS NOT NULL).
   if (!query.includeSuperseded) {
-    conditions.push('a.valid_until IS NULL')
+    conditions.push('(a.supersedes_id IS NULL OR a.valid_until IS NULL)')
   }
   if (query.minConfidence !== undefined) {
     conditions.push('a.confidence >= ?')
@@ -237,6 +249,3 @@ function runStep3(db: Database, candidateJson: string, queryText: string): Step3
   `
   return db.prepare<unknown[], Step3Row>(sql).all(queryText, candidateJson)
 }
-
-// Prevent unused import warning
-void DefaultScorer

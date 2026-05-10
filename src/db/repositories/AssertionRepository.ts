@@ -1,5 +1,7 @@
 import type { Database } from 'better-sqlite3'
-import type { Assertion } from '../../domain/types.js'
+import type { Assertion, AssertionCitation, NewAssertion } from '../../domain/types.js'
+import type { CitationRepository } from './CitationRepository.js'
+import { buildCandidateJson } from '../candidates.js'
 
 interface AssertionRow {
   id: string
@@ -28,13 +30,19 @@ export interface AssertionQueryOptions {
 export class AssertionRepository {
   private readonly db: Database
   private readonly extensionColumns: readonly string[]
+  private readonly citationRepo: CitationRepository
 
-  constructor(db: Database, extensionColumns: readonly string[] = []) {
+  constructor(
+    db: Database,
+    citationRepo: CitationRepository,
+    extensionColumns: readonly string[] = [],
+  ) {
     this.db = db
+    this.citationRepo = citationRepo
     this.extensionColumns = extensionColumns
   }
 
-  insert(assertion: Omit<Assertion, 'createdAt' | 'extensions'>): Assertion {
+  insert(assertion: Omit<NewAssertion, 'citations'>): void {
     this.db
       .prepare(
         `INSERT INTO trl_assertions
@@ -55,26 +63,42 @@ export class AssertionRepository {
         assertion.entityId ?? null,
         assertion.entityType ?? null,
       )
-    return this.getByIdOrThrow(assertion.id)
   }
 
-  supersedeAssertion(
-    assertionId: string,
-    validUntil: number,
-    replacedById: string | null = null,
-  ): void {
+  /**
+   * Sets valid_until on the given assertion. Does NOT modify supersedes_id —
+   * supersedes_id is strictly new -> old (decision §1) and is set on the new
+   * assertion at writeAssertion() time, never written back from the predecessor.
+   */
+  supersedeAssertion(assertionId: string, validUntil: number): void {
     this.db
-      .prepare(
-        `UPDATE trl_assertions SET valid_until = ?, supersedes_id = COALESCE(?, supersedes_id) WHERE id = ?`,
-      )
-      .run(validUntil, replacedById, assertionId)
+      .prepare('UPDATE trl_assertions SET valid_until = ? WHERE id = ?')
+      .run(validUntil, assertionId)
   }
 
   getById(id: string): Assertion | null {
     const row = this.db
       .prepare<[string], AssertionRow>('SELECT * FROM trl_assertions WHERE id = ?')
       .get(id)
-    return row ? this.rowToAssertion(row) : null
+    if (!row) return null
+    return this.rowToAssertion(row, this.citationRepo.getByAssertionId(id))
+  }
+
+  /** Hydrate a row that the caller has already supplied citations for (avoids re-fetch). */
+  hydrateRow(row: AssertionRow, citations: AssertionCitation[]): Assertion {
+    return this.rowToAssertion(row, citations)
+  }
+
+  getByIds(ids: readonly string[]): Assertion[] {
+    if (ids.length === 0) return []
+    const json = buildCandidateJson(ids)
+    const rows = this.db
+      .prepare<[string], AssertionRow>(
+        'SELECT * FROM trl_assertions WHERE id IN (SELECT value FROM json_each(?))',
+      )
+      .all(json)
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
   }
 
   query(namespace: string, options: AssertionQueryOptions = {}): Assertion[] {
@@ -104,7 +128,8 @@ export class AssertionRepository {
 
     const sql = `SELECT * FROM trl_assertions WHERE ${conditions.join(' AND ')}`
     const rows = this.db.prepare<unknown[], AssertionRow>(sql).all(...params)
-    return rows.map((r) => this.rowToAssertion(r))
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
   }
 
   getEntityHistory(namespace: string, entityId: string): Assertion[] {
@@ -113,7 +138,84 @@ export class AssertionRepository {
         'SELECT * FROM trl_assertions WHERE namespace = ? AND entity_id = ? ORDER BY valid_from ASC',
       )
       .all(namespace, entityId)
-    return rows.map((r) => this.rowToAssertion(r))
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
+  }
+
+  /**
+   * Returns the merged supersession-chain leaves for an entity. Decision §5:
+   * - Leaves: same-namespace, same-entity rows whose id is not pointed at by any
+   *   other same-namespace, same-entity row's supersedes_id.
+   * - For each leaf, walk supersedes_id backward (constrained to same ns/entity).
+   * - Merge by id (de-dupe), sort by valid_from ASC, created_at ASC, id ASC.
+   *
+   * For an entity with no supersession structure, returns each entity row as
+   * its own one-element trajectory (indistinguishable from getEntityHistory()
+   * for that case, by design — trajectory follows replacement structure only).
+   */
+  getEntityTrajectory(namespace: string, entityId: string): Assertion[] {
+    // Recursive CTE: start at leaves (rows of this entity not referenced as a predecessor
+    // by any sibling), walk backward through supersedes_id within the same ns/entity.
+    const sql = `
+      WITH RECURSIVE
+        entity_rows(id) AS (
+          SELECT id FROM trl_assertions
+          WHERE namespace = ? AND entity_id IS NOT NULL AND entity_id = ?
+        ),
+        leaves(id) AS (
+          SELECT id FROM entity_rows
+          WHERE id NOT IN (
+            SELECT supersedes_id FROM trl_assertions
+            WHERE namespace = ? AND entity_id IS NOT NULL AND entity_id = ?
+              AND supersedes_id IS NOT NULL
+          )
+        ),
+        chain(id, depth) AS (
+          SELECT id, 0 FROM leaves
+          UNION
+          SELECT a.supersedes_id, c.depth + 1
+          FROM chain c
+          JOIN trl_assertions a ON a.id = c.id
+          WHERE a.supersedes_id IS NOT NULL
+            AND a.namespace = ?
+            AND a.entity_id IS NOT NULL AND a.entity_id = ?
+        )
+      SELECT DISTINCT a.*
+      FROM chain c
+      JOIN trl_assertions a ON a.id = c.id
+      WHERE a.namespace = ? AND a.entity_id IS NOT NULL AND a.entity_id = ?
+      ORDER BY a.valid_from ASC, a.created_at ASC, a.id ASC
+    `
+    const rows = this.db
+      .prepare<unknown[], AssertionRow>(sql)
+      .all(namespace, entityId, namespace, entityId, namespace, entityId, namespace, entityId)
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
+  }
+
+  /**
+   * Returns the supersession chain ending at the given assertion, oldest-first,
+   * INCLUDING the given assertion as the last element. Used by retrieval Step 7
+   * (which slices off the last element to get "prior versions only" per spec wording).
+   */
+  getSupersessionChain(assertionId: string): Assertion[] {
+    const sql = `
+      WITH RECURSIVE chain(id, depth) AS (
+        SELECT id, 0 FROM trl_assertions WHERE id = ?
+        UNION ALL
+        SELECT a.supersedes_id, c.depth + 1
+        FROM chain c
+        JOIN trl_assertions a ON a.id = c.id
+        WHERE a.supersedes_id IS NOT NULL
+      )
+      SELECT a.*, c.depth AS _depth
+      FROM chain c
+      JOIN trl_assertions a ON a.id = c.id
+      ORDER BY c.depth DESC
+    `
+    const rows = this.db.prepare<[string], AssertionRow>(sql).all(assertionId)
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
   }
 
   getStats(namespace: string): {
@@ -137,15 +239,7 @@ export class AssertionRepository {
     }
   }
 
-  private getByIdOrThrow(id: string): Assertion {
-    const row = this.db
-      .prepare<[string], AssertionRow>('SELECT * FROM trl_assertions WHERE id = ?')
-      .get(id)
-    if (!row) throw new Error(`Assertion "${id}" not found after insert`)
-    return this.rowToAssertion(row)
-  }
-
-  rowToAssertion(row: AssertionRow): Assertion {
+  rowToAssertion(row: AssertionRow, citations: AssertionCitation[]): Assertion {
     const extensions: Record<string, unknown> = {}
     for (const col of this.extensionColumns) {
       extensions[col] = row[col] ?? null
@@ -162,6 +256,7 @@ export class AssertionRepository {
       supersedesId: row.supersedes_id,
       entityId: row.entity_id,
       entityType: row.entity_type,
+      citations,
       createdAt: row.created_at,
       extensions,
     }

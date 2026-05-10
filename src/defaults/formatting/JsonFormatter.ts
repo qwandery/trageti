@@ -3,9 +3,26 @@ import type {
   RetrievedAssertion,
   ContextAssemblyOptions,
   FormattedContext,
+  Assertion,
+  AssertionCitation,
 } from '../../domain/types.js'
 
 const DEFAULT_TOKENS_PER_CHAR = 0.25
+
+interface AssertionPayload {
+  id: string
+  type: string
+  content: string
+  validFrom: number
+  validUntil: number | null
+  confidence: number
+  entityId: string | null
+  entityType: string | null
+  sourceEpisodeId: string
+  citations: AssertionCitation[]
+  score?: number
+  supersessionChain?: AssertionPayload[]
+}
 
 export class JsonFormatter implements ContextFormatter {
   private readonly tokensPerChar: number
@@ -21,8 +38,7 @@ export class JsonFormatter implements ContextFormatter {
     let truncated = false
 
     for (const assertion of assertions) {
-      // Estimate tokens for this item before adding
-      const itemJson = JSON.stringify(this.toPayload(assertion))
+      const itemJson = JSON.stringify(this.toRetrievedPayload(assertion))
       const itemTokens = Math.ceil(itemJson.length * this.tokensPerChar)
       if (tokenEstimate + itemTokens > budget) {
         truncated = true
@@ -33,7 +49,7 @@ export class JsonFormatter implements ContextFormatter {
     }
 
     const text = JSON.stringify(
-      included.map((a) => this.toPayload(a)),
+      included.map((a) => this.toRetrievedPayload(a)),
       null,
       2,
     )
@@ -46,7 +62,18 @@ export class JsonFormatter implements ContextFormatter {
     }
   }
 
-  private toPayload(assertion: RetrievedAssertion): object {
+  private toRetrievedPayload(assertion: RetrievedAssertion): AssertionPayload {
+    const payload: AssertionPayload = {
+      ...this.toAssertionPayload(assertion),
+      score: assertion.score,
+    }
+    if (assertion.supersessionChain !== undefined) {
+      payload.supersessionChain = assertion.supersessionChain.map((a) => this.toAssertionPayload(a))
+    }
+    return payload
+  }
+
+  private toAssertionPayload(assertion: Assertion): AssertionPayload {
     return {
       id: assertion.id,
       type: assertion.type,
@@ -57,7 +84,7 @@ export class JsonFormatter implements ContextFormatter {
       entityId: assertion.entityId,
       entityType: assertion.entityType,
       sourceEpisodeId: assertion.sourceEpisodeId,
-      score: assertion.score,
+      citations: assertion.citations,
     }
   }
 }

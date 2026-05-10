@@ -3,6 +3,7 @@ import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { loadScenario } from '../fixtures/scenario.js'
 import { JsonFormatter } from '../../src/defaults/formatting/JsonFormatter.js'
+import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'e2e-ns'
 const DIM = 4
@@ -129,8 +130,8 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
 
     store1.writeEpisode({ id: 'ep-ns1', namespace: ns1, position: 1, occurredAt: '', type: 'doc', content: 'c' })
     store1.writeEpisode({ id: 'ep-ns2', namespace: ns2, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store1.writeAssertion({ id: 'a-ns1', namespace: ns1, type: 'fact', content: 'NS1 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns1', supersedesId: null, entityId: null, entityType: null })
-    store1.writeAssertion({ id: 'a-ns2', namespace: ns2, type: 'fact', content: 'NS2 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns2', supersedesId: null, entityId: null, entityType: null })
+    store1.writeAssertion({ id: 'a-ns1', namespace: ns1, type: 'fact', content: 'NS1 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns1', 'ep-ns1')] })
+    store1.writeAssertion({ id: 'a-ns2', namespace: ns2, type: 'fact', content: 'NS2 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns2', 'ep-ns2')] })
 
     const ns1Assertions = store1.getAssertions(ns1)
     const ns2Assertions = store1.getAssertions(ns2)
@@ -141,10 +142,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1')
   })
 
-  it('schema version is 1 after init', () => {
+  it('schema version is 2 after init (v002 = citations)', () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     store.init()
-    expect(store.getCurrentSchemaVersion()).toBe(1)
+    expect(store.getCurrentSchemaVersion()).toBe(2)
   })
 })

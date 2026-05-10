@@ -31,17 +31,58 @@ export interface Assertion {
   confidence: number
   /** FK → episodes.id */
   sourceEpisodeId: string
-  /** FK → assertions.id — the assertion this replaces. */
+  /** FK → assertions.id — the assertion this replaces (strictly new → old). */
   supersedesId: string | null
   /** Optional: groups assertions about the same entity. */
   entityId: string | null
   /** Optional: caller-defined entity classification. */
   entityType: string | null
+  /** Required, always populated on read. At least one citation per spec v0.2. */
+  citations: AssertionCitation[]
   /** ISO 8601 — when the system recorded this assertion. */
   createdAt: string
   /** Caller-registered extended columns, populated at query time. */
   extensions: Record<string, unknown>
 }
+
+/**
+ * Source reference for an assertion. Every assertion must have at least one citation.
+ * Multiple citations are permitted for assertions synthesised from more than one passage.
+ */
+export interface AssertionCitation {
+  id: string
+  /** FK → trl_assertions.id */
+  assertionId: string
+  /** FK → trl_episodes.id — required; validated at write time. Must share the assertion's namespace. */
+  episodeId: string
+  /** Required, non-empty. Caller-defined reference string; format opaque to the library. */
+  sourceRef: string
+  /** Verbatim text from the source passage. Strongly recommended; null permitted but warned on write. */
+  excerpt: string | null
+  /** Optional positional anchor within the source; format caller-defined. */
+  excerptStart?: string
+  /** Optional positional anchor within the source; format caller-defined. */
+  excerptEnd?: string
+  /** Caller-defined additional citation data; stored as JSON. */
+  metadata?: Record<string, unknown>
+  /** ISO 8601 */
+  createdAt: string
+}
+
+/**
+ * Inline citation shape accepted by writeAssertion(). Caller supplies id; assertionId
+ * and createdAt are filled in by the store at insert time.
+ */
+export type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>
+
+/**
+ * Assertion shape accepted by writeAssertion(). createdAt and extensions are filled
+ * in by the store; citations are inline NewAssertionCitation objects.
+ */
+export type NewAssertion =
+  Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
+    citations: NewAssertionCitation[]
+  }
 
 export interface AssertionLink {
   id: string
@@ -68,6 +109,8 @@ export interface NamespaceConfig {
 
 // ─── Retrieval ────────────────────────────────────────────────────────────────
 
+export type RetrievalMode = 'snapshot' | 'trajectory'
+
 export interface RetrievalQuery {
   namespace: string
   queryEmbedding: Float32Array | number[]
@@ -90,19 +133,32 @@ export interface RetrievalQuery {
   maxDepth?: number
   /** Default: 10 */
   limit?: number
+  /** Default: 'snapshot'. Trajectory mode attaches each result's supersession chain. */
+  mode?: RetrievalMode
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
 }
 
 export interface RetrievedAssertion extends Assertion {
   score: number
-  /** Raw scorer inputs; always populated for transparency. */
+  /**
+   * Raw scorer inputs; always populated for transparency.
+   * bm25Score is the raw FTS5 BM25 value (negative; more-negative = better) —
+   * v0.2 changed this from a normalised [0, 1] value (BREAKING for custom scorers).
+   */
   scoreComponents: {
     semanticDistance: number
     bm25Score: number | null
     position: number
   }
   linkedAssertions?: Assertion[]
+  /**
+   * Populated only when query.mode === 'trajectory'. Contains all *prior* versions
+   * of this assertion in chronological order (oldest first), each with full citations.
+   * Empty array means trajectory mode was requested but the result has no predecessors.
+   * Absent (undefined) when mode is 'snapshot' or omitted.
+   */
+  supersessionChain?: Assertion[]
 }
 
 export interface ScoredCandidate {
@@ -134,6 +190,8 @@ export interface ContextAssemblyOptions {
   tokenBudget: number
   expandLinks?: boolean
   maxDepth?: number
+  /** Default: 'snapshot'. Trajectory mode propagates to retrieve(). */
+  mode?: RetrievalMode
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
   /** Per-call formatter override. */
@@ -195,6 +253,14 @@ export interface GraphQueryAdapter {
 
 export interface RetrievalScorer {
   score(candidate: ScoredCandidate, context: ScoringContext): number
+  /**
+   * Optional batch scoring hook. When implemented, the retrieval pipeline calls this
+   * instead of per-candidate score(). Use for scorers that need cross-candidate
+   * normalisation (e.g., DefaultScorer's BM25 min-max normalisation).
+   * Must return an array whose length equals candidates.length; otherwise the
+   * pipeline throws.
+   */
+  scoreBatch?(candidates: ScoredCandidate[], context: ScoringContext): number[]
 }
 
 export interface ContextFormatter {
@@ -202,7 +268,7 @@ export interface ContextFormatter {
 }
 
 export interface AssertionValidator {
-  validate(assertion: Omit<Assertion, 'createdAt' | 'extensions'>): ValidationResult
+  validate(assertion: NewAssertion): ValidationResult
 }
 
 export interface ConnectionVerifier {

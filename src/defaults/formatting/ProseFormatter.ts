@@ -3,9 +3,17 @@ import type {
   RetrievedAssertion,
   ContextAssemblyOptions,
   FormattedContext,
+  AssertionCitation,
 } from '../../domain/types.js'
 
 const DEFAULT_TOKENS_PER_CHAR = 0.25
+
+/** Compact citation marker, e.g. `[ep-1#chunk:3, ep-2#0:08:14-0:12:30]`. */
+function citationMarker(citations: AssertionCitation[]): string {
+  if (citations.length === 0) return ''
+  const parts = citations.map((c) => `${c.episodeId}#${c.sourceRef}`)
+  return ` [${parts.join(', ')}]`
+}
 
 export class ProseFormatter implements ContextFormatter {
   private readonly tokensPerChar: number
@@ -44,7 +52,7 @@ export class ProseFormatter implements ContextFormatter {
   private formatOne(assertion: RetrievedAssertion): string {
     const parts = [assertion.content]
     if (assertion.entityType) parts.push(`[${assertion.entityType}]`)
-    parts.push(`(source: ${assertion.sourceEpisodeId}, pos: ${assertion.validFrom})`)
-    return parts.join(' ')
+    parts.push(`(source: ${assertion.sourceEpisodeId}, pos: ${String(assertion.validFrom)})`)
+    return parts.join(' ') + citationMarker(assertion.citations)
   }
 }

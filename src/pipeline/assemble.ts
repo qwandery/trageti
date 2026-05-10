@@ -19,6 +19,7 @@ export function assembleContext(store: TemporalStore, options: AssembleOptions):
     ...(options.queryText !== undefined && { queryText: options.queryText }),
     ...(options.expandLinks !== undefined && { expandLinks: options.expandLinks }),
     ...(options.maxDepth !== undefined && { maxDepth: options.maxDepth }),
+    ...(options.mode !== undefined && { mode: options.mode }),
     ...(options.scorer !== undefined && { scorer: options.scorer }),
     ...(options.middleware !== undefined && { middleware: options.middleware }),
   }

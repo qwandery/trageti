@@ -3,9 +3,16 @@ import type {
   RetrievedAssertion,
   ContextAssemblyOptions,
   FormattedContext,
+  AssertionCitation,
 } from '../../domain/types.js'
 
 const DEFAULT_TOKENS_PER_CHAR = 0.25
+
+function citationMarker(citations: AssertionCitation[]): string {
+  if (citations.length === 0) return ''
+  const parts = citations.map((c) => `${c.episodeId}#${c.sourceRef}`)
+  return ` [${parts.join(', ')}]`
+}
 
 export class StructuredFormatter implements ContextFormatter {
   private readonly tokensPerChar: number
@@ -41,7 +48,7 @@ export class StructuredFormatter implements ContextFormatter {
 
       const bullets: string[] = []
       for (const item of items) {
-        const bullet = `- [pos ${item.validFrom}] ${item.content}`
+        const bullet = `- [pos ${String(item.validFrom)}] ${item.content}${citationMarker(item.citations)}`
         const bulletTokens = Math.ceil(bullet.length * this.tokensPerChar)
         if (tokenEstimate + headerTokens + bulletTokens > budget) { truncated = true; break }
         bullets.push(bullet)

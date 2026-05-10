@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { Database } from 'better-sqlite3'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
-import type { RetrievedAssertion, ScoredCandidate, ScoringContext } from '../../src/domain/types.js'
+import type { RetrievalScorer, RetrievedAssertion, ScoredCandidate, ScoringContext } from '../../src/domain/types.js'
+import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'test-ns'
 const DIM = 4
@@ -25,9 +26,9 @@ describe('TemporalStore — semantic retrieval', () => {
     store.writeEpisode({ id: 'ep-5', namespace: NS, position: 5, occurredAt: '2024-01-05T00:00:00Z', type: 'doc', content: 'ep5' })
     store.writeEpisode({ id: 'ep-10', namespace: NS, position: 10, occurredAt: '2024-01-10T00:00:00Z', type: 'doc', content: 'ep10' })
 
-    store.writeAssertion({ id: 'a-early', namespace: NS, type: 'fact', content: 'Alpha is the first item.', validFrom: 1, validUntil: null, confidence: 0.9, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
-    store.writeAssertion({ id: 'a-mid', namespace: NS, type: 'fact', content: 'Beta is the second item.', validFrom: 5, validUntil: null, confidence: 0.85, sourceEpisodeId: 'ep-5', supersedesId: null, entityId: null, entityType: null })
-    store.writeAssertion({ id: 'a-future', namespace: NS, type: 'fact', content: 'Gamma is a future item.', validFrom: 10, validUntil: null, confidence: 0.8, sourceEpisodeId: 'ep-10', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-early', namespace: NS, type: 'fact', content: 'Alpha is the first item.', validFrom: 1, validUntil: null, confidence: 0.9, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-early', 'ep-1')] })
+    store.writeAssertion({ id: 'a-mid', namespace: NS, type: 'fact', content: 'Beta is the second item.', validFrom: 5, validUntil: null, confidence: 0.85, sourceEpisodeId: 'ep-5', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-mid', 'ep-5')] })
+    store.writeAssertion({ id: 'a-future', namespace: NS, type: 'fact', content: 'Gamma is a future item.', validFrom: 10, validUntil: null, confidence: 0.8, sourceEpisodeId: 'ep-10', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-future', 'ep-10')] })
 
     store.indexAssertion('a-early', VEC_A)
     store.indexAssertion('a-mid', VEC_B)
@@ -150,7 +151,7 @@ describe('TemporalStore — retrieve returns typed RetrievedAssertion', () => {
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     store.init()
     store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
     store.indexAssertion('a-1', VEC_A)
 
     const results: RetrievedAssertion[] = store.retrieve({
@@ -165,5 +166,34 @@ describe('TemporalStore — retrieve returns typed RetrievedAssertion', () => {
     expect(r.id).toBe('a-1')
     expect(r.content).toBe('Test.')
     expect(r.scoreComponents).toBeDefined()
+  })
+})
+
+describe('TemporalStore — scoreBatch contract', () => {
+  it('throws when scoreBatch returns wrong-length array', () => {
+    const db = openTestDb()
+    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
+    store.init()
+    store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
+    store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'one', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
+    store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'two', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-2', 'ep-2')] })
+    store.indexAssertion('a-1', VEC_A)
+    store.indexAssertion('a-2', new Float32Array([0.9, 0.44, 0, 0]))
+
+    const broken: RetrievalScorer = {
+      score: () => 0,
+      scoreBatch: (candidates) => candidates.slice(0, 1).map(() => 0.5), // wrong length
+    }
+
+    expect(() =>
+      store.retrieve({
+        namespace: NS,
+        queryEmbedding: VEC_A,
+        temporalAnchor: 5,
+        limit: 5,
+        scorer: broken,
+      }),
+    ).toThrow(/scoreBatch returned/)
   })
 })

@@ -57,7 +57,8 @@ store.writeEpisode({
   content: 'Source document excerpt...',
 })
 
-// Write an assertion derived from the episode
+// Write an assertion derived from the episode.
+// v0.2: every assertion must carry at least one citation.
 store.writeAssertion({
   id: 'a-1',
   namespace: 'my-namespace',
@@ -70,6 +71,14 @@ store.writeAssertion({
   supersedesId: null,
   entityId: null,
   entityType: null,
+  citations: [
+    {
+      id: 'cit-1',
+      episodeId: 'ep-1',
+      sourceRef: 'chunk:1',
+      excerpt: 'Source document excerpt mentioning SQLite for storage...',
+    },
+  ],
 })
 
 // Index with your embedding model
@@ -139,10 +148,108 @@ const results = store.retrieve({
   entityTypes: ['concept'],         // optional filter
   expandLinks: true,                // attach graph neighbours
   maxDepth: 2,
+  mode: 'snapshot',                 // or 'trajectory' — see below
 })
 ```
 
 Each result includes `score` and `scoreComponents` (semanticDistance, bm25Score, position).
+
+### Trajectory mode
+
+`mode: 'trajectory'` adds the supersession history of each result:
+
+```typescript
+const results = store.retrieve({
+  namespace: 'my-namespace',
+  queryEmbedding: embedding,
+  temporalAnchor: 10,
+  mode: 'trajectory',
+})
+
+for (const r of results) {
+  // r.supersessionChain is always present in trajectory mode.
+  // It contains all *prior* versions of r in chronological order
+  // (oldest first), each with its own citations. Empty array means
+  // r has no predecessors. The property is absent in snapshot mode.
+  console.log(r.supersessionChain.map((a) => a.id))
+}
+```
+
+Trajectory mode follows `supersedes_id` chains only — it does **not**
+traverse `trl_links`. For accumulation/layering relationships use
+`expandLinks: true` together with `getEntityHistory()`.
+
+Quick reference for the four "history-shaped" calls:
+
+- `mode: 'trajectory'` — replacement history of *retrieved* results.
+- `expandLinks: true` — assertions related to a result via `trl_links`.
+- `getEntityHistory(ns, entityId)` — every assertion ever written for an entity.
+- `getEntityTrajectory(ns, entityId)` — supersession chain(s) for an entity (replacement only — does not include `deepens` / `contextualizes` link targets).
+
+### Choosing supersession vs links
+
+When new information arrives about an entity, decide first whether it
+*replaces* an earlier assertion or *layers on top of* it:
+
+- **Replacement** — a relationship status flips, a goal is met, a contact
+  arrangement ends. Write the new assertion with `supersedesId: <prior>` and
+  `validFrom: <new position>`. The library atomically closes the predecessor's
+  `valid_until = new.validFrom` in the same transaction. The predecessor
+  immediately drops out of snapshot retrieval.
+- **Accumulation** — a theme deepens, a contradictory belief coexists, a new
+  measurement extends a series. Write the new assertion with
+  `supersedesId: null`. Both assertions remain valid. Connect them with
+  `writeLink({ linkType: 'deepens' | 'qualifies' | 'contextualizes' | 'contradicts' | 'measures' })`.
+
+```typescript
+// Layering: connect related assertions without superseding
+store.writeLink({
+  id: 'l-1',
+  namespace: 'my-namespace',
+  fromId: 'a-2',          // the new, deeper observation
+  toId: 'a-1',            // the earlier observation it deepens
+  linkType: 'deepens',
+  validFrom: 11,
+  validUntil: null,
+  sourceEpisodeId: 'ep-11',
+})
+```
+
+Setting `supersedesId` is a strong replacement signal — when in doubt, prefer
+`writeLink` and keep both assertions valid.
+
+## Citations
+
+Every assertion must carry at least one citation. Citations are the source
+references that make retrieval results traceable. The full `AssertionCitation`
+shape is defined in [_docs/specs/trageti-spec-v0.2.md](_docs/specs/trageti-spec-v0.2.md).
+
+```typescript
+store.writeAssertion({
+  id: 'a-1',
+  // ...other fields...
+  citations: [
+    {
+      id: 'cit-1',
+      episodeId: 'ep-1',
+      sourceRef: 'chunk:3',                  // caller-defined; opaque to library
+      excerpt: 'verbatim source text',       // strongly recommended; null permitted
+      excerptStart: '0:08:14',               // optional positional anchors
+      excerptEnd: '0:08:51',
+      metadata: { confidence: 0.95 },        // optional caller data
+    },
+  ],
+})
+```
+
+If you discover a citation after the assertion has been written, add it via
+`store.writeCitation({ ... })`. Citations on every read path (`getById`,
+`getAssertions`, `retrieve`, `getEntityHistory`, etc.) are always populated for
+v0.2-written assertions; assertions that pre-date v002 read with `citations: []`.
+
+`null` excerpts are permitted but emit a `CITATION_EXCERPT_MISSING` warning at
+write time. Replace the validator chain to suppress the warning if your domain
+genuinely lacks verbatim excerpts.
 
 ## Context assembly
 
@@ -216,12 +323,17 @@ const store = new TemporalStore(db, {
   embeddingDimension: 1536,
   schemaExtensions: {
     columns: [
-      { table: 'trl_assertions', columnName: 'source_url', columnDef: 'TEXT' },
+      { table: 'trl_assertions', column: 'source_url', definition: 'TEXT' },
     ],
     tables: [
       {
         tableName: 'my_custom_metadata',
-        columns: ['assertion_id TEXT NOT NULL REFERENCES trl_assertions(id)', 'tag TEXT'],
+        createSQL: `
+          CREATE TABLE IF NOT EXISTS my_custom_metadata (
+            assertion_id TEXT NOT NULL REFERENCES trl_assertions(id),
+            tag          TEXT
+          )
+        `,
         referencesNamespace: false,
       },
     ],
@@ -280,12 +392,51 @@ const store = new TemporalStore(db, {
 })
 ```
 
+### `scoreBatch` (optional)
+
+For scorers that need cross-candidate normalisation, implement the optional
+`scoreBatch` hook. The retrieval pipeline calls it instead of per-candidate
+`score()` when present, and validates that the returned array length equals
+the candidate count (otherwise throws):
+
+```typescript
+class BatchScorer implements RetrievalScorer {
+  score(c: ScoredCandidate, ctx: ScoringContext): number {
+    return 1 - c.semanticDistance
+  }
+  scoreBatch(candidates: ScoredCandidate[], ctx: ScoringContext): number[] {
+    // ... cross-candidate normalisation here ...
+    return candidates.map((c) => this.score(c, ctx))
+  }
+}
+```
+
+### Updating v0.1 custom scorers
+
+v0.2 changed the BM25 contract: `ScoredCandidate.bm25Score` now carries the
+**raw FTS5 BM25** value (negative; more-negative = better) instead of the
+normalised `[0, 1]` value v0.1 supplied. Scorers that consumed the previous
+normalised value must be updated:
+
+```typescript
+// v0.1 (pre-normalised, higher = better):
+const keywordSignal = candidate.bm25Score ?? 0
+
+// v0.2 (raw FTS5, negative; more-negative = better):
+// Per-candidate compression — works without cross-candidate context:
+const raw = candidate.bm25Score
+const keywordSignal = raw === null ? 0 : 1 / (1 + Math.abs(raw))
+// For cross-candidate min-max normalisation, implement scoreBatch.
+```
+
+`DefaultScorer.scoreBatch` is a worked reference implementation.
+
 ## Migrations
 
 `trageti` manages its own schema via an internal migration runner. The schema version is stored in `trl_schema_version`. Migrations are applied automatically on `init()` and are idempotent.
 
 ```typescript
-const version = store.getCurrentSchemaVersion()  // 1 after first init
+const version = store.getCurrentSchemaVersion()  // 2 after first init (v0.2)
 ```
 
 ## Reindexing

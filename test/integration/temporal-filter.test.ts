@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { NamespaceNotInitializedError, ValidationError } from '../../src/errors/index.js'
+import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'test-ns'
 const DIM = 4
@@ -62,7 +63,7 @@ describe('TemporalStore — write and read', () => {
   })
 
   it('writes and reads an assertion', () => {
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test claim.', validFrom: 1, validUntil: null, confidence: 0.9, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test claim.', validFrom: 1, validUntil: null, confidence: 0.9, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
     const assertions = store.getAssertions(NS)
     expect(assertions.length).toBe(1)
     expect(assertions[0]?.content).toBe('Test claim.')
@@ -70,20 +71,20 @@ describe('TemporalStore — write and read', () => {
 
   it('rejects assertion with validUntil <= validFrom', () => {
     expect(() =>
-      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 5, validUntil: 3, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null }),
+      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 5, validUntil: 3, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-bad', 'ep-1')] }),
     ).toThrow(ValidationError)
   })
 
   it('rejects assertion referencing non-existent episode', () => {
     expect(() =>
-      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'no-such-ep', supersedesId: null, entityId: null, entityType: null }),
+      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'no-such-ep', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-bad', 'ep-1')] }),
     ).toThrow(ValidationError)
   })
 
   it('getAssertions with validAt only returns assertions valid at that position', () => {
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Valid at pos 1.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Valid at pos 1.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
     store.writeEpisode({ id: 'ep-10', namespace: NS, position: 10, occurredAt: '2024-01-10T00:00:00Z', type: 'doc', content: 'ep10' })
-    store.writeAssertion({ id: 'a-10', namespace: NS, type: 'fact', content: 'Valid from pos 10.', validFrom: 10, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-10', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-10', namespace: NS, type: 'fact', content: 'Valid from pos 10.', validFrom: 10, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-10', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-10', 'ep-10')] })
 
     const atPos5 = store.getAssertions(NS, { validAt: 5 })
     expect(atPos5.map((a) => a.id)).toContain('a-1')
@@ -118,7 +119,7 @@ describe('TemporalStore — stats', () => {
     store = makeStore(db)
     store.init()
     store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c1', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null })
+    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c1', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
   })
 
   it('getStats returns correct counts', () => {

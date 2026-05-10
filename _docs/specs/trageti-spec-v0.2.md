@@ -1,10 +1,64 @@
 # trageti
-## Package Specification v0.1
+## Package Specification v0.2
 
-**Status:** Design specification — not yet implemented  
-**Date:** April 2026  
+**Status:** Design specification — initial prototype exists; v0.2 introduces breaking changes  
+**Date:** May 2026  
 **License intent:** MIT  
 **Target runtime:** Node.js 18+ / TypeScript 5+
+
+---
+
+## Specification Changelog
+
+This changelog tracks changes to the *specification*, not to the implementation. It is intended to give implementers a precise account of what has changed between versions so that an existing prototype can be updated without re-reading the full document.
+
+---
+
+### v0.2 — May 2026
+
+**⚠️ Breaking changes are marked. All other changes are additive.**
+
+#### Citations — NEW, BREAKING
+
+Every assertion now requires at least one citation. This is a breaking change to `writeAssertion()`, the `Assertion` interface, the database schema, and the default validator.
+
+**What changed:**
+- **New table: `trl_citations`** — stores one or more citation records per assertion. See Schema section.
+- **New interface: `AssertionCitation`** — see Core Concepts section.
+- **`Assertion` interface** — gains a `citations: AssertionCitation[]` field. Always populated on read; required on write.
+- **`writeAssertion()`** — now requires a `citations` array with at least one entry. Calls without citations will fail validation. ⚠️ BREAKING
+- **`DefaultAssertionValidator`** — now enforces: at least one citation present; each citation's `episodeId` exists in the namespace; warns (does not error) if any citation has a null `excerpt`.
+- **`RetrievedAssertion`** — citations are always included in retrieval results. There is no opt-out. Every retrieval response carries the full citation array for every returned assertion.
+- **`ContextFormatter` interface** — receives citations as part of `RetrievedAssertion`; the default `ProseFormatter` includes compact citation markers in formatted output.
+- **New index: `trl_idx_citations_assertion`** on `trl_citations(assertion_id)`.
+
+**Migration note for existing prototype data:** Existing assertions in the prototype have no citations. The migration adds the `trl_citations` table. Existing assertion rows remain valid but will return empty `citations: []` arrays until backfilled. The validator only enforces citation presence on *new* writes — it does not retroactively invalidate existing rows.
+
+---
+
+#### Trajectory Retrieval Mode — NEW, ADDITIVE
+
+`assembleContext()` and `retrieve()` gain a `mode` parameter controlling whether retrieval returns a snapshot (current state at a position) or a trajectory (full evolution history of matched entities).
+
+**What changed:**
+- **New type: `RetrievalMode`** — `'snapshot' | 'trajectory'`. Default: `'snapshot'`. Existing behaviour is preserved exactly when mode is omitted or set to `'snapshot'`. ⚠️ Callers relying on the existing `assembleContext()` signature should add `mode: 'snapshot'` explicitly to document intent.
+- **`RetrievalQuery`** — gains `mode?: RetrievalMode`.
+- **`ContextAssemblyOptions`** — gains `mode?: RetrievalMode`.
+- **`RetrievedAssertion`** — gains `supersessionChain?: Assertion[]`, populated only when `mode: 'trajectory'`. Contains all prior versions of the assertion in chronological order, oldest first, including their citations.
+- **New method: `getEntityTrajectory()`** — see API section. Retrieves the full supersession chain for a specific entity by ID, across all positions. Distinct from `getEntityHistory()` (which returns all assertions for an entity regardless of supersession relationships) — trajectory follows the supersession chain specifically.
+- **Retrieval implementation** — trajectory mode adds a Step 7 after graph expansion: for each top-ranked result, fetch its full supersession chain via the `supersedesId` FK chain. See Retrieval Implementation section.
+
+---
+
+#### `getEntityHistory()` clarification — ADDITIVE (documentation only)
+
+No code change. Added explicit documentation distinguishing `getEntityHistory()` (lookup by known entity ID, returns all assertions for that entity including those not in a supersession chain) from `getEntityTrajectory()` (follows the supersession chain specifically) and from trajectory mode in `assembleContext()` (semantic search first, then trajectory expansion for matched results). See Utility API section.
+
+---
+
+### v0.1 — April 2026
+
+Initial specification. Covers: core concepts (Episode, Assertion, AssertionLink), extension interfaces (GraphQueryAdapter, RetrievalScorer, ContextFormatter, AssertionValidator, ConnectionVerifier, RetrievalMiddleware, FTS5Tokenizer, SchemaExtensions), namespace configuration, schema and migrations, full API surface, retrieval pipeline (snapshot mode only), package structure.
 
 ---
 
@@ -81,6 +135,7 @@ interface Assertion {
   supersedesId: string | null  // FK → assertions.id — the assertion this replaces
   entityId: string | null      // optional: groups assertions about the same entity
   entityType: string | null    // optional: caller-defined entity classification
+  citations: AssertionCitation[]  // required; at least one; always populated on read
   createdAt: string       // ISO 8601 — when the system recorded this assertion
 }
 ```
@@ -121,13 +176,69 @@ interface AssertionLink {
 
 // Recommended starting vocabulary — not enforced by the library
 const RecommendedLinkTypes = {
-  RELATED:      'related',       // general relationship
-  GENERATIVE:   'generative',    // A gave rise to B
-  INHIBITORY:   'inhibitory',    // A blocks or limits B
-  SEQUENTIAL:   'sequential',    // B emerged after A resolved
-  SUPERSEDES:   'supersedes',    // B explicitly replaces A
+  // Structural / sequential — about position in a sequence
+  RELATED:        'related',          // general relationship
+  GENERATIVE:     'generative',       // A gave rise to B
+  INHIBITORY:     'inhibitory',       // A blocks or limits B
+  SEQUENTIAL:     'sequential',       // B emerged after A resolved
+  SUPERSEDES:     'supersedes',       // B explicitly replaces A
+  // Accumulation — about how B layers onto A without replacing it
+  DEEPENS:        'deepens',          // B adds nuance/dimension to A; both remain valid
+  CONTRADICTS:    'contradicts',      // A and B in tension; coexist; neither supersedes
+  CONTEXTUALIZES: 'contextualizes',   // B changes how A should be interpreted
+  QUALIFIES:      'qualifies',        // B limits or conditions A
+  MEASURES:       'measures',         // B is a data point in a series including A
 } as const
 ```
+
+**Replacement vs. accumulation.** The accumulation family was added in v0.2
+because supersession is the wrong model for nuanced layering. Setting
+`supersedesId` is a *strong replacement signal* — it removes the predecessor
+from snapshot retrieval immediately. For information that *adds to* or
+*deepens* an earlier assertion rather than replacing it, write a new assertion
+with `supersedesId: null` and connect it to the prior assertion via
+`writeLink` with one of the accumulation link types. Both assertions remain
+valid; both appear in snapshots; the link records the relationship. The
+library treats `linkType` as an opaque string — this vocabulary is a
+recommendation, not enforcement.
+
+### AssertionCitation
+
+An **assertion citation** is the source reference for an assertion — a record of exactly where in the source material the assertion came from. Every assertion must have at least one citation. Multiple citations are permitted for assertions synthesised from more than one source passage.
+
+Citations are the mechanism by which retrieval results are always traceable. Every `RetrievedAssertion` carries its full citation array. There is no retrieval path that returns assertions without citations.
+
+```typescript
+interface AssertionCitation {
+  id: string
+  assertionId: string     // FK → trl_assertions.id
+  episodeId: string       // FK → trl_episodes.id — required; validated at write time
+  sourceRef: string       // required, non-empty — caller-defined reference string
+                          // format is opaque to the library; examples:
+                          //   "chunk:3"
+                          //   "0:08:14-0:12:30"
+                          //   "page:47:paragraph:2"
+                          //   "commit:a3f9c2:lines:14-28"
+                          //   "section:introduction"
+  excerpt: string | null  // verbatim text from the source passage
+                          // strongly recommended; null permitted but warned on write
+  excerptStart?: string   // optional positional anchor within the source
+  excerptEnd?: string     // optional positional anchor within the source
+                          // excerptStart/End format is caller-defined and opaque to library
+  metadata?: Record<string, unknown>  // any additional caller-defined citation data
+  createdAt: string
+}
+```
+
+**`episodeId`** is required and validated — the referenced episode must exist in the same namespace. This is the hard provenance link between an assertion and its source event.
+
+**`sourceRef`** is required and opaque. The library stores it and returns it but never interprets it. The format is entirely the caller's responsibility. Callers should choose a format that is stable, human-readable, and sufficient for a human to locate the original passage.
+
+**`excerpt`** is strongly recommended. A null excerpt is permitted — the library emits a warning at write time rather than an error, to accommodate domains where verbatim excerpts are unavailable or impractical. Callers who need to suppress this warning may do so via a custom `AssertionValidator` that omits the excerpt check.
+
+**`excerptStart` / `excerptEnd`** are optional positional anchors within the source, allowing UI navigation directly to the cited passage (e.g., a timestamp range in an audio transcript, a byte offset in a document). Format is caller-defined and opaque to the library.
+
+**Citations in retrieval results.** All retrieval methods that return `RetrievedAssertion` or `Assertion` objects include the full `citations` array. This is not configurable — citations are always present. The rationale: an assertion without its source reference is not useful for any downstream task that requires grounding, auditability, or citation injection into prompts.
 
 ---
 
@@ -292,6 +403,10 @@ interface ValidationResult {
 //   - validUntil is null or > validFrom
 //   - confidence is in [0.0, 1.0]
 //   - sourceEpisodeId references an existing episode in the namespace
+//   - citations array is present and contains at least one entry        ← v0.2
+//   - each citation's episodeId references an existing episode          ← v0.2
+//   - each citation's sourceRef is a non-empty string                   ← v0.2
+//   - warns (does not error) if any citation has a null excerpt         ← v0.2
 class DefaultAssertionValidator implements AssertionValidator { ... }
 ```
 
@@ -561,6 +676,19 @@ CREATE TABLE IF NOT EXISTS trl_links (
   CHECK (valid_until IS NULL OR valid_until > valid_from)
 );
 
+-- Citation records (source provenance for assertions)
+CREATE TABLE IF NOT EXISTS trl_citations (
+  id              TEXT PRIMARY KEY,
+  assertion_id    TEXT NOT NULL REFERENCES trl_assertions(id),
+  episode_id      TEXT NOT NULL REFERENCES trl_episodes(id),
+  source_ref      TEXT NOT NULL,    -- caller-defined reference; opaque to library
+  excerpt         TEXT,             -- verbatim source text; strongly recommended
+  excerpt_start   TEXT,             -- optional positional anchor; caller-defined format
+  excerpt_end     TEXT,             -- optional positional anchor; caller-defined format
+  metadata        TEXT,             -- JSON; caller-defined additional data
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Vector index — one table per namespace (dimension varies)
 -- Named trl_embeddings_{namespace} to support per-namespace dimensions
 -- Created dynamically by TemporalStore.init() for each namespace
@@ -594,6 +722,8 @@ CREATE INDEX IF NOT EXISTS trl_idx_links_to
   ON trl_links(namespace, to_id, valid_until);
 CREATE INDEX IF NOT EXISTS trl_idx_episodes_ns_pos
   ON trl_episodes(namespace, position);
+CREATE INDEX IF NOT EXISTS trl_idx_citations_assertion
+  ON trl_citations(assertion_id);
 ```
 
 **Note on REAL for position columns.** Position values are stored as REAL (64-bit float) to support fractional positions (e.g., 7.5 to represent an event between position 7 and position 8). Callers who use only integer positions are unaffected. Integer values are represented exactly in IEEE 754 double precision up to 2^53.
@@ -666,7 +796,12 @@ store.initNamespace(namespace: string, config: Partial<NamespaceConfig>): void
 store.writeEpisode(episode: Omit<Episode, 'createdAt'>): Episode
 
 // Write an assertion — runs all registered validators before writing
+// citations is required: must contain at least one AssertionCitation (v0.2)
 store.writeAssertion(assertion: Omit<Assertion, 'createdAt'>): Assertion
+
+// Add an additional citation to an existing assertion
+// Use when a citation is discovered after the assertion was written
+store.writeCitation(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation
 
 // Mark an existing assertion as superseded
 store.supersedeAssertion(assertionId: string, options: {
@@ -714,9 +849,16 @@ interface RetrievalQuery {
   expandLinks?: boolean        // default false — one hop via GraphQueryAdapter
   maxDepth?: number            // used if expandLinks true; passed to GraphQueryAdapter
   limit?: number               // default 10
+  mode?: RetrievalMode         // 'snapshot' (default) | 'trajectory' (v0.2)
   scorer?: RetrievalScorer     // per-call scorer override
   middleware?: RetrievalMiddleware[]  // per-call middleware (appended to global list)
 }
+
+// v0.2 — retrieval modes
+type RetrievalMode = 'snapshot' | 'trajectory'
+// snapshot (default): returns assertions valid at temporalAnchor; current state only
+// trajectory: returns assertions valid at temporalAnchor, each with its full
+//   supersession chain attached — shows how understanding evolved to reach current state
 
 interface RetrievedAssertion extends Assertion {
   score: number
@@ -726,6 +868,9 @@ interface RetrievedAssertion extends Assertion {
     position: number
   }
   linkedAssertions?: Assertion[]
+  // citations is inherited from Assertion and always populated — never empty
+  // supersessionChain populated only when mode: 'trajectory' (v0.2)
+  supersessionChain?: Assertion[]  // full prior versions, oldest first, each with citations
 }
 
 store.retrieve(query: RetrievalQuery): RetrievedAssertion[]
@@ -744,6 +889,7 @@ interface ContextAssemblyOptions {
   maxDepth?: number
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
+  mode?: RetrievalMode           // 'snapshot' (default) | 'trajectory' (v0.2)
   formatter?: ContextFormatter   // per-call override
 }
 
@@ -807,8 +953,15 @@ store.getAssertions(namespace: string, options?: {
   includeSuperseded?: boolean
 }): Assertion[]
 
-// Full history for an entity including superseded assertions
+// All assertions for an entity — includes superseded, unrelated to supersession chain
+// Use when you want every assertion ever written for an entity, regardless of structure
 store.getEntityHistory(namespace: string, entityId: string): Assertion[]
+
+// Full supersession chain for an entity — follows supersedesId links specifically
+// Returns the ordered chain from the original assertion through to the current one
+// Distinct from getEntityHistory: trajectory follows the chain; history returns all records
+// Added v0.2
+store.getEntityTrajectory(namespace: string, entityId: string): Assertion[]
 
 // Episode by ID
 store.getEpisode(id: string): Episode | null
@@ -896,6 +1049,30 @@ Results sorted by score descending, truncated to `limit`. `scoreComponents` is a
 
 Delegated to the registered `GraphQueryAdapter`. One or more hops depending on `maxDepth`. Linked assertions are attached to their parent result and do not consume ranking slots.
 
+### Step 7: Trajectory Expansion (if mode is 'trajectory') — v0.2
+
+For each result in the ranked set, follow the `supersedes_id` FK chain backward to collect all prior versions of that assertion. Each prior version is fetched with its citations. The chain is assembled oldest-first and attached as `supersessionChain` on the `RetrievedAssertion`. Prior versions do not consume ranking slots.
+
+```sql
+-- Recursive CTE to walk the supersession chain for a single assertion
+WITH RECURSIVE chain(id, supersedes_id, depth) AS (
+  SELECT id, supersedes_id, 0
+  FROM trl_assertions
+  WHERE id = :assertionId
+  UNION ALL
+  SELECT a.id, a.supersedes_id, c.depth + 1
+  FROM trl_assertions a
+  JOIN chain c ON a.id = c.supersedes_id
+  WHERE c.supersedes_id IS NOT NULL
+)
+SELECT a.*, /* citations joined */ 
+FROM chain c
+JOIN trl_assertions a ON a.id = c.id
+ORDER BY c.depth DESC  -- oldest first
+```
+
+Citations are joined for each chain member so that every assertion in `supersessionChain` is fully cited.
+
 ---
 
 ## Package Structure
@@ -928,6 +1105,8 @@ trageti/
 │   ├── adapters.test.ts
 │   ├── migrations.test.ts
 │   ├── schema-extensions.test.ts
+│   ├── citations.test.ts
+│   ├── trajectory.test.ts
 │   └── fixtures/
 │       └── scenario.ts        — domain-neutral test data
 ├── package.json
@@ -976,4 +1155,4 @@ The following are significant open questions deferred from v0.1. They are noted 
 - **`findPath()` performance at scale.** The default CTE graph adapter’s path-finding implementation may perform poorly for dense graphs or large namespaces. Behavior at scale is uncharacterized. Callers with large graphs should implement a custom `GraphQueryAdapter` backed by a graph-native query engine. This is a known limitation of the default implementation, not of the extension interface.
 ---
 
-*Specification v0.1 — MIT license intent. General-purpose library; no domain-specific logic.*
+*Specification v0.2 — MIT license intent. General-purpose library; no domain-specific logic.*

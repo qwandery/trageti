@@ -3,6 +3,8 @@ import type {
   Episode,
   Assertion,
   AssertionLink,
+  AssertionCitation,
+  NewAssertion,
   NamespaceConfig,
   TemporalStoreOptions,
   NamespaceStats,
@@ -17,6 +19,7 @@ import { SchemaExtensionApplier } from '../db/schema/extensions.js'
 import { NamespaceRepository } from '../db/repositories/NamespaceRepository.js'
 import { EpisodeRepository } from '../db/repositories/EpisodeRepository.js'
 import { AssertionRepository } from '../db/repositories/AssertionRepository.js'
+import { CitationRepository } from '../db/repositories/CitationRepository.js'
 import { LinkRepository } from '../db/repositories/LinkRepository.js'
 import { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
 import { DefaultConnectionVerifier } from '../defaults/connection/DefaultConnectionVerifier.js'
@@ -47,6 +50,7 @@ export class TemporalStore {
   private namespaceRepo!: NamespaceRepository
   private episodeRepo!: EpisodeRepository
   private assertionRepo!: AssertionRepository
+  private citationRepo!: CitationRepository
   private linkRepo!: LinkRepository
   private embeddingRepo!: EmbeddingRepository
 
@@ -96,7 +100,12 @@ export class TemporalStore {
 
     // Create repositories with extension column awareness
     this.episodeRepo = new EpisodeRepository(this.db, this.extensionColumnCache.get('trl_episodes') ?? [])
-    this.assertionRepo = new AssertionRepository(this.db, this.extensionColumnCache.get('trl_assertions') ?? [])
+    this.citationRepo = new CitationRepository(this.db)
+    this.assertionRepo = new AssertionRepository(
+      this.db,
+      this.citationRepo,
+      this.extensionColumnCache.get('trl_assertions') ?? [],
+    )
     this.linkRepo = new LinkRepository(this.db)
     this.embeddingRepo = new EmbeddingRepository(this.db)
 
@@ -134,15 +143,65 @@ export class TemporalStore {
     return this.episodeRepo.insert(episode)
   }
 
-  writeAssertion(assertion: Omit<Assertion, 'createdAt' | 'extensions'>): Assertion {
+  writeAssertion(assertion: NewAssertion): Assertion {
     this.requireNamespaceInit(assertion.namespace)
+
+    // ─── Structural invariants (decision §2) ─────────────────────────────────
+    // Enforced here, NOT in DefaultAssertionValidator — replacing the validators
+    // array does not bypass these. Configured validators run *after* and only if
+    // structural checks pass; this avoids duplicate error messages on the same
+    // field.
+    this.enforceStructuralInvariants(assertion)
+
+    // ─── User-facing validators (replaceable) ───────────────────────────────
     const errors: string[] = []
     for (const validator of this.options.validators) {
       const result = validator.validate(assertion)
       if (!result.valid) errors.push(...result.errors)
     }
     if (errors.length > 0) throw new ValidationError(errors)
-    return this.assertionRepo.insert(assertion)
+
+    // ─── Atomic write ───────────────────────────────────────────────────────
+    return this.db.transaction(() => {
+      this.assertionRepo.insert(assertion)
+      const citations = this.citationRepo.insertMany(assertion.id, assertion.citations)
+      if (assertion.supersedesId !== null) {
+        this.assertionRepo.supersedeAssertion(assertion.supersedesId, assertion.validFrom)
+      }
+      const inserted = this.assertionRepo.getById(assertion.id)
+      if (!inserted) throw new Error(`Assertion "${assertion.id}" not found after insert`)
+      // getById already populates citations; pass through without re-fetching
+      return { ...inserted, citations }
+    })()
+  }
+
+  writeCitation(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation {
+    this.requireInit()
+    const errors: string[] = []
+    if (!citation.id || !citation.id.trim()) errors.push('citation.id is required')
+    if (!citation.sourceRef || !citation.sourceRef.trim()) errors.push('citation.sourceRef is required')
+
+    const parent = this.assertionRepo.getById(citation.assertionId)
+    if (!parent) {
+      errors.push(`citation.assertionId "${citation.assertionId}" does not reference an existing assertion`)
+    } else {
+      const ep = this.db
+        .prepare<[string, string], { id: string }>(
+          'SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?',
+        )
+        .get(citation.episodeId, parent.namespace)
+      if (!ep) {
+        errors.push(
+          `citation.episodeId "${citation.episodeId}" does not reference an episode in namespace "${parent.namespace}"`,
+        )
+      }
+    }
+    if (errors.length > 0) throw new ValidationError(errors)
+
+    if (citation.excerpt === null) {
+      structuredWarn('CITATION_EXCERPT_MISSING', { assertionId: citation.assertionId, citationId: citation.id })
+    }
+    return this.citationRepo.insertOne(citation)
   }
 
   supersedeAssertion(
@@ -152,10 +211,15 @@ export class TemporalStore {
     this.requireInit()
     const existing = this.assertionRepo.getById(assertionId)
     if (!existing) throw new ValidationError([`Assertion "${assertionId}" not found`])
+    if (existing.validUntil !== null) {
+      throw new ValidationError([
+        `Assertion "${assertionId}" is already closed (valid_until=${existing.validUntil}); cannot re-supersede. Mutating an established replacement chain is rejected (decision §2).`,
+      ])
+    }
     if (options.validUntil <= existing.validFrom) {
       throw new ValidationError([`validUntil must be strictly greater than validFrom (${existing.validFrom})`])
     }
-    if (options.replacedById) {
+    if (options.replacedById !== undefined) {
       const replacement = this.assertionRepo.getById(options.replacedById)
       if (replacement && replacement.namespace !== existing.namespace) {
         throw new ValidationError([
@@ -163,7 +227,7 @@ export class TemporalStore {
         ])
       }
     }
-    this.assertionRepo.supersedeAssertion(assertionId, options.validUntil, options.replacedById ?? null)
+    this.assertionRepo.supersedeAssertion(assertionId, options.validUntil)
   }
 
   writeLink(link: Omit<AssertionLink, 'createdAt'>): AssertionLink {
@@ -288,6 +352,17 @@ export class TemporalStore {
     return this.assertionRepo.getEntityHistory(namespace, entityId)
   }
 
+  /**
+   * Returns the supersession-chain leaves for an entity (decision §5). Follows
+   * supersedes_id only — does NOT traverse trl_links. For entities where new
+   * information layers rather than replaces, use writeLink with one of the
+   * accumulation link types and read with getEntityHistory + expandLinks.
+   */
+  getEntityTrajectory(namespace: string, entityId: string): Assertion[] {
+    this.requireNamespaceInit(namespace)
+    return this.assertionRepo.getEntityTrajectory(namespace, entityId)
+  }
+
   getEpisode(id: string): Episode | null {
     this.requireInit()
     return this.episodeRepo.getById(id)
@@ -305,6 +380,8 @@ export class TemporalStore {
     this.db.transaction(() => {
       const table = this.embeddingTableCache.get(namespace)
       if (table) this.db.exec(`DROP TABLE IF EXISTS ${table}`)
+      // Citations must go before assertions (FK from trl_citations.assertion_id).
+      this.citationRepo.deleteByAssertionNamespace(namespace)
       this.db.prepare('DELETE FROM trl_links WHERE namespace = ?').run(namespace)
       this.db.prepare('DELETE FROM trl_assertions WHERE namespace = ?').run(namespace)
       this.db.prepare('DELETE FROM trl_episodes WHERE namespace = ?').run(namespace)
@@ -362,6 +439,64 @@ export class TemporalStore {
   }
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Structural invariants (decision §2). These are enforced by TemporalStore
+   * directly so that replacing the validators array cannot bypass them.
+   */
+  private enforceStructuralInvariants(assertion: NewAssertion): void {
+    const errors: string[] = []
+
+    // Citation presence + per-citation fields
+    if (!Array.isArray(assertion.citations) || assertion.citations.length === 0) {
+      errors.push('citations array is required and must contain at least one entry')
+    } else {
+      for (const cit of assertion.citations) {
+        if (!cit.id || !cit.id.trim()) errors.push('citation.id is required')
+        if (!cit.sourceRef || !cit.sourceRef.trim()) errors.push(`citation "${cit.id}" sourceRef is required`)
+        if (!cit.episodeId || !cit.episodeId.trim()) {
+          errors.push(`citation "${cit.id}" episodeId is required`)
+        } else {
+          const ep = this.db
+            .prepare<[string, string], { id: string }>(
+              'SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?',
+            )
+            .get(cit.episodeId, assertion.namespace)
+          if (!ep) {
+            errors.push(
+              `citation "${cit.id}" episodeId "${cit.episodeId}" does not reference an episode in namespace "${assertion.namespace}"`,
+            )
+          }
+        }
+      }
+    }
+
+    // Predecessor checks (only if supersedesId set)
+    if (assertion.supersedesId !== null) {
+      const pred = this.assertionRepo.getById(assertion.supersedesId)
+      if (!pred) {
+        errors.push(`supersedesId "${assertion.supersedesId}" does not reference an existing assertion`)
+      } else {
+        if (pred.namespace !== assertion.namespace) {
+          errors.push(
+            `cross-namespace supersession not supported: predecessor "${pred.id}" is in namespace "${pred.namespace}", new assertion is in "${assertion.namespace}"`,
+          )
+        }
+        if (assertion.validFrom <= pred.validFrom) {
+          errors.push(
+            `new.validFrom (${assertion.validFrom}) must be > predecessor.validFrom (${pred.validFrom})`,
+          )
+        }
+        if (pred.validUntil !== null && pred.validUntil !== assertion.validFrom) {
+          errors.push(
+            `predecessor "${pred.id}" already closed at validUntil=${pred.validUntil}; cannot supersede with validFrom=${assertion.validFrom}`,
+          )
+        }
+      }
+    }
+
+    if (errors.length > 0) throw new ValidationError(errors)
+  }
 
   private requireInit(): void {
     if (!this.initialized) {

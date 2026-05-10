@@ -5,9 +5,13 @@ export { TemporalStore } from './store/TemporalStore.js'
 export type {
   Episode,
   Assertion,
+  AssertionCitation,
+  NewAssertion,
+  NewAssertionCitation,
   AssertionLink,
   NamespaceConfig,
   RetrievalQuery,
+  RetrievalMode,
   RetrievedAssertion,
   ScoredCandidate,
   ScoringContext,
