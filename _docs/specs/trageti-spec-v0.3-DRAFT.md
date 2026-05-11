@@ -22,6 +22,22 @@ better operational visibility.
 **Breaking changes are intentional.** The design goal is a professional-use
 library that can be adopted safely by teams who will not read the source.
 
+**Rev 2 additions over rev 1:** explicit Release Plan with three phases so
+correctness fixes can ship before the redesign; quickstart code block;
+`prepareDatabase()` and `TemporalStore.create()` typed signatures; branded
+`InitializedTemporalStore`; `close()` lifecycle; resolved deleteNamespace
+extension-table policy (throw, not warn); `MigrationCompatibilityError` for
+incompatible operator choices; tightened `scoreBatch()` contract;
+deterministic tie-breaking guarantee; `Logger` field-naming convention;
+optional `Metrics` interface; `RetrievalDebug` hook; `AbortSignal` on
+retrieval and indexing; `validation.requireCitationExcerpt`;
+`MockEmbeddingProvider` in core; restated `DefaultScorer` weights;
+universally async retrieval and indexing; Versioning Policy and 1.0
+stabilization criteria; `EmbedOptions.purpose` motivation;
+`IndexBatchItem`/`IndexBatchOptions` defined; `findPath` migration entry;
+new error classes (`StoreClosedError`, `ReferencedExtensionTableError`,
+`MissingPeerDependencyError`, `MigrationCompatibilityError`).
+
 #### Correctness and Integrity - BREAKING
 
 - **Foreign keys are enforced by default.** The default connection verifier must
@@ -321,10 +337,16 @@ sets the predecessor's `validUntil` to the new assertion's `validFrom`.
 
 ### AssertionCitation
 
-Citations remain required for new assertions. Citation metadata is JSON. Citation
-excerpts may be `null`, but the default validator/logger emits a structured
-warning because uncited or unverifiable claims are weak inputs for high-stakes
-RAG systems.
+Citations remain required for new assertions. Citation metadata is JSON.
+Citation excerpts may be `null` by default; the validator emits
+`TRGT_CITATION_EXCERPT_MISSING` because uncited or unverifiable claims are
+weak inputs for high-stakes RAG systems.
+
+Regulated-domain deployments should configure
+`validation.requireCitationExcerpt: true` (see Namespace Configuration), which
+upgrades the warning to a hard `ValidationError` at write time. This is the
+recommended default for medical, legal, mental health, and law enforcement
+deployments.
 
 ### AssertionLink
 
@@ -373,6 +395,35 @@ multi-hop, cyclic, expired-link, and max-depth scenarios.
 Scorers continue to receive semantic distance, optional BM25 score, candidate
 position, and scoring context. Batch scoring remains the preferred hook for
 cross-candidate normalization.
+
+```typescript
+interface RetrievalScorer {
+  score(candidate: ScoringCandidate, context: ScoringContext): number
+  scoreBatch?(candidates: readonly ScoringCandidate[], context: ScoringContext): number[]
+}
+```
+
+**Contract for `scoreBatch()`:**
+
+- The returned array MUST have exactly the same length as `candidates`, in the
+  same order. Length mismatch throws `RetrievalInputError`.
+- Returned scores MUST be finite numbers. `NaN` and `±Infinity` throw
+  `RetrievalInputError`.
+- Higher score = better. The library sorts descending.
+- The same `(candidates, context)` input MUST produce identical output across
+  invocations within a single process. Cross-process determinism is not
+  required.
+
+**Default scorer (`DefaultScorer`):** weighted linear combination, retained
+unchanged from v0.2:
+
+- 0.6 × `semanticSimilarity` (= 1 - cosine distance, clamped to [0, 1])
+- 0.3 × `normalizedBm25` (min-max normalized across the batch; 0 when no
+  `queryText` is supplied)
+- 0.1 × `recency` (= 1 / (1 + position distance from `temporalAnchor`))
+
+Weights are documented constants exposed as `DefaultScorer.WEIGHTS` so custom
+scorers can compose against them without re-deriving.
 
 ### ContextFormatter
 
@@ -448,8 +499,45 @@ interface EmbedOptions {
 }
 ```
 
+`purpose` exists because many modern embedding models (BGE, E5, Nomic, GTE,
+Instructor) prepend instruction prefixes that depend on whether the text is a
+*document* being indexed or a *query* being matched. Adapters that target such
+models must honor `purpose`. Adapters for models without prefix discipline may
+ignore it. `'reindex'` is treated as `'assertion'` unless the adapter wants to
+distinguish (for example, to emit different telemetry).
+
 Provider adapters are optional and tree-shakable. The core package must not make
-large or networked providers hard dependencies.
+large or networked providers hard dependencies. The only providers shipped in
+core are `RawVectorProvider` (no embedding; caller passes vectors, useful as the
+zero-dependency default) and `MockEmbeddingProvider` (deterministic hashed
+output, intended for tests and quickstarts only — explicitly *not* suitable for
+real semantic retrieval).
+
+#### Provider Adapters
+
+Reference adapters are distributed as either subpath exports or companion
+packages — final packaging policy is an Open Question.
+
+- `OllamaEmbeddingProvider` — local Ollama HTTP server.
+- `TransformersJsEmbeddingProvider` — in-process via `@xenova/transformers`.
+- `OpenAIEmbeddingProvider` — OpenAI-compatible HTTP API.
+
+Each adapter declares its own optional peer dependency. The core package never
+takes a runtime dependency on an adapter.
+
+#### Failure Semantics in Indexing
+
+When `indexBatch()` is called with `EmbeddingProvider`-driven indexing and the
+provider throws on item N, behavior is governed by the `onProviderError` option
+on the call:
+
+- `'fail-fast'` (default) — abort the batch, throw `EmbeddingProviderError`
+  with `{ failedAt: N, partialIndexed: N }`. Items 0…N-1 remain indexed.
+- `'skip'` — record the failure in `IndexBatchResult.skipped` with
+  `reason: 'EMBEDDING_PROVIDER_ERROR'` and continue with item N+1.
+
+`reindexNamespace()` is unaffected — it always uses staging-swap so a provider
+failure mid-reindex preserves the previous live index.
 
 ### Logger
 
@@ -464,6 +552,46 @@ interface Logger {
 
 Default logs must not include assertion content, episode content, embeddings,
 query text, excerpts, secrets, or connection strings.
+
+#### Field Conventions
+
+Library-emitted log records follow a small, stable convention so consumers can
+write structured queries against them without parsing free text:
+
+- All log codes use the `TRGT_` prefix and `SCREAMING_SNAKE_CASE` (e.g.
+  `TRGT_REINDEX_STAGING_LEFTOVER`). Codes are stable across patch releases and
+  follow standard deprecation policy across minor releases.
+- Field keys use `camelCase` (e.g. `assertionId`, `namespace`, `tookMs`).
+- When applicable, records include `namespace`, plus the most-specific entity
+  identifier available (`assertionId`, `episodeId`, `linkId`, `citationId`).
+- Records never include `content`, `excerpt`, `queryText`, `embedding`, or any
+  `*Secret` / `*Token` / `*Path` field. Adapters that need this for debugging
+  must opt in explicitly through the consumer's own logger, not through the
+  library default.
+- Severity is assigned by intent, not by event source: `debug` for diagnostic
+  introspection, `info` for normal lifecycle events (rare), `warn` for
+  recoverable inconsistencies the library handled, `error` for state the
+  library could not handle on its own.
+
+### Metrics (optional)
+
+Logger captures discrete events; production deployments also need counters and
+histograms for alerting. v0.3 defines an optional `Metrics` interface with no
+default implementation:
+
+```typescript
+interface Metrics {
+  incr(name: string, fields?: Record<string, string | number>): void
+  observe(name: string, value: number, fields?: Record<string, string | number>): void
+}
+```
+
+When configured via `TemporalStoreOptions.metrics`, the library emits a small
+fixed set of measurements: `trageti.retrieve.tookMs` (observe),
+`trageti.retrieve.candidateCount` (observe), `trageti.indexBatch.indexed`
+(incr), `trageti.indexBatch.skipped` (incr), `trageti.reindex.tookMs`
+(observe), `trageti.embeddingProvider.failures` (incr). Metric names and
+required fields are spec-stable.
 
 ---
 
@@ -484,6 +612,14 @@ interface TemporalStoreOptions {
   fts5Tokenizer?: FTS5TokenizerConfig
   schemaExtensions?: SchemaExtensions
   logger?: Logger
+  metrics?: Metrics
+  validation?: ValidationOptions
+}
+
+interface ValidationOptions {
+  /** When true, citations with `excerpt: null` are rejected at write time
+   *  instead of warned. Recommended for regulated-domain deployments. */
+  requireCitationExcerpt?: boolean
 }
 ```
 
@@ -519,9 +655,19 @@ connection enforcement, validation, indexing behavior, and namespace lifecycle.
 Migrations remain versioned and transaction-wrapped. The runner must fail with
 `MigrationError` containing the migration version and cause.
 
-The migration system must not silently ignore incompatible operator choices such
-as changing FTS tokenizer configuration after data exists. It should warn or
-fail with a clear path to rebuild the affected index.
+The migration system must not silently ignore incompatible operator choices
+such as changing FTS tokenizer configuration after data exists. The decision
+in v0.3: **fail closed** with `MigrationCompatibilityError` carrying a
+machine-readable `recovery` descriptor (e.g.
+`{ kind: 'rebuild-fts', estimatedRows: number, command: 'store.rebuildFts(...)' }`)
+that the caller can act on. Warning-and-proceeding is rejected because it
+silently produces wrong results for FTS queries against pre-existing data.
+
+If migration of version `v_n` fails after partial application, the migration
+runner rolls back the wrapping transaction and throws `MigrationError` with
+`{ migrationVersion: n, cause }`. The database is left at version `v_(n-1)`,
+i.e. fully consistent with the previous schema. Recovery is to fix the
+underlying cause and re-run; no manual cleanup is required.
 
 ---
 
@@ -530,15 +676,37 @@ fail with a clear path to rebuild the affected index.
 ### Recommended Path
 
 ```typescript
-const store = await TemporalStore.create({
+const store: InitializedTemporalStore = await TemporalStore.create({
   database: 'rag.db',
   namespace: 'case-123',
   embeddingProvider: provider,
 })
 ```
 
-`TemporalStore.create()` performs the common setup and returns an initialized
-store. It may accept either a filename or an existing `better-sqlite3` database.
+```typescript
+interface CreateOptions extends TemporalStoreOptions {
+  /** Filename, ':memory:', or an already-prepared better-sqlite3 Database. */
+  database: string | Database
+  /** Forwarded to prepareDatabase() when `database` is a string. */
+  prepare?: PrepareDatabaseOptions
+}
+
+type InitializedTemporalStore = TemporalStore & { readonly __initialized: unique symbol }
+
+namespace TemporalStore {
+  function create(options: CreateOptions): Promise<InitializedTemporalStore>
+}
+```
+
+The `InitializedTemporalStore` brand exists to make pre-init misuse a
+compile-time error in strict consumer codebases — methods that require an
+initialized store accept `InitializedTemporalStore` rather than
+`TemporalStore`. Consumers that do not type-check against the brand suffer no
+runtime cost; the brand is erased at the JavaScript level.
+
+`TemporalStore.create()` is async because `EmbeddingProvider` initialization
+may itself be async (model load, server handshake). The factory is the
+recommended path for >95% of consumers.
 
 ### Low-Level Path
 
@@ -551,11 +719,43 @@ const store = new TemporalStore(db, {
   namespace: 'case-123',
   embeddingDimension: 768,
 })
-store.init()
+await store.init()
 ```
 
 This path exists for embedding in larger applications that already control
 database lifecycle.
+
+### `prepareDatabase()`
+
+```typescript
+interface PrepareDatabaseOptions {
+  /** When true (default), attempts to require('sqlite-vec') and load it.
+   *  When false, the caller must load the extension. */
+  loadSqliteVec?: boolean
+  /** PRAGMA journal_mode value. Default 'WAL'. */
+  journalMode?: 'WAL' | 'DELETE' | 'TRUNCATE' | 'PERSIST' | 'MEMORY' | 'OFF'
+  /** PRAGMA busy_timeout in milliseconds. Default 5000. */
+  busyTimeoutMs?: number
+  /** PRAGMA temp_store value. Default 'MEMORY'. */
+  tempStore?: 'DEFAULT' | 'FILE' | 'MEMORY'
+  /** Additional pragmas applied verbatim after defaults. */
+  pragmas?: Record<string, string | number>
+  /** better-sqlite3 constructor options forwarded as-is. */
+  betterSqlite3?: ConstructorParameters<typeof BetterSqlite3>[1]
+}
+
+function prepareDatabase(
+  source: string | Database,
+  options?: PrepareDatabaseOptions,
+): Database
+```
+
+If `source` is a string, a new `better-sqlite3` database is opened. If it is an
+existing `Database` handle, the same instance is returned with pragmas applied
+in place. When `loadSqliteVec` is true and `sqlite-vec` is not installed,
+`prepareDatabase()` throws `MissingPeerDependencyError` with a message
+explaining the install (`npm install sqlite-vec`) and the option to set
+`loadSqliteVec: false` and load it manually.
 
 ---
 
@@ -578,20 +778,45 @@ replacement assertion.
 ### Indexing
 
 ```typescript
+interface IndexBatchItem {
+  assertionId: string
+  /** Optional pre-computed embedding. Required if no EmbeddingProvider is
+   *  configured for the namespace. */
+  embedding?: Float32Array | number[]
+}
+
+interface IndexBatchOptions {
+  /** Behavior when EmbeddingProvider throws on a single item. Default 'fail-fast'. */
+  onProviderError?: 'fail-fast' | 'skip'
+  /** Cooperative cancellation. */
+  signal?: AbortSignal
+}
+
 interface IndexBatchResult {
   indexed: number
   skipped: Array<{ assertionId: string; reason: string }>
 }
 
-store.indexAssertion(assertionId: string, embedding?: Float32Array | number[]): Promise<void> | void
-store.indexBatch(items: IndexBatchItem[]): Promise<IndexBatchResult> | IndexBatchResult
+store.indexAssertion(assertionId: string, embedding?: Float32Array | number[]): Promise<void>
+store.indexBatch(items: IndexBatchItem[], options?: IndexBatchOptions): Promise<IndexBatchResult>
 store.getPendingIndexing(namespace: string): Array<{ id: string; content: string }>
 ```
 
+Indexing is universally async in v0.3. Manual-vector callers see no awaitable
+work, but the async signature future-proofs for embedding providers and remote
+vector backends.
+
 If an `EmbeddingProvider` is configured, `embedding` may be omitted and generated
-from assertion content. Without a provider, vectors remain required.
+from assertion content. Without a provider, vectors remain required and an
+omitted `embedding` is recorded in `IndexBatchResult.skipped` with
+`reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`.
 
 ### Retrieval
+
+Retrieval is universally async in v0.3. The `await store.retrieve(...)`
+contract holds whether or not an `EmbeddingProvider` is configured and whether
+or not vector search is involved. This single shape is intentional: it removes
+a sync/async API split that would otherwise leak through every consumer.
 
 ```typescript
 type QueryTextMode = 'phrase' | 'fts5'
@@ -613,6 +838,11 @@ interface RetrievalQuery {
   mode?: 'snapshot' | 'trajectory'
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
+  /** Cooperative cancellation. Honored at every step boundary and propagated
+   *  to EmbeddingProvider.embed(). */
+  signal?: AbortSignal
+  /** Per-step introspection hook for development and profiling. */
+  debug?: RetrievalDebug
 }
 
 interface RetrievalResult {
@@ -658,19 +888,56 @@ link's `toId === toAssertionId`.
 ### Maintenance
 
 ```typescript
-store.deleteNamespace(namespace: string): void
+store.deleteNamespace(namespace: string): Promise<void>
 store.reindexNamespace(namespace: string, options: ReindexOptions): Promise<ReindexResult>
 store.getStats(namespace: string): NamespaceStats
-store.getMigrations(): readonly Migration[]
-store.getCurrentSchemaVersion(): number
-store.explain(query: RetrievalQuery): RetrievalExplainResult
+store.explain(query: RetrievalQuery): Promise<RetrievalExplainResult>
 ```
 
 `deleteNamespace()` must remove core rows and namespace vector storage based on
-database state, not process-local cache state.
+database state, not process-local cache state. When the namespace has any
+extension table marked `referencesNamespace: true`, the call throws
+`ReferencedExtensionTableError` listing the dependent tables; the caller must
+either pass `cascade: true` (which drops them inside the same transaction) or
+clean them up first. The previous warning-and-proceed behavior is removed; the
+`DELETE_NAMESPACE_HAS_REFERENCES` log code is retired with it.
 
 `reindexNamespace()` must be atomic from the perspective of readers: either the
-old index remains in use or the new index is complete.
+old index remains in use or the new index is complete. The default strategy is
+`'staging-swap'`.
+
+### Schema Introspection
+
+```typescript
+interface MigrationDescriptor {
+  version: number
+  name: string
+  appliedAt: string | null
+}
+
+store.getMigrations(): readonly MigrationDescriptor[]
+store.getCurrentSchemaVersion(): number
+```
+
+These exist for ops dashboards, schema-drift monitoring, and pre-deploy
+checks. They are pure introspection and do not mutate state.
+
+### Lifecycle
+
+```typescript
+store.close(): Promise<void>
+```
+
+`close()` marks the store unusable, disposes any middleware or observers that
+implement an optional `dispose()` method, flushes the configured logger if it
+exposes a `flush()` hook, and resolves. After `close()`, every other method
+throws `StoreClosedError`. `close()` does NOT close the underlying
+`better-sqlite3` database — that responsibility remains with whoever opened it
+(typically `prepareDatabase()` callers close it themselves; `TemporalStore.create()`
+callers may pass `closeDatabaseOnStoreClose: true` in `CreateOptions` to opt in
+to library-managed shutdown of the underlying handle).
+
+`close()` is idempotent.
 
 ---
 
@@ -705,6 +972,14 @@ available or per-candidate `score()` otherwise.
 
 Sort by score descending, apply `limit`, and produce result metadata.
 
+**Determinism contract:** for a given `(database state, query)` pair, retrieval
+MUST return the same results in the same order across invocations. Tie-breaking
+is deterministic and lexicographic across `(score DESC, validFrom DESC,
+createdAt ASC, id ASC)`. This contract holds independent of scorer choice
+provided the scorer itself is deterministic per the `RetrievalScorer` contract
+above. The contract is part of the public API: regulated-domain consumers may
+rely on it for audit reproducibility.
+
 ### Step 6: Graph Expansion
 
 When enabled, attach linked assertions with citations. Respect max depth and
@@ -723,16 +998,44 @@ All warnings and operational events pass through `Logger`.
 
 Required warning codes include:
 
-- `NON_WAL_MODE`
-- `FOREIGN_KEYS_UNAVAILABLE`
-- `CITATION_EXCERPT_MISSING`
-- `EPISODE_CONTENT_LARGE`
-- `DELETE_NAMESPACE_HAS_REFERENCES`
-- `INDEX_BATCH_SKIPPED`
-- `REINDEX_STAGING_LEFTOVER`
+- `TRGT_NON_WAL_MODE`
+- `TRGT_FOREIGN_KEYS_UNAVAILABLE`
+- `TRGT_CITATION_EXCERPT_MISSING` (only when `validation.requireCitationExcerpt` is false; see Validation)
+- `TRGT_EPISODE_CONTENT_LARGE`
+- `TRGT_INDEX_BATCH_SKIPPED`
+- `TRGT_REINDEX_STAGING_LEFTOVER`
+- `TRGT_CROSS_NAMESPACE_LINK`
+- `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`
 
 `store.explain(query)` returns a structured description of SQL plans, candidate
 counts, active filters, and whether semantic and keyword scoring are used.
+
+### RetrievalDebug
+
+Per-retrieval introspection is exposed via an optional debug hook on the query
+itself, separate from `Logger` (which is store-scoped):
+
+```typescript
+interface RetrievalDebug {
+  onStep?(step: RetrievalStep, info: RetrievalStepInfo): void
+}
+
+type RetrievalStep =
+  | 'validate' | 'temporal-filter' | 'semantic' | 'keyword'
+  | 'score' | 'rank' | 'graph-expand' | 'trajectory-expand'
+
+interface RetrievalStepInfo {
+  step: RetrievalStep
+  candidateCount: number
+  tookMs: number
+  notes?: Record<string, unknown>
+}
+```
+
+Pass via `RetrievalQuery.debug?: RetrievalDebug`. Hook invocations are
+synchronous and must not throw; throwing handlers are wrapped and logged at
+`warn`. Hook is intended for development and ad-hoc profiling, not for
+production telemetry — production observability flows through `Metrics`.
 
 ---
 
@@ -746,6 +1049,10 @@ class EmbeddingProviderError extends TragetiError {}
 class IndexingError extends TragetiError {}
 class RetrievalInputError extends TragetiError {}
 class ReindexError extends TragetiError {}
+class StoreClosedError extends TragetiError {}
+class ReferencedExtensionTableError extends TragetiError {}
+class MissingPeerDependencyError extends TragetiError {}
+class MigrationCompatibilityError extends TragetiError {}
 ```
 
 Errors include stable `.code` values and structured fields where useful. Error
@@ -818,10 +1125,11 @@ src/
   providers/
     embedding/
       index.ts
-      RawVectorProvider.ts
-      OllamaEmbeddingProvider.ts        # optional adapter
-      TransformersJsEmbeddingProvider.ts # optional adapter
-      OpenAIEmbeddingProvider.ts        # optional adapter
+      RawVectorProvider.ts              # in core, no extra deps
+      MockEmbeddingProvider.ts          # in core, tests/quickstart only
+      OllamaEmbeddingProvider.ts        # optional adapter (subpath or companion)
+      TransformersJsEmbeddingProvider.ts # optional adapter (subpath or companion)
+      OpenAIEmbeddingProvider.ts        # optional adapter (subpath or companion)
   defaults/
     logging/
       ConsoleLogger.ts
@@ -832,8 +1140,10 @@ src/
     explain.ts
 ```
 
-Optional adapters should be subpath exports or separate packages if they require
-additional runtime dependencies.
+Optional adapters with extra runtime dependencies are exposed as subpath
+exports or separate packages — see Open Questions for the packaging policy
+decision. Adapters never become hard runtime dependencies of the core
+`trageti` import.
 
 ---
 
@@ -841,13 +1151,22 @@ additional runtime dependencies.
 
 Core runtime dependency posture:
 
-- `better-sqlite3` remains a required peer for the default database path.
-- `sqlite-vec` is required for vector retrieval, but the package should avoid
-  forcing heavy adapter dependencies. If `prepareDatabase()` imports
-  `sqlite-vec`, document the install requirement and consider an optional peer
-  or subpath helper.
+- `better-sqlite3` is a **required peer** for the default database path. The
+  library does not bundle a SQLite binding.
+- `sqlite-vec` is an **optional peer** declared with
+  `peerDependenciesMeta.sqlite-vec.optional = true`. Vector retrieval requires
+  it; non-vector use cases (writes, BM25-only retrieval, graph traversal,
+  context assembly over caller-supplied vectors) do not. `prepareDatabase()`
+  attempts a dynamic require and throws `MissingPeerDependencyError` with an
+  install message if `loadSqliteVec` is true and the package is not present.
 
-Provider adapters may declare their own optional peer dependencies.
+Provider adapters declare their own optional peer dependencies (e.g.
+`@xenova/transformers` for `TransformersJsEmbeddingProvider`, `openai` for
+`OpenAIEmbeddingProvider`, none for `OllamaEmbeddingProvider` since it talks
+to Ollama over HTTP). The core `trageti` import never carries these.
+
+`MockEmbeddingProvider` and `RawVectorProvider` ship in core with zero extra
+dependencies.
 
 ---
 
@@ -859,6 +1178,48 @@ Provider adapters may declare their own optional peer dependencies.
 - It does not coordinate multi-process writes without caller-provided locking.
 - It does not make raw schema-extension SQL safe for untrusted users.
 - It does not require a specific embedding vendor or model.
+- It does not provide its own embeddings unless an `EmbeddingProvider` adapter
+  is configured. The in-core `MockEmbeddingProvider` is for tests and
+  quickstarts only and produces semantically meaningless vectors.
+
+---
+
+## Versioning Policy
+
+The 0.x series is pre-stable. The library may introduce breaking changes in any
+0.y release, accompanied by a migration guide.
+
+From 1.0 onward:
+
+- Breaking API changes require a major version bump. A breaking change is any
+  modification that requires consumer code edits to keep working: removed
+  exports, narrowed types, renamed methods, signature changes, or behavioral
+  changes that violate documented invariants (including the determinism
+  contract).
+- Deprecations live for at least one minor version before removal in the next
+  major version. Deprecated symbols emit a single `TRGT_DEPRECATED_USAGE`
+  warning per process per symbol, suppressible via the `Logger`.
+- Schema migrations are forward-only. A v0.x → v1.0 migration path is
+  guaranteed; pre-1.0 schemas without a 1.0-compatible migration will be
+  documented and the affected releases marked.
+- Log codes (`TRGT_*`) are part of the public surface; renaming or removing a
+  code is a breaking change.
+- Metric names (`trageti.*`) are part of the public surface under the same
+  policy as log codes.
+- The determinism contract for retrieval is a public invariant; changing
+  tie-breaking order is a breaking change.
+
+### 1.0 Stabilization Criteria
+
+The library will tag 1.0 when all of the following hold:
+
+- All Phase 3 surfaces have shipped and have integration coverage.
+- No known correctness P1 issues remain open.
+- Three independent consumers have reported production use of v0.3.x without
+  filing P1 regressions for two consecutive minor versions.
+- Documentation includes at least one fully worked example per regulated
+  domain claim (medical, legal, mental health) showing trust-boundary
+  configuration.
 
 ---
 
@@ -943,20 +1304,68 @@ const result = await store.reindexNamespace(ns, {
 })
 ```
 
+### Graph Path Finding
+
+The return type is unchanged but the value semantics change: paths longer than
+one hop now return every link in the walk, in order from `fromAssertionId` to
+`toAssertionId`.
+
+```typescript
+// Before: for a -> b -> c, path was [linkBC] (incomplete)
+// After:  for a -> b -> c, path is [linkAB, linkBC]
+const path = store.findPath({ namespace, fromAssertionId: 'a', toAssertionId: 'c', maxDepth: 5 })
+// path[0].fromId === 'a'; path[path.length - 1].toId === 'c'
+```
+
+### Store Lifecycle
+
+Before:
+
+```typescript
+const store = new TemporalStore(db, options)
+store.init()
+// ... use ...
+db.close()
+```
+
+After:
+
+```typescript
+const store = await TemporalStore.create({ database: 'rag.db', ...options })
+// ... use ...
+await store.close()
+```
+
 ---
 
 ## Open Questions
 
-- Should `sqlite-vec` be a required peer, optional peer, or isolated behind a
-  `prepareDatabase` subpath export?
-- Should provider adapters live in the core package, subpath exports, or
-  companion packages?
-- Should `retrieve()` become async universally to support embedding providers,
-  or should manual-vector retrieval remain synchronous with a separate async
-  helper?
-- Should `supersedeAssertion()` be removed entirely or retained as an advanced
-  escape hatch for closing assertions with no replacement?
+- Should `sqlite-vec` be a required peer, an optional peer with a
+  `prepareDatabase` runtime check, or isolated behind a separate
+  `@trageti/sqlite-vec` subpath export? (Working assumption in this draft:
+  optional peer with `loadSqliteVec: true` default and a runtime check that
+  throws `MissingPeerDependencyError`.)
+- Should provider adapters live as subpath exports of the core package
+  (`trageti/providers/ollama`) or as companion packages
+  (`@trageti/provider-ollama`)? Subpaths share versioning and reduce npm
+  surface; companions allow independent release cadence and dependency
+  isolation. Decision before 0.3.0 RC.
+- Should `supersedeAssertion()` be removed entirely or retained as an
+  advanced escape hatch for closing assertions with no replacement? (Use
+  case for retention: data correction where the predecessor is invalid and
+  no replacement exists.) Working assumption in this draft: retained as
+  `store.advanced.closeAssertion()` to make the intent explicit.
 - Should v0.3 include a constrained schema-extension builder, or only clarify
-  the trust boundary?
+  the trust boundary? Builder API would gate raw SQL behind a typed builder
+  for configuration-driven products.
 - Should multi-process write coordination remain caller-managed or become a
-  first-party lock helper?
+  first-party lock helper? (Caller-managed in this draft.)
+- Should v0.3 expose binary-vector / int8 quantized embedding storage via
+  sqlite-vec's `vec0` quantization options, or defer? Quantization halves
+  memory at modest accuracy cost — meaningful for on-device deployments.
+- Should `EmbedOptions.purpose` enum be opened for adapter-defined values
+  (e.g. `'similarity'`, `'classification'`) or kept closed? Closed is
+  simpler; open is more honest about model heterogeneity.
+- Should retrieval emit a `TRGT_RETRIEVE_PARTIAL` warning when graph
+  expansion is truncated by `maxDepth`, so consumers can detect "I would
+  have returned more if you'd asked"?
