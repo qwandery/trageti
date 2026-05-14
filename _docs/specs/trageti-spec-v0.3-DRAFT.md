@@ -71,11 +71,16 @@ v0.2 source):
   is unavailable. Warning-only FK behavior is removed.
   Migration note: callers that intentionally disable FK checks must provide a
   custom `ConnectionVerifier` and accept full responsibility for integrity.
-- **Namespace dimension mismatch is rejected.** Reopening an existing namespace
-  with a different embedding dimension throws `NamespaceDimensionMismatchError`
-  unless the caller runs `reindexNamespace()`.
-  Migration note: callers must persist and reuse the namespace dimension, or
-  explicitly reindex.
+- **Namespace dimension mismatch is rejected.** Reopening an existing
+  vector-configured namespace with a *different* embedding dimension throws
+  `NamespaceDimensionMismatchError` unless the caller runs
+  `reindexNamespace()`. Reopening *without* supplying any dimension or
+  provider is allowed: the namespace stays usable for non-vector operations
+  (writes, BM25 retrieval, graph traversal, history), and any vector-touching
+  call surfaces `RetrievalInputError(RETRIEVAL_REQUIRES_VECTOR_INPUT)` /
+  `MissingPeerDependencyError` per the standard rules.
+  Migration note: callers do not have to persist the namespace dimension to
+  reopen, but if they DO supply one, it must match the stored value.
 - **Namespace deletion is database-authoritative.** `deleteNamespace()` must
   look up the namespace's embedding table from `trl_namespaces`, not only from
   an in-memory cache, before dropping vector storage.
@@ -889,21 +894,48 @@ each mode:
   per-item failure.
 - **`'skip'`.** The library iterates the input one item at a time, calling
   `provider.embed([text])` per assertion. A throw on item N records
-  `{ assertionId, reason: 'EMBEDDING_PROVIDER_ERROR', cause }` in
-  `IndexBatchResult.skipped` and continues with item N+1. The granularity
-  is exact, but the trade-off is that `'skip'` is roughly N× slower than
-  `'fail-fast'` for providers whose batch latency is dominated by network
-  round-trips. The spec recommends `'fail-fast'` for normal operation and
-  `'skip'` only for one-off recovery passes or known-flaky providers.
+  `{ assertionId, reason: 'EMBEDDING_PROVIDER_ERROR', errorCode }` in
+  `IndexBatchResult.skipped` and continues with item N+1. `errorCode` is a
+  short, sanitized stable identifier derived from the thrown error (e.g.
+  the error's `.code`, or `'UNKNOWN'` for plain `Error`); it is NOT the
+  raw `Error` object, NOT a stack trace, and NOT the underlying message —
+  the result envelope is intended to be safe to log and ship to dashboards
+  per the Logger field-sensitivity rules. Callers that need the underlying
+  `cause` should use `'fail-fast'` (which surfaces the full error object
+  via the thrown `EmbeddingProviderError`). The granularity-vs-latency
+  trade-off is that `'skip'` is roughly N× slower than `'fail-fast'` for
+  providers whose batch latency is dominated by network round-trips; the
+  spec recommends `'fail-fast'` for normal operation and `'skip'` only for
+  one-off recovery passes or known-flaky providers.
 
-`reindexNamespace()` honors `onProviderError` on `ReindexOptions` with the
-same semantics: `'fail-fast'` (default) aborts the staging build on any
-provider throw and preserves the previous live index (when `strategy:
-'staging-swap'`); `'skip'` iterates per-item, accumulates `skipped[]` in
-the `ReindexResult`, and only performs the swap if at least one assertion
-was successfully re-embedded. With `strategy: 'in-place'`, `'fail-fast'`
-leaves the namespace partially indexed at the failure point (the
-documented trade-off of `'in-place'`).
+`reindexNamespace()` honors `onProviderError` on `ReindexOptions`:
+
+- **`'fail-fast'` (default).** Aborts the staging build on the first
+  provider throw. With `strategy: 'staging-swap'` (default), the staging
+  table is discarded and the previous live index is preserved unchanged.
+  With `strategy: 'in-place'`, the namespace is left partially indexed at
+  the failure point (the documented trade-off of `'in-place'`).
+- **`'skip'`.** Iterates per-item and accumulates failures in
+  `ReindexResult.skipped`. With `strategy: 'staging-swap'`:
+  - If `skipped.length === 0`, the swap proceeds normally; the new index
+    is complete.
+  - If `skipped.length > 0` AND `allowPartialSwap === true`, the swap
+    proceeds; the new index is missing the skipped assertions (callers
+    accept this trade-off explicitly). `swappedAt` is populated.
+  - If `skipped.length > 0` AND `allowPartialSwap !== true`, the staging
+    table is discarded and `reindexNamespace()` throws `ReindexError` with
+    `{ skipped, code: 'REINDEX_PARTIAL_REJECTED', advice: 'pass
+    allowPartialSwap: true to accept the partial result, or rerun with
+    onProviderError: \'fail-fast\' to surface the cause' }`. The previous
+    live index is preserved unchanged. This is the safe default — a
+    complete live index is never silently replaced by a partial one.
+  - With `strategy: 'in-place'`, `'skip'` builds best-effort and reports
+    `skipped[]` in the result; there is no atomic swap to gate.
+
+The earlier "staging swap occurs only after all embeddings are generated
+and validated" invariant holds when `onProviderError` is `'fail-fast'`
+(default) AND when `'skip'` produced no failures. The `allowPartialSwap`
+opt-in is the documented way to relax it — and the only way.
 
 ### Logger
 
@@ -1005,16 +1037,55 @@ interface NamespaceConfig {
 }
 ```
 
-A namespace is **vector-configured** if either `embeddingDimension` or
-`embeddingProvider` is supplied. Otherwise it is **vectorless** — both
-`trl_namespaces.embedding_dimension` and `trl_namespaces.embedding_table` are
-NULL, the v003 schema CHECK enforces that pair, and no vec0 table is ever
-created for the namespace.
+**State at namespace creation time** is determined by the supplied options:
+a namespace is created **vector-configured** if either `embeddingDimension`
+or `embeddingProvider` is supplied; otherwise it is created **vectorless**
+(both `trl_namespaces.embedding_dimension` and `embedding_table` are NULL,
+the v003 schema CHECK enforces that pair, and no vec0 table is ever
+created).
 
-If a vector-configured namespace already exists, initialization compares the
-configured dimension with the stored dimension. A mismatch throws
-`NamespaceDimensionMismatchError`. (Vectorless namespaces have no stored
-dimension to compare against.)
+**On reopen, namespace state is determined by what is already stored**, not
+by the supplied options. The relevant cases:
+
+- Stored namespace is vector-configured AND the caller supplies a matching
+  `embeddingDimension` (or `embeddingProvider.dimension`) → bind and
+  proceed.
+- Stored namespace is vector-configured AND the caller supplies a
+  non-matching dimension → throw `NamespaceDimensionMismatchError`.
+- Stored namespace is vector-configured AND the caller supplies neither
+  `embeddingDimension` nor `embeddingProvider` → bind and proceed. The
+  stored `embedding_dimension` remains the authoritative dimension for
+  the namespace and is used at runtime to validate caller-supplied
+  vectors. The exact runtime behavior of vector-touching calls in this
+  state, by call family:
+  - **Caller-supplied vectors** — `indexAssertion(id, embedding)`,
+    `indexBatch([{ assertionId, embedding }, ...])`, and
+    `retrieve({ queryEmbedding, ... })` all work normally provided
+    `sqlite-vec` is loaded AND `embedding.length === storedDimension`.
+    A length mismatch throws `IndexingError(EMBEDDING_DIMENSION_MISMATCH)`
+    (indexing) or `RetrievalInputError(RETRIEVAL_DIMENSION_MISMATCH)`
+    (retrieve). `sqlite-vec` not loaded throws
+    `MissingPeerDependencyError`.
+  - **Provider-derived indexing** — calling `indexAssertion(id)` or
+    `indexBatch([{ assertionId }, ...])` (no `embedding` supplied) records
+    each item in `IndexBatchResult.skipped` with
+    `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`; `indexAssertion` (single-target)
+    throws `IndexingError(NO_EMBEDDING_AND_NO_PROVIDER)`.
+  - **Provider-derived retrieval** — `retrieve({ queryText, ... })` with no
+    `queryEmbedding` follows the Step 0 routing rules: hybrid degrades to
+    BM25-only with `TRGT_RETRIEVE_VECTOR_SKIPPED reason: 'NO_PROVIDER'`;
+    `'vector'` strategy throws `RetrievalInputError(RETRIEVAL_REQUIRES_VECTOR_INPUT)`.
+
+  This shape is intentional: it lets ops tools, audit jobs, and
+  manual-vector callers reopen vector-configured stores without having to
+  persist or supply the original `embeddingProvider`. The stored dimension
+  is sufficient for safe runtime validation.
+- Stored namespace is vectorless AND the caller supplies neither → bind
+  and proceed (vectorless reopen).
+- Stored namespace is vectorless AND the caller supplies dimension or
+  provider → throw `NamespaceDimensionMismatchError` with the actionable
+  message pointing at `upgradeNamespaceToVector()` (no auto-upgrade — see
+  Initialization).
 
 Vectorless → vector-configured upgrade is supported via an explicit upgrade
 path that sets `embedding_dimension` and `embedding_table` together inside
@@ -1399,7 +1470,11 @@ interface IndexBatchOptions {
 
 interface IndexBatchResult {
   indexed: number
-  skipped: Array<{ assertionId: string; reason: string }>
+  /** Per-item failures collected when onProviderError is 'skip', plus
+   *  any caller-input failures (e.g. NO_EMBEDDING_AND_NO_PROVIDER). The
+   *  errorCode is a short sanitized stable identifier — never a raw
+   *  Error, message, or stack trace. */
+  skipped: Array<{ assertionId: string; reason: string; errorCode?: string }>
 }
 
 store.indexAssertion(
@@ -1423,9 +1498,23 @@ vector-configured namespace without `sqlite-vec` loaded throws
 `MissingPeerDependencyError`.
 
 If an `EmbeddingProvider` is configured, `embedding` may be omitted and
-generated from assertion content. Without a provider, vectors remain required
-and an omitted `embedding` is recorded in `IndexBatchResult.skipped` with
-`reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`.
+generated from assertion content. Without a provider, vectors remain
+required and an omitted `embedding` is recorded in
+`IndexBatchResult.skipped` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`.
+
+**Unknown assertion IDs.** When `indexBatch()` is called with an
+`assertionId` that does not exist in `trl_assertions` for the namespace,
+the item is recorded in `IndexBatchResult.skipped` with
+`reason: 'ASSERTION_NOT_FOUND'`. `onProviderError` does not apply (no
+provider call is made for a non-existent assertion); the entry appears in
+`skipped[]` regardless of mode. This makes ingestion bugs auditable instead
+of silent (the v0.2 behavior of silently dropping unknown IDs is removed —
+that was a flagged P1).
+
+`indexAssertion()` (single-target) takes the stricter path: an unknown
+`assertionId` throws `IndexingError(ASSERTION_NOT_FOUND)`. Single-target
+calls do not have a result envelope to surface partial failures through, so
+fail-closed is the only safe behavior.
 
 `getPendingIndexing()` semantics across the four observable
 `(sqlite-vec loaded × vec0 exists)` states are documented under
@@ -1569,18 +1658,29 @@ interface ReindexOptions {
    *  build. Default 'fail-fast' (entire reindex aborts; staging table is
    *  discarded; previous live index is preserved when strategy is
    *  'staging-swap'). 'skip' iterates per-item and accumulates failures in
-   *  ReindexResult.skipped; the reindex completes if at least one
-   *  assertion was successfully re-embedded. Same trade-off as
-   *  IndexBatchOptions.onProviderError. */
+   *  ReindexResult.skipped. Same trade-off as IndexBatchOptions.onProviderError. */
   onProviderError?: 'fail-fast' | 'skip'
+  /** Required to perform the staging swap when 'skip' produced any
+   *  ReindexResult.skipped entries — without it, a partial staging build
+   *  is rejected so a complete live index is never silently replaced by
+   *  one missing skipped rows. Has no effect with 'fail-fast' (no
+   *  skipped[] possible). Has no effect with 'in-place' (no atomic swap
+   *  occurs). Default false. */
+  allowPartialSwap?: boolean
   signal?: AbortSignal
 }
 
 interface ReindexResult {
   reindexed: number
-  skipped: Array<{ assertionId: string; reason: string }>
-  /** ISO 8601. Present only when strategy: 'staging-swap' succeeded; absent
-   *  for 'in-place' (no atomic swap occurs) and for failures. */
+  /** Per-item failures collected when onProviderError is 'skip'. Same
+   *  sanitization rules as IndexBatchResult.skipped — errorCode is a
+   *  short stable identifier, never a raw Error, message, or stack. */
+  skipped: Array<{ assertionId: string; reason: string; errorCode?: string }>
+  /** ISO 8601. Present only when strategy: 'staging-swap' actually swapped
+   *  (either skipped.length === 0, or skipped.length > 0 with
+   *  allowPartialSwap: true). Absent for 'in-place' (no atomic swap
+   *  occurs), for failures, and for partial builds that were rejected for
+   *  lack of allowPartialSwap. */
   swappedAt?: string
   durationMs: number
 }
@@ -1654,17 +1754,22 @@ interface UpgradeNamespaceToVectorOptions {
 
 interface InitNamespaceOptions {
   /** When supplied, the new namespace is vector-configured with this
-   *  dimension. Mutually exclusive with leaving both this and
-   *  embeddingProvider undefined. */
+   *  dimension. */
   embeddingDimension?: number
   /** When supplied, the new namespace is vector-configured. Provider's
-   *  dimension wins unless embeddingDimension is also supplied (in which
-   *  case they MUST match). */
+   *  dimension is the namespace dimension unless embeddingDimension is
+   *  also supplied (in which case they MUST match). */
   embeddingProvider?: EmbeddingProvider
   /** Caller-defined arbitrary metadata; stored as JSON in
    *  trl_namespaces.config. */
   config?: Record<string, unknown>
 }
+
+// Four valid shapes:
+//   {}                                        → vectorless namespace
+//   { embeddingDimension }                    → vector-configured (manual vectors)
+//   { embeddingProvider }                     → vector-configured (dimension from provider)
+//   { embeddingDimension, embeddingProvider } → vector-configured (the two MUST agree)
 
 store.initNamespace(
   namespace: string,
@@ -1692,14 +1797,44 @@ default-namespace path OR `initNamespace()` first. Calling a
 namespace-bearing method against an unregistered namespace throws
 `NamespaceNotInitializedError`.
 
-`initNamespace()` is idempotent for matching configurations: re-calling it
-with the same `namespace` and the same `embeddingDimension` /
-`embeddingProvider` returns the existing `NamespaceConfig`. A mismatch
-throws `NamespaceDimensionMismatchError` with the same actionable message
-documented under Initialization (vectorless → vector upgrade requires
-`upgradeNamespaceToVector()`, not a re-call of `initNamespace()`).
-Vectorless namespaces are created by passing neither `embeddingDimension`
-nor `embeddingProvider`.
+**Idempotence and persisted state.** `trl_namespaces` persists `namespace`,
+`embedding_dimension`, `embedding_table`, `created_at`, and `config` —
+NOT `embeddingProvider` identity, which is process-local configuration only.
+Idempotence is therefore defined entirely on stored state:
+
+- For an **existing vector-configured namespace**: re-calling
+  `initNamespace()` succeeds (no-op on the DB row, returns the existing
+  `NamespaceConfig`) when:
+  - `embeddingDimension` is supplied AND matches the stored
+    `embedding_dimension`; OR
+  - `embeddingProvider` is supplied (no `embeddingDimension`) AND the
+    provider's `dimension` matches the stored `embedding_dimension`; OR
+  - Neither `embeddingDimension` nor `embeddingProvider` is supplied — no
+    supplied-dimension comparison is needed at the call site, because none
+    was supplied. The stored `embedding_dimension` remains authoritative
+    and is still used at runtime to validate caller-supplied vectors per
+    the rules in Namespace Configuration. (This is the supported manual-vector
+    reopen path: a process can index/retrieve with caller-supplied vectors
+    against a vector-configured namespace it never re-declares the
+    embedding configuration for.)
+  - When `embeddingDimension` AND/OR `embeddingProvider` is supplied and
+    mismatches the stored value, throws `NamespaceDimensionMismatchError`.
+
+  The `embeddingProvider` argument is bound to the in-process namespace
+  registry when supplied, but it is never compared against any persisted
+  provider identity (none exists). Two processes legitimately may use
+  different providers against the same vector-configured namespace,
+  provided dimensions agree; one process may use a provider while another
+  supplies vectors manually.
+- For an **existing vectorless namespace**: re-calling `initNamespace()`
+  with no `embeddingDimension` and no `embeddingProvider` is a no-op.
+  Re-calling with either set throws `NamespaceDimensionMismatchError` with
+  the same actionable message documented under Initialization (vectorless
+  → vector upgrade requires `upgradeNamespaceToVector()`, not a re-call
+  of `initNamespace()`).
+- For a **new namespace**: the call inserts the row and returns the new
+  `NamespaceConfig`. Vectorless namespaces are created by passing neither
+  `embeddingDimension` nor `embeddingProvider`.
 
 `upgradeNamespaceToVector(namespace, options)` is the only path that converts
 a vectorless namespace into a vector-configured one. It is rejected if the
@@ -1731,9 +1866,14 @@ warn-and-proceed behavior and the `DELETE_NAMESPACE_HAS_REFERENCES` log
 code are retired.
 
 `reindexNamespace()` defaults to `'staging-swap'`: builds into a staging vec
-table, atomically swaps on success, drops the old table. Provider failure
-preserves the previous live index. `'in-place'` is supported for callers
-that explicitly accept the trade-off.
+table, atomically swaps on success, drops the old table. Under the
+`'fail-fast'` default for `onProviderError`, a provider failure preserves
+the previous live index unchanged. Under `'skip'`, partial-build behavior
+is governed by `allowPartialSwap` (see the Failure Semantics in Indexing
+section): without `allowPartialSwap: true`, a partial build is rejected and
+the previous live index is preserved; with `allowPartialSwap: true`, the
+swap proceeds with the partial new index. `'in-place'` is supported for
+callers that explicitly accept the partial-on-failure trade-off.
 
 `rebuildFts()` drops and recreates the global per-database `trl_fts` table
 and re-populates from `trl_assertions` in batches inside one transaction.
@@ -2120,6 +2260,9 @@ error type for "sqlite-vec not loaded" — there is no
 | Code | Raised by |
 |---|---|
 | `INDEXING_NAMESPACE_VECTORLESS` | `indexAssertion`/`indexBatch` against a vectorless namespace |
+| `ASSERTION_NOT_FOUND` | `indexAssertion` (single-target) against an unknown `assertionId`. `indexBatch` records the same condition in `skipped[]` with `reason: 'ASSERTION_NOT_FOUND'` instead of throwing. |
+| `EMBEDDING_DIMENSION_MISMATCH` | `indexAssertion` (single-target) when the supplied `embedding.length` does not match the namespace's stored dimension. `indexBatch` records the same condition in `skipped[]` with `reason: 'EMBEDDING_DIMENSION_MISMATCH'`. |
+| `NO_EMBEDDING_AND_NO_PROVIDER` | `indexAssertion` (single-target) when no `embedding` is supplied and no `EmbeddingProvider` is bound to the namespace. `indexBatch` records the same condition in `skipped[]` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. |
 
 All errors include stable `.code` values and structured fields where useful.
 Error messages must be actionable without exposing source content, query
