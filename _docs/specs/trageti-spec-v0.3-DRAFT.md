@@ -75,10 +75,11 @@ v0.2 source):
   vector-configured namespace with a *different* embedding dimension throws
   `NamespaceDimensionMismatchError` unless the caller runs
   `reindexNamespace()`. Reopening *without* supplying any dimension or
-  provider is allowed: the namespace stays usable for non-vector operations
-  (writes, BM25 retrieval, graph traversal, history), and any vector-touching
-  call surfaces `RetrievalInputError(RETRIEVAL_REQUIRES_VECTOR_INPUT)` /
-  `MissingPeerDependencyError` per the standard rules.
+  provider is allowed: the stored dimension remains authoritative, so
+  caller-supplied-vector operations still work when `sqlite-vec` is loaded
+  and vector lengths match. Provider-derived vector operations require an
+  in-process `EmbeddingProvider`; without one, they fail or degrade according
+  to the normal indexing/retrieval strategy rules.
   Migration note: callers do not have to persist the namespace dimension to
   reopen, but if they DO supply one, it must match the stored value.
 - **Namespace deletion is database-authoritative.** `deleteNamespace()` must
@@ -1742,15 +1743,20 @@ interface NamespaceStats {
   positionRange: { min: number | null; max: number | null }
 }
 
-interface UpgradeNamespaceToVectorOptions {
-  /** Dimension for the new vector configuration. Must match
-   *  embeddingProvider.dimension when both are supplied. Required if
-   *  embeddingProvider is omitted. */
-  embeddingDimension?: number
-  /** Provider to attach. Optional; callers that always supply vectors
-   *  manually can upgrade with embeddingDimension only. */
-  embeddingProvider?: EmbeddingProvider
-}
+type UpgradeNamespaceToVectorOptions =
+  | {
+      /** Dimension for the new vector configuration. */
+      embeddingDimension: number
+      /** Provider to attach. Optional; when supplied, provider.dimension
+       *  MUST match embeddingDimension. */
+      embeddingProvider?: EmbeddingProvider
+    }
+  | {
+      /** Provider to attach. The provider's dimension becomes the namespace
+       *  dimension. */
+      embeddingProvider: EmbeddingProvider
+      embeddingDimension?: never
+    }
 
 interface InitNamespaceOptions {
   /** When supplied, the new namespace is vector-configured with this
@@ -2036,9 +2042,19 @@ Routing for retrievalStrategy: 'hybrid' (default)
                                               sqlite-vec is missing — it
                                               propagates per the named-input
                                               rule).
-  - queryText only + EmbeddingProvider:      derive query embedding via the
-                                              provider; run Step 2 (same
-                                              propagation rule).
+  - queryText only + EmbeddingProvider:      first check vector backend
+                                              availability and namespace vector
+                                              configuration WITHOUT calling
+                                              the provider. If sqlite-vec is
+                                              missing or the namespace is
+                                              vectorless, emit
+                                              TRGT_RETRIEVE_VECTOR_SKIPPED and
+                                              run Step 2-bm25. Otherwise,
+                                              derive query embedding via the
+                                              provider, then run Step 2
+                                              (which may lazily create vec0);
+                                              provider failures propagate as
+                                              EmbeddingProviderError.
   - queryText only + no EmbeddingProvider:   skip Step 2 entirely (no
                                               embedding to run it with);
                                               emit TRGT_RETRIEVE_VECTOR_SKIPPED
@@ -2050,11 +2066,14 @@ Routing for retrievalStrategy: 'hybrid' (default)
                                               BM25 to vector candidates.
 ```
 
-The "no provider, queryText only" branch is decided at Step 0 and never
-attempts Step 2 — Step 2 has no input. The other hybrid degradation cases
-(provider exists but `sqlite-vec` is missing, or namespace is vectorless)
-are handled by Step 2 itself, which catches the relevant errors and routes
-to Step 2-bm25 with the appropriate `reason` (see Step 2 below).
+The text-only fallback branches are decided at Step 0 before any provider call:
+if no provider is bound, fallback reason is `'NO_PROVIDER'`; if a provider is
+bound but vector backend/configuration is unavailable, fallback reason is
+`'NO_SQLITE_VEC'` or `'NAMESPACE_VECTORLESS'`. This avoids loading a model or
+making a network call when the vector backend cannot be used. Once Step 0
+derives a query embedding from a provider, provider failures propagate as
+`EmbeddingProviderError`; the pipeline does not hide provider outages behind
+BM25 fallback.
 
 ### Step 1: Temporal Filter
 
@@ -2072,10 +2091,13 @@ Use `sqlite-vec` cosine distance over the namespace's vec0 table. Calls
 dimension before passing the vector to SQLite.
 
 For `'hybrid'`, Step 2 runs only when Step 0 routed here (i.e., a query
-embedding was either supplied directly or derivable via the configured
-provider). Within Step 2, two error conditions can still trigger fallback to
-Step 2-bm25 — but only when the caller supplied no `queryEmbedding` (the
-text-derived-via-provider case):
+embedding was either supplied directly or successfully derived via the
+configured provider). Step 0 is responsible for graceful text-only fallback
+when vector backend/configuration is unavailable before provider embedding.
+Step 2 may still lazily create a missing vec0 table via `ensureVectorReady()`;
+if a readiness error is raised because state changed between Step 0 and Step 2,
+the same fallback policy applies only when the caller supplied no
+`queryEmbedding`:
 
 - `MissingPeerDependencyError` (`sqlite-vec` not loaded) — caught; emit
   `TRGT_RETRIEVE_VECTOR_SKIPPED` at info with `reason: 'NO_SQLITE_VEC'`;
