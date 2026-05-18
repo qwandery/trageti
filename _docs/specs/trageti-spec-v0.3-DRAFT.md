@@ -105,7 +105,8 @@ v0.2 source):
   library errors earlier.
 - **Supersession has one canonical write path.** The canonical replacement path
   is `writeAssertion({ supersedesId })`, which atomically closes the predecessor.
-  `supersedeAssertion()` is deprecated or removed from the primary API.
+  `supersedeAssertion()` is removed from the primary API; the retained escape
+  hatch for closing without a replacement is `store.advanced.closeAssertion()`.
   Migration note: replace two-step `writeAssertion()` plus
   `supersedeAssertion()` flows with a single replacement assertion write.
 
@@ -752,8 +753,10 @@ interface FTS5TokenizerConfig {
 - `tokenizer` MUST be one of the documented built-ins OR `trustedCustomTokenizer`
   MUST be true.
 - For built-ins, each entry in `tokenizerArgs` MUST match the regex
-  `^[A-Za-z0-9_= '"-]+$` (alphanumeric plus the small set of characters
-  required by `unicode61`/`ascii`/`porter` arguments). Failing entries throw
+  `^[A-Za-z0-9_=-]+$` (alphanumeric plus the small set of characters
+  required by `unicode61`/`ascii`/`porter` arguments). Quote characters and
+  whitespace are rejected in untrusted built-in args; custom/raw tokenizer
+  strings require `trustedCustomTokenizer: true`. Failing entries throw
   `SchemaExtensionError` at `init()` time.
 - The validated tokenizer string is interpolated into the FTS5 `CREATE
   VIRTUAL TABLE ... USING fts5(..., tokenize='<config>')` DDL exactly once,
@@ -795,7 +798,7 @@ interface ColumnExtension {
 
 interface TableExtension {
   tableName: string
-  /** Trusted-code SQL: a single CREATE TABLE [IF NOT EXISTS] statement.
+  /** Trusted-code SQL: a single idempotent CREATE TABLE statement.
    *  Library applies this verbatim. Never source from user input. */
   createSQL: string
   /** When true, the extension stores rows scoped to a namespace and MUST
@@ -859,7 +862,10 @@ large or networked providers hard dependencies. The only providers shipped in
 core are `RawVectorProvider` (no embedding; caller passes vectors, useful as the
 zero-dependency default) and `MockEmbeddingProvider` (deterministic hashed
 output, intended for tests and quickstarts only — explicitly *not* suitable for
-real semantic retrieval).
+real semantic retrieval). `MockEmbeddingProvider` remains a core export in
+v0.3 for zero-dependency examples, but it MUST emit a single
+`TRGT_MOCK_PROVIDER_NON_PRODUCTION` warning per process when used outside
+`NODE_ENV === 'test'`.
 
 #### Provider Adapters
 
@@ -888,7 +894,8 @@ each mode:
   `EmbeddingProviderError({ batchSize: N, indexed: M, cause })`, where `M`
   is the count of assertions successfully written to vec0 BEFORE the failed
   `embed` call (from prior iterations of the chunked write loop, if the
-  caller passed an oversized batch that the library internally chunked).
+  caller passed an oversized batch that the library internally chunked by
+  `IndexBatchOptions.batchSize`, default 64).
   No `IndexBatchResult` is returned in this mode — the partial-count
   information is on the thrown error. The library cannot promise a
   `failedAt` index because the provider's batch contract does not surface
@@ -990,7 +997,8 @@ fixed set of measurements: `trageti.retrieve.tookMs` (observe),
 `trageti.retrieve.candidateCount` (observe), `trageti.indexBatch.indexed`
 (incr), `trageti.indexBatch.skipped` (incr), `trageti.reindex.tookMs`
 (observe), `trageti.embeddingProvider.failures` (incr). Metric names and
-required fields are spec-stable.
+required fields are spec-stable. When `metrics` is unset, metric emission is a
+no-op and must not allocate fallback collectors or write to the logger.
 
 ---
 
@@ -1150,8 +1158,9 @@ DROP TABLE trl_namespaces;
 ALTER TABLE trl_namespaces_v3 RENAME TO trl_namespaces;
 ```
 
-Existing rows always had both fields set, so the migration preserves all
-namespaces as vector-configured. The CHECK only constrains future writes.
+Existing v0.2 rows always had both fields set, so the migration is
+forward-compatible with v0.2 data and preserves all existing namespaces as
+vector-configured. The CHECK only constrains future writes.
 
 **Migration-copy invariant.** Every `INSERT ... SELECT` between rebuilt
 tables in trageti migrations MUST use explicit column lists on both sides.
@@ -1385,7 +1394,10 @@ ensureVectorReady(namespace):
     }).
   - If the vec0 table for the namespace does not exist:
     CREATE it now using the stored embedding_dimension and the stored
-    embedding_table name. (Both fields were populated atomically at
+    embedding_table name. Existence MUST be checked with sqlite_master
+    before CREATE VIRTUAL TABLE; do not rely on CREATE VIRTUAL TABLE IF
+    NOT EXISTS because sqlite-vec vec0 support for that syntax varies by
+    version. (Both fields were populated atomically at
     namespace registration; ensureVectorReady() does NOT patch
     embedding_table because the schema CHECK forbids the partial state
     where dimension is set but table name is not. If ensureVectorReady
@@ -1427,11 +1439,13 @@ performs the upgrade — it only operates on already-configured namespaces.
 **All public `TemporalStore` methods return Promises.** v0.3 adopts a uniform
 async contract across writes, retrieval, indexing, introspection, and
 lifecycle. Internal repositories and the migration runner remain synchronous —
-the async boundary is the public API, not the storage layer. This consistency
-eliminates the sync/async split that would otherwise leak into every
-consumer call site, and future-proofs the API for async middleware, remote
-vector backends, and async validators (the latter explicitly deferred to a
-later version).
+the async boundary is the public API, not the storage layer. This is an
+intentional clean-break migration cost: it avoids permanently splitting the API
+into sync and async variants as soon as a call path can involve embedding
+providers, middleware, lifecycle hooks, remote/vector backends, or future async
+extension points such as validators. Consumers pay the `await` migration once
+instead of learning which methods are conditionally async based on runtime
+configuration.
 
 ### Writing
 
@@ -1449,8 +1463,11 @@ inside `writeAssertion()` normalizes any omitted nullable fields to `null`
 normalized shape. When `supersedesId` is non-null after normalization, the
 store atomically sets the predecessor's `validUntil` to the new assertion's
 `validFrom` inside the same transaction. Direct calls to
-`supersedeAssertion()` are deprecated and tracked as an Open Question for
-removal vs retention as an advanced escape hatch.
+`supersedeAssertion()` are not part of the primary v0.3 API. The retained
+escape hatch for closing an assertion without a replacement is
+`store.advanced.closeAssertion()`, which emits the standard
+`TRGT_DEPRECATED_USAGE` warning when used as a migration bridge from older
+call sites.
 
 ### Indexing
 
@@ -1465,6 +1482,9 @@ interface IndexBatchItem {
 interface IndexBatchOptions {
   /** Behavior when EmbeddingProvider throws on a single item. Default 'fail-fast'. */
   onProviderError?: 'fail-fast' | 'skip'
+  /** Provider batch size for fail-fast mode. Default 64. Ignored when
+   *  onProviderError is 'skip' because skip mode embeds one item at a time. */
+  batchSize?: number
   /** Cooperative cancellation. */
   signal?: AbortSignal
 }
@@ -1474,7 +1494,8 @@ interface IndexBatchResult {
   /** Per-item failures collected when onProviderError is 'skip', plus
    *  any caller-input failures (e.g. NO_EMBEDDING_AND_NO_PROVIDER). The
    *  errorCode is a short sanitized stable identifier — never a raw
-   *  Error, message, or stack trace. */
+   *  Error, message, or stack trace. When present, errorCode MUST be a
+   *  non-empty string; otherwise omit the property. */
   skipped: Array<{ assertionId: string; reason: string; errorCode?: string }>
 }
 
@@ -1517,6 +1538,13 @@ that was a flagged P1).
 calls do not have a result envelope to surface partial failures through, so
 fail-closed is the only safe behavior.
 
+`IndexBatchResult` invariants: `skipped[]` preserves input order, and
+`indexed + skipped.length === items.length` for every non-throwing batch call.
+In fail-fast mode, `EmbeddingProviderError.indexed` reflects only rows written
+before the failed provider batch; because provider calls are chunked by
+`IndexBatchOptions.batchSize`, callers should not infer a failed item index
+from that count.
+
 `getPendingIndexing()` semantics across the four observable
 `(sqlite-vec loaded × vec0 exists)` states are documented under
 Maintenance → `getStats` and `getPendingIndexing` below.
@@ -1525,6 +1553,7 @@ Maintenance → `getStats` and `getPendingIndexing` below.
 
 ```typescript
 type RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'
+type RetrievalMode = 'snapshot' | 'trajectory'
 type QueryTextMode = 'phrase' | 'fts5'
 
 interface RetrievalQuery {
@@ -1629,8 +1658,14 @@ store.findPath(options: PathOptions): Promise<AssertionLink[] | null>
 
 `findPath()` returns the complete ordered path: `path[0].fromId === fromAssertionId`,
 each adjacent link connects, and the final link's `toId === toAssertionId`.
-The semantic change from v0.2 (which returned only the last hop's link for
-multi-hop paths) is documented in the Migration Guide.
+If `fromAssertionId === toAssertionId`, `findPath()` returns `[]` (zero-hop
+path) without consulting graph links. Cycle protection uses a visited assertion
+set; a returned path never repeats an assertion ID. When multiple paths exist,
+the default adapter returns the first deterministic shortest path within
+`maxDepth` using the same stable ordering as retrieval (`createdAt ASC`,
+`id ASC` for otherwise equal links); if no path is found within `maxDepth`, it
+returns `null`. The semantic change from v0.2 (which returned only the last
+hop's link for multi-hop paths) is documented in the Migration Guide.
 
 ### Maintenance
 
@@ -1697,6 +1732,8 @@ interface RebuildFtsOptions {
 
 interface RebuildFtsResult {
   reindexedRows: number
+  /** The tokenizer active after rebuild. If options.tokenizer was omitted
+   *  for a repair-only rebuild, this is the previously configured tokenizer. */
   newTokenizer: FTS5TokenizerConfig
   durationMs: number
 }
@@ -1854,6 +1891,11 @@ standard `ensureVectorReady()` contract — `upgradeNamespaceToVector` does
 not require `sqlite-vec` to be loaded at the moment of upgrade, only at the
 moment of the first index/retrieve.
 
+Operational note: callers must quiesce other writers before running
+`upgradeNamespaceToVector()`. The library does not coordinate multi-process
+writes; concurrent readers may observe either the old vectorless metadata or
+the new vector-configured metadata depending on transaction timing.
+
 `deleteNamespace()` looks up `embedding_table` from `trl_namespaces`
 (DB-authoritative, not from process-local cache). The namespace's own vec0
 virtual table IS dropped when present (it belongs to a single namespace by
@@ -1883,6 +1925,9 @@ callers that explicitly accept the partial-on-failure trade-off.
 
 `rebuildFts()` drops and recreates the global per-database `trl_fts` table
 and re-populates from `trl_assertions` in batches inside one transaction.
+The rowid invariant is mandatory: rebuild MUST insert with
+`INSERT INTO trl_fts(rowid, content) SELECT rowid, content FROM trl_assertions`
+so `trl_fts.rowid === trl_assertions.rowid` remains true for BM25 rowid joins.
 Used to switch tokenizers on a populated database (the path the migration
 system flags via `MigrationCompatibilityError` with
 `{ kind: 'rebuild-fts', ... }`). Throws `MigrationCompatibilityError` if the
@@ -1974,6 +2019,9 @@ computed deterministically from the namespace at registration time; its
 presence in metadata does not prove the virtual table exists. Code paths
 that need the existence answer must query `sqlite_master` or use
 `getStats().vectorReady`.
+`getStats()` and `getPendingIndexing()` use this same `sqlite_master` lookup
+for vec0 existence; they do not infer existence from the planned
+`embedding_table` value in `trl_namespaces`.
 
 Required regression test: open a file-backed DB, write assertions, index
 them with `sqlite-vec` loaded, close, reopen WITHOUT loading `sqlite-vec`,
@@ -2122,9 +2170,8 @@ Runs in two cases:
 - `retrievalStrategy === 'hybrid'` AND Step 2 was skipped via text-only
   fallback (per the rule above).
 
-SQL pattern (must mirror existing
-[retrieve.ts:240-250](../../src/pipeline/retrieve.ts#L240) to handle FTS5
-external-content rowid semantics correctly):
+SQL pattern (must preserve the BM25 rowid-join invariant for FTS5
+external-content tables):
 
 ```sql
 SELECT a.id AS assertion_id, bm25(trl_fts) AS bm25_score
@@ -2138,8 +2185,8 @@ LIMIT ?
 
 FTS5 external-content tables cannot read UNINDEXED columns directly; all
 `assertion_id` reads must come from `trl_assertions` via the `rowid` join.
-The library's existing comment at retrieve.ts:241-242 documents this
-constraint; the v0.3 BM25-only branch must obey it. Step 2-bm25 never loads
+The v0.3 BM25-only branch must obey this stable SQL invariant. Step 2-bm25
+never loads
 `sqlite-vec` and never touches vec0 — it is the path that supports the
 "BM25-only retrieval works without sqlite-vec" claim in Peer Dependencies.
 
@@ -2177,6 +2224,10 @@ choice provided the scorer itself is deterministic per the `RetrievalScorer`
 contract. The contract is part of the public API: regulated-domain consumers
 may rely on it for audit reproducibility. The single-BM25 / equal-BM25 case
 (`scoreBatch` `range === 0`) is well-defined per the `DefaultScorer` contract.
+`createdAt` values used in ordering MUST be canonical ISO 8601 strings with
+consistent precision, so lexicographic order matches temporal order. The final
+`id ASC` tie-break assumes SQLite's default BINARY text collation; trageti
+managed IDs and ordering columns must not be declared with `COLLATE NOCASE`.
 
 ### Step 7: Graph Expansion
 
@@ -2209,6 +2260,8 @@ Required log codes:
 | `TRGT_RETRIEVE_VECTOR_SKIPPED` | info | `retrieve` (hybrid graceful degradation; `reason: 'NO_PROVIDER' \| 'NO_SQLITE_VEC' \| 'NAMESPACE_VECTORLESS'`) |
 | `TRGT_STATS_VEC_NOT_INTROSPECTED` | debug | `getStats` (sqlite-vec not loaded but vec0 exists; once per call) |
 | `TRGT_PENDING_INDEXING_VECTORLESS` | debug | `getPendingIndexing` (vectorless namespace; once per call) |
+| `TRGT_NAMESPACE_VECTOR_UPGRADED` | info | `upgradeNamespaceToVector` successful metadata transition |
+| `TRGT_MOCK_PROVIDER_NON_PRODUCTION` | warn | `MockEmbeddingProvider` used outside `NODE_ENV === 'test'`; once per process |
 | `TRGT_DEPRECATED_USAGE` | warn | any deprecated symbol; once per process per symbol (suppressible via `Logger`) |
 
 `store.explain(query)` returns a structured description of SQL plans, candidate
@@ -2356,15 +2409,23 @@ Required test classes:
 - **Complete multi-hop `findPath()`.** Property test on randomly generated
   small DAGs: `path[0].fromId === fromAssertionId`, every adjacent pair of
   links connects, `path[path.length - 1].toId === toAssertionId`. Plus
-  cycle protection and `maxDepth` boundary tests.
+  `fromAssertionId === toAssertionId` (`[]`), cycle protection, no repeated
+  assertion IDs in returned paths, deterministic shortest-path selection, and
+  `maxDepth` boundary tests.
 - **FTS adversarial inputs.** Quotes, parens, FTS5 operators (`AND`, `OR`,
   `NOT`, `NEAR`), asterisks, unicode combining marks, empty and
   whitespace-only strings — all in BOTH `queryTextMode: 'phrase'` (default)
   AND `queryTextMode: 'fts5'` modes.
+- **`rebuildFts()` rowid preservation.** Rebuild with and without a new
+  tokenizer, then verify BM25 rowid joins still return assertion IDs via
+  `trl_assertions.rowid = trl_fts.rowid` and `newTokenizer` is the resolved
+  active config.
 - **Reindex provider failure preserves old embeddings** (staging-swap
   invariant).
 - **`indexBatch()`** returns skipped IDs (with `onProviderError: 'skip'`)
-  or throws (`'fail-fast'`).
+  or throws (`'fail-fast'`); verifies input-order `skipped[]`, non-empty
+  `errorCode` when present, and `indexed + skipped.length === items.length`
+  for non-throwing calls.
 - **`deleteNamespace()` with extension tables** marked
   `referencesNamespace: true`. Tables are NOT dropped; only per-namespace
   rows are removed via the generated DELETE. Without `cascade: true`,
@@ -2379,9 +2440,14 @@ Required test classes:
 - **`DefaultScorer` four cases.** Hybrid (A), vector-only (B), BM25-only
   (C), both-null (D, must throw). Plus `scoreBatch()` `range === 0` case
   (single BM25, all-equal BM25).
+- **`MockEmbeddingProvider` non-production warning.** Emits
+  `TRGT_MOCK_PROVIDER_NON_PRODUCTION` once per process outside
+  `NODE_ENV === 'test'`; does not emit in tests.
 - **Determinism contract.** Same query against same DB state returns same
   results in same order across invocations; tie-breaking by
-  `(score DESC, validFrom DESC, createdAt ASC, id ASC)`.
+  `(score DESC, validFrom DESC, createdAt ASC, id ASC)`, including canonical
+  `createdAt` string ordering and BINARY `id` collation assumptions.
+  Custom-scorer determinism is covered with a deterministic stub scorer.
 - **E2E scenarios with realistic temporal drift.** Replacement,
   accumulation, contradiction, resolution, citation-rich context assembly;
   domain-flavored fixtures for at least one of medical / legal / mental
@@ -2453,10 +2519,12 @@ Core runtime dependency posture:
 Provider adapters declare their own optional peer dependencies (e.g.
 `@xenova/transformers` for `TransformersJsEmbeddingProvider`, `openai` for
 `OpenAIEmbeddingProvider`, none for `OllamaEmbeddingProvider` since it talks
-to Ollama over HTTP). The core `trageti` import never carries these.
+to Ollama over HTTP; callers are responsible for running an Ollama instance).
+The core `trageti` import never carries these.
 
 `MockEmbeddingProvider` and `RawVectorProvider` ship in core with zero extra
-dependencies.
+dependencies. `MockEmbeddingProvider` is test/quickstart-only and emits the
+non-production warning described under Provider Adapters.
 
 ---
 
@@ -2523,8 +2591,10 @@ adding `await` (or `.then(...)`) to every `store.*` invocation. The methods
 do no async work beyond what they did in v0.2 for writes and introspection —
 the change is contract-level, intended to make the API uniform and
 future-proof for async middleware, remote vector backends, and any other
-extension that becomes async later. Internal storage and scoring remain
-synchronous; nothing about hot-path performance changes.
+extension that becomes async later. The migration intentionally avoids a
+permanent sync/async split where method behavior depends on whether providers
+or async hooks are configured. Internal storage and scoring remain synchronous;
+nothing about hot-path performance changes.
 
 ```typescript
 // v0.2
@@ -2725,12 +2795,10 @@ re-opening the v0.3 contract.
   (`@trageti/provider-ollama`). Subpaths share versioning and reduce npm
   surface; companions allow independent release cadence and dependency
   isolation. *Working assumption: subpath exports. Decision before 0.3.0 RC.*
-- **`supersedeAssertion()` retention.** Removed entirely vs retained as an
-  advanced escape hatch for closing assertions with no replacement (use
-  case: data correction where the predecessor is invalid and no
-  replacement exists). *Working assumption: retained as
-  `store.advanced.closeAssertion()` to make the intent explicit at the call
-  site.*
+- **`supersedeAssertion()` retention â€” RESOLVED.** Removed from the primary
+  API. v0.3 retains the narrow escape hatch as `store.advanced.closeAssertion()`
+  for closing assertions with no replacement (for example, data correction
+  where the predecessor is invalid and no replacement exists).
 - **Constrained schema-extension builder.** A typed builder API that gates
   raw SQL for configuration-driven products. v0.3 ships only the
   trust-boundary documentation and the declarative `namespaceColumn`
