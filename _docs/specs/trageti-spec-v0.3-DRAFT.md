@@ -953,6 +953,10 @@ interface Logger {
   info(code: string, fields?: Record<string, unknown>): void
   warn(code: string, fields?: Record<string, unknown>): void
   error(code: string, fields?: Record<string, unknown>): void
+  /** Optional. When present, awaited during `store.close()` so buffered
+   *  records are written before the store resolves. May be synchronous or
+   *  return a Promise; the library awaits the result either way. */
+  flush?(): void | Promise<void>
 }
 ```
 
@@ -1075,11 +1079,13 @@ by the supplied options. The relevant cases:
     (indexing) or `RetrievalInputError(RETRIEVAL_DIMENSION_MISMATCH)`
     (retrieve). `sqlite-vec` not loaded throws
     `MissingPeerDependencyError`.
-  - **Provider-derived indexing** — calling `indexAssertion(id)` or
+  - **Provider-derived indexing** — calling
     `indexBatch([{ assertionId }, ...])` (no `embedding` supplied) records
     each item in `IndexBatchResult.skipped` with
-    `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`; `indexAssertion` (single-target)
-    throws `IndexingError(NO_EMBEDDING_AND_NO_PROVIDER)`.
+    `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. `indexAssertion(id)`
+    (single-target) has no result envelope to surface partial failures
+    through, so it throws `IndexingError(NO_EMBEDDING_AND_NO_PROVIDER)`
+    instead.
   - **Provider-derived retrieval** — `retrieve({ queryText, ... })` with no
     `queryEmbedding` follows the Step 0 routing rules: hybrid degrades to
     BM25-only with `TRGT_RETRIEVE_VECTOR_SKIPPED reason: 'NO_PROVIDER'`;
@@ -2795,7 +2801,7 @@ re-opening the v0.3 contract.
   (`@trageti/provider-ollama`). Subpaths share versioning and reduce npm
   surface; companions allow independent release cadence and dependency
   isolation. *Working assumption: subpath exports. Decision before 0.3.0 RC.*
-- **`supersedeAssertion()` retention â€” RESOLVED.** Removed from the primary
+- **`supersedeAssertion()` retention — RESOLVED.** Removed from the primary
   API. v0.3 retains the narrow escape hatch as `store.advanced.closeAssertion()`
   for closing assertions with no replacement (for example, data correction
   where the predecessor is invalid and no replacement exists).
