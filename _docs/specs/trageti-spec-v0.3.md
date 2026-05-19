@@ -32,13 +32,13 @@ better operational visibility.
 
 ---
 
-### v0.3 - Draft, May 2026
+### v0.3 — May 2026
 
 **Breaking changes are intentional.** The design goal is a professional-use
 library that can be adopted safely by teams who will not read the source.
 
-**Rev 3 additions over rev 2** (after multi-round review against the actual
-v0.2 source):
+**Notable changes from v0.2** (after multi-round design review against the
+actual v0.2 source):
 
 - **All public `TemporalStore` methods are async.** Uniform `Promise<...>`
   contract across writes, retrieval, indexing, introspection, lifecycle.
@@ -667,6 +667,31 @@ interface GraphQueryAdapter {
 }
 ```
 
+**Adapter / store boundary — explicit.** The `GraphQueryAdapter`
+operates over the **graph edge layer**: both methods return
+`AssertionLink[]` (the edges traversed). The store layer is responsible
+for hydrating those edges into the assertion records callers actually
+see:
+
+- `store.getConnected(options)` invokes
+  `adapter.findConnected(db, namespace, [options.fromAssertionId], options)`,
+  collects the distinct `toId`s from the returned links, and hydrates
+  them into `Assertion[]` (with citations) via the standard repository
+  read path. Adapters never construct `Assertion` values themselves.
+- `store.findPath(options)` invokes
+  `adapter.findPath(db, namespace, options.fromAssertionId, options.toAssertionId, options)`
+  and returns the result `AssertionLink[] | null` directly to the
+  caller — no per-link hydration is needed because the public
+  `findPath()` contract returns links, not assertions.
+
+This split keeps custom adapters focused on traversal correctness (and
+free to use any in-database graph representation: CTE, recursive view,
+materialized closure, future ANN-graph hybrid) while the store owns
+hydration, citation joins, and result-envelope construction. Custom
+adapters MUST NOT return assertion data outside the documented
+`AssertionLink` fields; doing so violates the boundary and yields
+implementation-dependent behavior.
+
 The default CTE adapter must include cycle protection and tests for direct,
 multi-hop, cyclic, expired-link, and max-depth scenarios.
 
@@ -751,7 +776,10 @@ C. semanticDistance null AND bm25Score non-null  (BM25-only candidate):
    return (0.3 / 0.4) * bm25 + (0.1 / 0.4) * recency
 
 D. both null  (unreachable — pipeline filters before scoring):
-   throw Error('candidate has no usable signal')
+   throw TragetiError({
+     code: 'SCORER_NO_USABLE_SIGNAL',
+     message: 'candidate has no usable signal'
+   })
 ```
 
 Batch `scoreBatch(candidates, context)` mirrors the per-candidate cases but
@@ -955,15 +983,26 @@ v0.3 for zero-dependency examples, but it MUST emit a single
 
 #### Provider Adapters
 
-Reference adapters are distributed as either subpath exports or companion
-packages — final packaging policy is an Open Question.
+The `EmbeddingProvider` interface is the v0.3 contract; the *packaging* of
+external reference adapters (Ollama, Transformers.js, OpenAI) is
+**explicitly out of v0.3's public contract**. The 0.3.0 implementation may
+ship them as subpath exports (`trageti/providers/ollama`), as companion
+packages (`@trageti/provider-ollama`), or both, and may change the
+distribution shape in any patch or minor release without it being a
+breaking change. Adopters who need stable adapter import paths should pin
+to the specific subpath or companion package they consume, or implement
+the `EmbeddingProvider` interface themselves.
+
+Reference adapters planned for the initial release:
 
 - `OllamaEmbeddingProvider` — local Ollama HTTP server.
 - `TransformersJsEmbeddingProvider` — in-process via `@xenova/transformers`.
 - `OpenAIEmbeddingProvider` — OpenAI-compatible HTTP API.
 
-Each adapter declares its own optional peer dependency. The core package never
-takes a runtime dependency on an adapter.
+Each adapter declares its own optional peer dependency. The core package
+never takes a runtime dependency on an adapter; the `EmbeddingProvider`
+interface, `RawVectorProvider`, and `MockEmbeddingProvider` are the only
+provider-related surfaces in core, and those are in contract.
 
 #### Failure Semantics in Indexing
 
@@ -1380,10 +1419,20 @@ interface CreateOptions extends TemporalStoreOptions {
   database: string | Database
   /** Forwarded to prepareDatabase() when `database` is a string. */
   prepare?: PrepareDatabaseOptions
-  /** When true, store.close() also closes the underlying better-sqlite3
-   *  Database handle. Default false (caller owns the handle). Useful when
-   *  the application uses TemporalStore.create() with a filename and never
-   *  touches the underlying handle directly. */
+  /** Controls whether store.close() also closes the underlying
+   *  better-sqlite3 Database handle.
+   *
+   *  Default is **ownership-driven**:
+   *  - When `database` is a string (trageti opened the handle), defaults
+   *    to `true` — closing the store closes the handle trageti owns.
+   *  - When `database` is a Database instance (caller opened the handle),
+   *    defaults to `false` — caller retains ownership and is responsible
+   *    for closing it.
+   *
+   *  Explicitly set this to override. Set `false` with a filename input
+   *  when the underlying handle should outlive the store (rare); set
+   *  `true` with a caller-supplied Database to transfer ownership to
+   *  trageti. */
   closeDatabaseOnStoreClose?: boolean
 }
 
@@ -2315,6 +2364,14 @@ store.getMigrations(): Promise<readonly MigrationDescriptor[]>
 store.getCurrentSchemaVersion(): Promise<number>
 ```
 
+`MigrationDescriptor` is the **read-side, public introspection view** of a
+migration — a flat record describing version, name, and applied timestamp.
+It is distinct from the executable `Migration` shape used internally by the
+migration runner (which carries the `up(db)` body and the
+`requiresForeignKeyToggle` flag; see Schema and Migrations). Consumers
+never construct or implement `Migration` directly; they observe applied
+state through `MigrationDescriptor`.
+
 These exist for ops dashboards, schema-drift monitoring, and pre-deploy
 checks. They are pure introspection and do not mutate state.
 
@@ -2327,12 +2384,24 @@ store.close(): Promise<void>
 `close()` marks the store unusable, disposes any middleware or observers
 that implement an optional `dispose()` method, flushes the configured logger
 if it exposes a `flush()` hook, and resolves. After `close()`, every other
-method throws `StoreClosedError`. `close()` does NOT close the underlying
-`better-sqlite3` database by default — that responsibility remains with
-whoever opened it (typically `prepareDatabase()` callers close it
-themselves). `TemporalStore.create()` callers may pass
-`closeDatabaseOnStoreClose: true` in `CreateOptions` to opt in to
-library-managed shutdown of the underlying handle.
+method throws `StoreClosedError`.
+
+Whether `close()` also closes the underlying `better-sqlite3` database
+handle is governed by `CreateOptions.closeDatabaseOnStoreClose`, which
+defaults to **ownership-driven**: trageti closes the handle iff it opened
+it. Concretely:
+
+- `TemporalStore.create({ database: 'rag.db' })` → store opened the
+  handle → `close()` closes it. Callers do not need to track the handle.
+- `TemporalStore.create({ database: existingDb })` → caller opened the
+  handle → `close()` leaves it open. Caller closes when ready.
+- Explicit `closeDatabaseOnStoreClose: true | false` overrides the default
+  in either direction.
+
+This means the common path — `await TemporalStore.create({ database: 'rag.db' })`
++ `await store.close()` — does not leak the connection. The low-level
+`prepareDatabase()` + `new TemporalStore(db, opts)` path is unchanged:
+caller owns `db`, caller closes `db`.
 
 `close()` is idempotent.
 
@@ -2536,6 +2605,7 @@ Required log codes:
 | `TRGT_PENDING_INDEXING_VECTORLESS` | debug | `getPendingIndexing` (vectorless namespace; once per call) |
 | `TRGT_NAMESPACE_VECTOR_UPGRADED` | info | `upgradeNamespaceToVector` successful metadata transition |
 | `TRGT_MOCK_PROVIDER_NON_PRODUCTION` | warn | `MockEmbeddingProvider` used outside `NODE_ENV === 'test'`; once per process |
+| `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` | warn | `retrieve` (and `assembleContext` indirectly) when a `RetrievalDebug.onStep()` handler throws. The library wraps and swallows the throw so retrieval still completes; the log carries the step name and the thrown error's stable `code` (or `'UNKNOWN'`) but never the raw `Error` instance or stack trace per the field-sensitivity rules. |
 | `TRGT_DEPRECATED_USAGE` | warn | any deprecated symbol; once per process per symbol (suppressible via `Logger`) |
 
 `store.explain(query)` returns a structured description of SQL plans, candidate
@@ -2616,6 +2686,18 @@ error type for "sqlite-vec not loaded" — there is no
 All errors include stable `.code` values and structured fields where useful.
 Error messages must be actionable without exposing source content, query
 text, embedding data, or secrets.
+
+**Internal-invariant violations** that indicate a programming bug rather
+than a caller error are surfaced as plain `TragetiError` with a stable
+`.code` drawn from the following table. These are part of the public
+contract (they may appear in caller stack traces and SHOULD be filtered
+on `.code` rather than instance-of), even though they should be
+unreachable in correctly-used library code:
+
+| Code | Raised by |
+|---|---|
+| `SCORER_NO_USABLE_SIGNAL` | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5. |
+| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trl_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt. |
 
 ---
 
@@ -2794,9 +2876,9 @@ src/
 ```
 
 Optional adapters with extra runtime dependencies are exposed as subpath
-exports or separate packages — see Open Questions for the packaging policy
-decision. Adapters never become hard runtime dependencies of the core
-`trageti` import.
+exports or separate packages — see Extension Interfaces → Provider Adapters
+and Open Questions for the out-of-contract packaging carve-out. Adapters
+never become hard runtime dependencies of the core `trageti` import.
 
 ---
 
@@ -3108,8 +3190,17 @@ const store = await TemporalStore.create({ database: 'rag.db', ...options })
 await store.close()
 ```
 
-If you want trageti to also close the underlying `better-sqlite3` handle,
-pass `closeDatabaseOnStoreClose: true` to `TemporalStore.create()`.
+The common filename path — `TemporalStore.create({ database: 'rag.db' })`
++ `await store.close()` — now closes the underlying `better-sqlite3`
+handle automatically; the v0.3 ownership-driven default (see
+`CreateOptions.closeDatabaseOnStoreClose`) is "trageti closes what it
+opened." Override only when needed:
+
+- Pass `closeDatabaseOnStoreClose: false` with a filename input when the
+  handle should outlive the store (rare).
+- Pass `closeDatabaseOnStoreClose: true` with a caller-supplied
+  `Database` when you intentionally want to transfer ownership of the
+  handle to trageti.
 
 ### Additive APIs
 
@@ -3129,15 +3220,19 @@ new capability is needed:
 
 ## Open Questions
 
-Items deferred from this draft, with working assumptions noted where the
-spec already takes a position. Each is tractable for a later release without
-re-opening the v0.3 contract.
+Items intentionally left to later versions or to implementation discretion,
+with working assumptions noted where the spec already takes a position.
+None block v0.3; each is tractable for a future release without re-opening
+the v0.3 contract.
 
-- **Embedding-adapter packaging.** Subpath exports of the core package
-  (`trageti/providers/ollama`) vs companion packages
-  (`@trageti/provider-ollama`). Subpaths share versioning and reduce npm
-  surface; companions allow independent release cadence and dependency
-  isolation. *Working assumption: subpath exports. Decision before 0.3.0 RC.*
+- **Embedding-adapter packaging — out of v0.3 contract.** Whether the
+  reference adapters (Ollama, Transformers.js, OpenAI) ship as subpath
+  exports of core (`trageti/providers/ollama`) or as companion packages
+  (`@trageti/provider-ollama`) is an implementation decision, not a v0.3
+  contract decision (see Extension Interfaces → Provider Adapters). The
+  initial 0.3.0 implementation will pick one; the choice may evolve
+  without breaking the v0.3 contract because the adapter import paths
+  are explicitly carved out.
 - **`supersedeAssertion()` retention — RESOLVED.** Removed from the primary
   API. v0.3 retains the narrow escape hatch as `store.advanced.closeAssertion()`
   for closing assertions with no replacement (for example, data correction
