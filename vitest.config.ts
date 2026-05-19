@@ -18,11 +18,12 @@ export default defineConfig({
         'src/defaults/index.ts', // barrel
         'src/domain/types.ts', // type-only
       ],
+      // v0.3 thresholds (spec §coverage). Raised from v0.2 (90/90/75/90).
       thresholds: {
-        lines: 90,
-        functions: 90,
-        branches: 75,
-        statements: 90,
+        lines: 95,
+        functions: 95,
+        branches: 85,
+        statements: 95,
       },
     },
   },
