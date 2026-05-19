@@ -1,5 +1,100 @@
 # trageti Changelog
 
+## 0.3.0
+
+### Major API redesign
+
+**BREAKING — uniform async API.** All public `TemporalStore` methods now return
+`Promise`. Callers must `await` every store call (`store.init()`,
+`store.writeEpisode(...)`, `store.retrieve(...)`, etc.). Internal repository
+calls remain synchronous; the async surface exists for forward-compat with
+async middleware and remote backends.
+
+**BREAKING — `RetrievalQuery.queryEmbedding` is now optional.** `retrieve()`
+requires one of `queryText`, `queryEmbedding`, or both, and routes by the
+new `retrievalStrategy` field (`'hybrid' | 'vector' | 'bm25'`, default
+`'hybrid'`). Strategy `'vector'` requires `queryEmbedding`; `'bm25'`
+requires `queryText`; `'hybrid'` uses whichever inputs are available.
+
+**BREAKING — default `queryTextMode` flipped to `'phrase'`.** User-supplied
+`queryText` is now wrapped in a literal FTS5 phrase by default (operators
+like `AND`/`OR`/`NEAR` are treated as text). Pass `queryTextMode: 'fts5'`
+to restore the v0.2 raw-syntax behavior. This change is silent at the API
+boundary; existing queries that did not rely on FTS5 operators are
+unaffected.
+
+### New public surface
+
+- **Lifecycle:** `TemporalStore.create(options)` factory, `close()`,
+  `requireOpen()`, `prepareDatabase()`, `StoreClosedError`. Ownership rule:
+  `create({ database: string })` opens and owns the handle; `create({
+  database: Database })` leaves the handle to the caller.
+- **Logger/Metrics:** `Logger` interface (`debug`/`info`/`warn`/`error`),
+  default `ConsoleLogger` (warn+error to stderr) and `NoopLogger`. Optional
+  `Metrics` interface — no default implementation; emission is a guarded
+  no-op when unset.
+- **Vectorless namespaces:** `embeddingDimension` is now optional. Omitting
+  it (or passing `null`) registers a vectorless namespace usable with
+  BM25-only retrieval and no `sqlite-vec` dependency.
+- **Providers:** `EmbeddingProvider` contract (batch `embed(texts, options)`
+  with `purpose` and `AbortSignal`); core ships `MockEmbeddingProvider`
+  (deterministic hashed; emits `TRGT_MOCK_PROVIDER_NON_PRODUCTION` once
+  per process outside `NODE_ENV=test`) and `RawVectorProvider`.
+- **Indexing:** `indexBatch(items, options)` returns
+  `IndexBatchResult = { indexed: number, skipped: Array<{ assertionId,
+  reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
+  `indexAssertion` still throws `IndexingError(ASSERTION_NOT_FOUND)`.
+- **Maintenance:** `rebuildFts(options)` drops and recreates `trl_fts`
+  with a new tokenizer, preserves the rowid invariant, and updates
+  `trl_fts_meta`. `upgradeNamespaceToVector(namespace, { embeddingDimension })`
+  is the only path from vectorless to vector-configured.
+- **Errors:** stable codes via `ErrorCode.*` and new classes
+  `StoreClosedError`, `NamespaceDimensionMismatchError`,
+  `MigrationCompatibilityError`, `IndexingError`, `RetrievalInputError`,
+  `ReindexError`, `EmbeddingProviderError`, `ReferencedExtensionTableError`,
+  `MissingPeerDependencyError`.
+
+### Storage
+
+- **Migration v003** introduces nullable `trl_namespaces.embedding_dimension`
+  and `embedding_table` columns with a both-null-or-both-non-null `CHECK`,
+  plus a new `trl_fts_meta` table that records the active tokenizer
+  configuration (library-managed; not parsed from `sqlite_master`).
+- **FK-toggle migration choreography** (`requiresForeignKeyToggle: true`):
+  the runner captures the current `PRAGMA foreign_keys`, disables it,
+  BEGINs an explicit transaction, runs the migration body, runs
+  `PRAGMA foreign_key_check` (rolls back if violations are found),
+  inserts the schema-version row, COMMITs, then restores the captured FK
+  state in `finally`.
+- **Lazy vec0 creation.** `init()` no longer eagerly creates per-namespace
+  vec0 virtual tables; an internal `ensureVectorReady(namespace)` chokepoint
+  validates the namespace is vector-configured, that `sqlite-vec` is
+  loaded, and creates the vec0 table on first use.
+
+### Scoring and ranking
+
+- `DefaultScorer` retains its 60/30/10 weighting (semantic / BM25 / recency)
+  and renormalizes weights when one signal is absent. Throws
+  `TragetiError(SCORER_NO_USABLE_SIGNAL)` when both signals are null.
+- **Deterministic tie-breaks:** results are ordered by `(score DESC,
+  validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
+  with consistent precision so lexicographic order matches temporal order;
+  library-managed IDs use SQLite BINARY collation.
+
+### Misc
+
+- `DefaultConnectionVerifier` downgrades the "sqlite-vec not loaded" path
+  from a fatal `ConnectionVerificationError` to a warning so vectorless
+  deployments can operate without the extension.
+- Schema-extension validation runs at `init()` time:
+  `referencesNamespace: true` requires `namespaceColumn`, and that column
+  is verified against `PRAGMA table_info` after `createSQL` runs.
+- New log codes: `TRGT_NON_WAL_MODE`, `TRGT_SQLITE_VEC_NOT_LOADED`,
+  `TRGT_FOREIGN_KEYS_DISABLED`, `TRGT_EPISODE_CONTENT_LARGE`,
+  `TRGT_CITATION_EXCERPT_MISSING`, `TRGT_CROSS_NAMESPACE_LINK`,
+  `TRGT_INDEX_BATCH_SKIPPED`, `TRGT_DELETE_NAMESPACE_HAS_REFERENCES`,
+  `TRGT_MOCK_PROVIDER_NON_PRODUCTION`.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -2,6 +2,12 @@
 
 Temporally-aware retrieval-augmented generation over SQLite.
 
+> **v0.3 is a substantial API redesign.** All public methods are now async,
+> retrieval has an explicit strategy field (`hybrid` / `vector` / `bm25`),
+> namespaces can be vectorless (BM25-only without `sqlite-vec`), and there
+> is a real `create()` / `close()` lifecycle. Upgrading from v0.2? See
+> [_docs/migration-v0.2-to-v0.3.md](_docs/migration-v0.2-to-v0.3.md).
+
 `trageti` stores, indexes, and retrieves *episodic assertions* — discrete, typed claims with explicit validity windows — with retrieval that respects temporal position as a first-class constraint alongside semantic similarity and full-text matching.
 
 ## Features
@@ -31,24 +37,16 @@ npm install sqlite-vec
 ## Quick start
 
 ```typescript
-import Database from 'better-sqlite3'
-import * as sqliteVec from 'sqlite-vec'
 import { TemporalStore } from 'trageti'
 
-const db = new Database('my-store.db')
-sqliteVec.load(db)
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
-db.pragma('temp_store = MEMORY')  // keeps query intermediates in memory
-
-const store = new TemporalStore(db, {
+const store = await TemporalStore.create({
+  database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
 })
-store.init()
 
 // Write an episode (provenance anchor)
-store.writeEpisode({
+await store.writeEpisode({
   id: 'ep-1',
   namespace: 'my-namespace',
   position: 1,
