@@ -1,6 +1,6 @@
 {
   "name": "trageti",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Temporally-aware retrieval-augmented generation over SQLite — episodic assertions with explicit validity windows and hybrid vector + keyword retrieval",
   "type": "module",
   "engines": {

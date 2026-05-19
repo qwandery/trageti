@@ -116,16 +116,13 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     toId: string,
     options: PathOptions,
   ): AssertionLink[] | null {
+    if (fromId === toId) return []
+
     const { temporalAnchor, maxDepth } = options
 
-    // BFS via recursive CTE tracking the path
     const sql = `
-      WITH RECURSIVE path_search(id, namespace, from_id, to_id, link_type,
-                                  valid_from, valid_until, source_episode_id, created_at,
-                                  depth, path_ids) AS (
-        SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
-               l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
-               1, json_array(l.id)
+      WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids) AS (
+        SELECT l.to_id, 1, json_array(l.id), json_array(l.from_id, l.to_id)
         FROM trl_links l
         WHERE l.namespace = ?
           AND l.from_id = ?
@@ -134,61 +131,74 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
         UNION ALL
 
-        SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
-               l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
-               p.depth + 1, json_insert(p.path_ids, '$[#]', l.id)
+        SELECT l.to_id, p.depth + 1,
+               json_insert(p.path_ids, '$[#]', l.id),
+               json_insert(p.visited_to_ids, '$[#]', l.to_id)
         FROM trl_links l
         JOIN path_search p ON l.from_id = p.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
           AND (l.valid_until IS NULL OR l.valid_until > ?)
           AND p.depth < ?
-          AND json_each.value IS NULL  -- cycle guard placeholder
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(p.visited_to_ids) WHERE value = l.to_id
+          )
       )
-      SELECT id, namespace, from_id, to_id, link_type,
-             valid_from, valid_until, source_episode_id, created_at, path_ids
-      FROM path_search
-      WHERE to_id = ?
-      ORDER BY depth ASC
-      LIMIT 1
+      SELECT path_ids, depth FROM path_search WHERE to_id = ? ORDER BY depth ASC
     `
 
-    // Simpler two-query approach: find the link IDs on the shortest path
-    const simpleSql = `
-      WITH RECURSIVE path_search(to_id, depth, link_id) AS (
-        SELECT l.to_id, 1, l.id
-        FROM trl_links l
-        WHERE l.namespace = ?
-          AND l.from_id = ?
-          AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
-
-        UNION ALL
-
-        SELECT l.to_id, p.depth + 1, l.id
-        FROM trl_links l
-        JOIN path_search p ON l.from_id = p.to_id
-        WHERE l.namespace IS NOT NULL
-          AND (SELECT namespace FROM trl_links WHERE id = l.id LIMIT 1) = ?
-          AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
-          AND p.depth < ?
+    const rows = db
+      .prepare<unknown[], { path_ids: string; depth: number }>(sql)
+      .all(
+        namespace,
+        fromId,
+        temporalAnchor,
+        temporalAnchor,
+        namespace,
+        temporalAnchor,
+        temporalAnchor,
+        maxDepth,
+        toId,
       )
-      SELECT link_id FROM path_search WHERE to_id = ? ORDER BY depth ASC LIMIT 1
-    `
 
-    void sql // unused complex version
+    if (rows.length === 0) return null
 
-    // Straightforward iterative approach using the CTE's anchor row only
-    const found = db
-      .prepare<unknown[], { link_id: string }>(simpleSql)
-      .get(namespace, fromId, temporalAnchor, temporalAnchor, namespace, temporalAnchor, temporalAnchor, maxDepth, toId)
+    const minDepth = rows[0]!.depth
+    const candidates: string[][] = rows
+      .filter((r) => r.depth === minDepth)
+      .map((r) => JSON.parse(r.path_ids) as string[])
 
-    if (!found) return null
+    const allIds = [...new Set(candidates.flat())]
+    const placeholders = allIds.map(() => '?').join(',')
+    const linkRows = db
+      .prepare<string[], LinkRow>(
+        `SELECT * FROM trl_links WHERE id IN (${placeholders})`,
+      )
+      .all(...allIds)
+    const byId = new Map<string, AssertionLink>()
+    for (const r of linkRows) byId.set(r.id, rowToLink(r))
 
-    const link = db
-      .prepare<[string], LinkRow>('SELECT * FROM trl_links WHERE id = ?')
-      .get(found.link_id)
-    return link ? [rowToLink(link)] : null
+    let winner = candidates[0]!
+    for (let i = 1; i < candidates.length; i++) {
+      if (comparePaths(candidates[i]!, winner, byId) < 0) winner = candidates[i]!
+    }
+
+    return winner.map((id) => byId.get(id)!)
   }
+}
+
+function comparePaths(
+  a: string[],
+  b: string[],
+  byId: Map<string, AssertionLink>,
+): number {
+  for (let i = 0; i < a.length; i++) {
+    const la = byId.get(a[i]!)!
+    const lb = byId.get(b[i]!)!
+    if (la.createdAt < lb.createdAt) return -1
+    if (la.createdAt > lb.createdAt) return 1
+    if (la.id < lb.id) return -1
+    if (la.id > lb.id) return 1
+  }
+  return 0
 }

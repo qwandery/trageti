@@ -102,7 +102,7 @@ trageti/
 ├── tsup.config.ts              Dual ESM+CJS; dts; better-sqlite3 externalised
 ├── vitest.config.ts            Single fork (SQLite determinism); v8 coverage
 ├── package.json                exports map: ESM types-first; CJS via .d.cts
-└── trageti-spec-v0.1.md        The source of truth for behaviour
+└── _docs/specs/trageti-spec-v0.2.md   Source of truth for behaviour (v0.1 deprecated)
 ```
 
 ### Layering rules
@@ -735,7 +735,7 @@ npm run build
 
 ## Performance considerations
 
-This is a v0.1 library with conservative performance characteristics. Hot spots to be aware of:
+This is a v0.2 library with conservative performance characteristics. Hot spots to be aware of:
 
 ### `findPath` is O(branching^depth)
 

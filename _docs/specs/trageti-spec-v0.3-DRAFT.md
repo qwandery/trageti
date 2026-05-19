@@ -94,10 +94,6 @@ v0.2 source):
   table and swaps it into use only after all embeddings are generated and
   validated.
   Migration note: failed reindex preserves the previous usable index.
-- **`findPath()` returns a complete path.** A successful path result must contain
-  every link in order from source assertion to target assertion.
-  Migration note: callers that only need existence can use `path.length > 0` or
-  a future `pathExists()` convenience helper.
 - **Public inputs are validated.** Invalid `limit`, `maxDepth`, temporal
   windows, token budgets, confidence bounds, and embedding dimensions throw
   `RetrievalInputError` or `ValidationError` before SQLite execution.
@@ -172,7 +168,9 @@ v0.2 source):
 ### v0.2 - May 2026
 
 Introduced required citations, `trl_citations`, trajectory retrieval mode,
-`getEntityTrajectory()`, and raw BM25 score delivery to scorers.
+`getEntityTrajectory()`, raw BM25 score delivery to scorers, complete-path
+`findPath()` (full ordered link walk + zero-hop + deterministic shortest-path
+tie-break), and enforced monotonic episode positions per namespace.
 
 ### v0.1 - April 2026
 
@@ -243,7 +241,7 @@ out of Phase 1 because it is in fact API/behavior-changing:
   `NormalizedNewAssertion`; supersession consolidated to
   `writeAssertion({ supersedesId })`.
 - FK enforcement (warn → fail-closed); `NamespaceDimensionMismatchError`
-  on reopen; `findPath()` full-path return; `IndexBatchResult` envelope.
+  on reopen; `IndexBatchResult` envelope.
 - `reindexNamespace()` defaults to atomic staging-swap; `rebuildFts()`
   introduced.
 - `queryTextMode` default flipped to `'phrase'`.
@@ -1655,6 +1653,14 @@ These return assertions valid at (or evolving through) the requested position.
 None call `ensureVectorReady()` — they are pure SQL paths over `trl_assertions`
 and never touch vec0.
 
+`getEntityTrajectory()` follows v0.2 semantics: within the entity's assertion
+set, walks `supersedesId` relationships from leaf assertions backward; merges
+discovered rows with non-chain entity assertions (each as a one-element
+trajectory) into a single array ordered by `validFrom` ASC. Distinct from
+`getEntityHistory()` only in the underlying walk (the `supersedesId` graph);
+for entities with no supersession structure, the two methods return the same
+rows.
+
 ### Graph Traversal
 
 ```typescript
@@ -1670,8 +1676,7 @@ set; a returned path never repeats an assertion ID. When multiple paths exist,
 the default adapter returns the first deterministic shortest path within
 `maxDepth` using the same stable ordering as retrieval (`createdAt ASC`,
 `id ASC` for otherwise equal links); if no path is found within `maxDepth`, it
-returns `null`. The semantic change from v0.2 (which returned only the last
-hop's link for multi-hop paths) is documented in the Migration Guide.
+returns `null`. This is inherited baseline behaviour shared with v0.2.
 
 ### Maintenance
 
@@ -2753,21 +2758,6 @@ const result = await store.reindexNamespace(ns, {
   embeddingProvider,
   strategy: 'staging-swap',
 })
-```
-
-### Graph path finding — semantic change
-
-The return type is unchanged but the value semantics change: paths longer
-than one hop now return every link in the walk, in order from
-`fromAssertionId` to `toAssertionId`.
-
-```typescript
-// Before: for a -> b -> c, path was [linkBC] (incomplete; v0.2 bug)
-// After:  for a -> b -> c, path is [linkAB, linkBC]
-const path = await store.findPath({
-  namespace, fromAssertionId: 'a', toAssertionId: 'c', maxDepth: 5,
-})
-// path[0].fromId === 'a'; path[path.length - 1].toId === 'c'
 ```
 
 ### Store lifecycle

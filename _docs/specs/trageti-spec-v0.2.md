@@ -45,14 +45,14 @@ Every assertion now requires at least one citation. This is a breaking change to
 - **`RetrievalQuery`** — gains `mode?: RetrievalMode`.
 - **`ContextAssemblyOptions`** — gains `mode?: RetrievalMode`.
 - **`RetrievedAssertion`** — gains `supersessionChain?: Assertion[]`, populated only when `mode: 'trajectory'`. Contains all prior versions of the assertion in chronological order, oldest first, including their citations.
-- **New method: `getEntityTrajectory()`** — see API section. Retrieves the full supersession chain for a specific entity by ID, across all positions. Distinct from `getEntityHistory()` (which returns all assertions for an entity regardless of supersession relationships) — trajectory follows the supersession chain specifically.
+- **New method: `getEntityTrajectory()`** — see API section. Within the entity's assertion set, walks `supersedesId` relationships from leaf assertions backward; merges discovered rows with non-chain entity assertions (each as a one-element trajectory) into a single array ordered by `validFrom` ASC. Distinct from `getEntityHistory()` only in that the underlying walk is the `supersedesId` graph; for entities with no supersession structure, the two methods return the same rows.
 - **Retrieval implementation** — trajectory mode adds a Step 7 after graph expansion: for each top-ranked result, fetch its full supersession chain via the `supersedesId` FK chain. See Retrieval Implementation section.
 
 ---
 
 #### `getEntityHistory()` clarification — ADDITIVE (documentation only)
 
-No code change. Added explicit documentation distinguishing `getEntityHistory()` (lookup by known entity ID, returns all assertions for that entity including those not in a supersession chain) from `getEntityTrajectory()` (follows the supersession chain specifically) and from trajectory mode in `assembleContext()` (semantic search first, then trajectory expansion for matched results). See Utility API section.
+No code change. Added explicit documentation distinguishing `getEntityHistory()` (lookup by known entity ID, returns all assertions for that entity) from `getEntityTrajectory()` (same entity scope, but the underlying walk is the `supersedesId` graph; non-chain entity rows are returned as one-element trajectories) and from trajectory mode in `assembleContext()` (semantic search first, then trajectory expansion for matched results). See Utility API section.
 
 ---
 
@@ -957,9 +957,11 @@ store.getAssertions(namespace: string, options?: {
 // Use when you want every assertion ever written for an entity, regardless of structure
 store.getEntityHistory(namespace: string, entityId: string): Assertion[]
 
-// Full supersession chain for an entity — follows supersedesId links specifically
-// Returns the ordered chain from the original assertion through to the current one
-// Distinct from getEntityHistory: trajectory follows the chain; history returns all records
+// Within the entity's assertion set, walks supersedesId relationships from leaf
+// assertions backward; merges discovered rows with non-chain entity assertions
+// (each as a one-element trajectory) into a single array ordered by validFrom ASC.
+// Distinct from getEntityHistory only in the underlying walk (supersedesId graph);
+// for entities with no supersession structure, the two methods return the same rows.
 // Added v0.2
 store.getEntityTrajectory(namespace: string, entityId: string): Assertion[]
 

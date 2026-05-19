@@ -3,9 +3,9 @@ import type { AssertionValidator, NewAssertion, ValidationResult } from '../../d
 import { structuredWarn } from '../../internal/logger.js'
 
 /**
- * Default user-facing validator. Enforces the existing v0.1 baseline checks
- * (required fields, ranges, FK on sourceEpisodeId) and emits the
- * CITATION_EXCERPT_MISSING warning per citation with a null excerpt.
+ * Default user-facing validator. Enforces baseline checks (required fields,
+ * ranges, FK on sourceEpisodeId) and emits the CITATION_EXCERPT_MISSING
+ * warning per citation with a null excerpt.
  *
  * NOTE: structural integrity (citation presence, citation episode namespace,
  * predecessor existence/namespace/ordering) is enforced by

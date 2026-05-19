@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import type { Episode } from '../../domain/types.js'
+import { ValidationError } from '../../errors/index.js'
 
 interface EpisodeRow {
   id: string
@@ -22,24 +23,37 @@ export class EpisodeRepository {
   }
 
   insert(episode: Omit<Episode, 'createdAt'>): Episode {
-    this.db
-      .prepare(
-        `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        episode.id,
-        episode.namespace,
-        episode.position,
-        episode.occurredAt,
-        episode.type,
-        episode.content,
-      )
-    const row = this.db
-      .prepare<[string], EpisodeRow>('SELECT * FROM trl_episodes WHERE id = ?')
-      .get(episode.id)
-    if (!row) throw new Error(`Episode "${episode.id}" not found after insert`)
-    return this.rowToEpisode(row)
+    return this.db.transaction(() => {
+      const max = this.db
+        .prepare<[string], { max_pos: number | null }>(
+          'SELECT MAX(position) AS max_pos FROM trl_episodes WHERE namespace = ?',
+        )
+        .get(episode.namespace)
+      const maxPos = max?.max_pos ?? null
+      if (maxPos !== null && episode.position <= maxPos) {
+        throw new ValidationError([
+          `Episode position ${String(episode.position)} for namespace "${episode.namespace}" must be strictly greater than the existing max position ${String(maxPos)} (positions must increase monotonically within a namespace per spec v0.2).`,
+        ])
+      }
+      this.db
+        .prepare(
+          `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          episode.id,
+          episode.namespace,
+          episode.position,
+          episode.occurredAt,
+          episode.type,
+          episode.content,
+        )
+      const row = this.db
+        .prepare<[string], EpisodeRow>('SELECT * FROM trl_episodes WHERE id = ?')
+        .get(episode.id)
+      if (!row) throw new Error(`Episode "${episode.id}" not found after insert`)
+      return this.rowToEpisode(row)
+    })()
   }
 
   getById(id: string): Episode | null {

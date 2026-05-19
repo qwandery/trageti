@@ -29,5 +29,5 @@
 - Ensure 95% test coverage is maintained.
 
 ## Commit & Pull Request Guidelines
-- Follows a direct and descriptive commit style (e.g., "Implement trageti v0.1: temporally-aware RAG over SQLite", "Add lint enforcement and expand test coverage to 95%").
+- Follows a direct and descriptive commit style (e.g., "Implement temporally-aware RAG over SQLite", "Add lint enforcement and expand test coverage to 95%").
 - Uses **Changesets** for release management (`.changeset` directory).

@@ -134,6 +134,131 @@ describe('TemporalStore — graph traversal', () => {
     expect(path).toBeNull()
   })
 
+  it('findPath returns the full ordered path for multi-hop walks', () => {
+    // a-1 → a-2 → a-4 via l-1 and l-3
+    const path = store.findPath({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      toAssertionId: 'a-4',
+      maxDepth: 5,
+      temporalAnchor: 10,
+    })
+    expect(path).not.toBeNull()
+    expect(path!.length).toBe(2)
+    expect(path![0]!.fromId).toBe('a-1')
+    expect(path![0]!.toId).toBe('a-2')
+    expect(path![1]!.fromId).toBe('a-2')
+    expect(path![1]!.toId).toBe('a-4')
+    expect(path![0]!.id).toBe('l-1')
+    expect(path![1]!.id).toBe('l-3')
+  })
+
+  it('findPath returns [] for zero-hop (same source and target)', () => {
+    const path = store.findPath({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      toAssertionId: 'a-1',
+      maxDepth: 5,
+      temporalAnchor: 10,
+    })
+    expect(path).toEqual([])
+  })
+
+  it('findPath handles cycles without infinite loop or repeated assertions', () => {
+    // Construct a cycle: a-2 → a-1 (closing a-1 → a-2 → a-1)
+    store.writeLink({
+      id: 'l-cycle',
+      namespace: NS,
+      fromId: 'a-2',
+      toId: 'a-1',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-1',
+    })
+    // Path from a-1 to a-1 is zero-hop, returns [] (no cycle traversal).
+    expect(
+      store.findPath({
+        namespace: NS,
+        fromAssertionId: 'a-1',
+        toAssertionId: 'a-1',
+        maxDepth: 5,
+        temporalAnchor: 10,
+      }),
+    ).toEqual([])
+    // Path from a-1 to nonexistent target — must terminate without infinite loop.
+    const path = store.findPath({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      toAssertionId: 'a-nonexistent',
+      maxDepth: 10,
+      temporalAnchor: 10,
+    })
+    expect(path).toBeNull()
+    // Path from a-2 to a-4 (a-2 → a-4 directly via l-3) — cycle guard must not skip it.
+    const valid = store.findPath({
+      namespace: NS,
+      fromAssertionId: 'a-2',
+      toAssertionId: 'a-4',
+      maxDepth: 5,
+      temporalAnchor: 10,
+    })
+    expect(valid).not.toBeNull()
+    // Visited-set invariant: no assertion appears more than once in the path.
+    const assertions = [valid![0]!.fromId, ...valid!.map((l) => l.toId)]
+    expect(new Set(assertions).size).toBe(assertions.length)
+  })
+
+  it('findPath picks the deterministic path among equal-depth candidates', () => {
+    // Build a second 2-hop route a-1 → a-5 → a-4 alongside a-1 → a-2 → a-4.
+    // a-1 → a-5 needs a new link; a-5 → a-4 also needs a new link.
+    store.writeLink({
+      id: 'l-alt1',
+      namespace: NS,
+      fromId: 'a-1',
+      toId: 'a-5',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-1',
+    })
+    store.writeLink({
+      id: 'l-alt2',
+      namespace: NS,
+      fromId: 'a-5',
+      toId: 'a-4',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-1',
+    })
+    // Pin distinct created_at values so the tie-break has a stable signal.
+    // Path A (a-1 → a-2 → a-4 via l-1, l-3): force l-1 to earlier timestamp.
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.001Z' WHERE id = ?").run('l-1')
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.002Z' WHERE id = ?").run('l-3')
+    // Path B (a-1 → a-5 → a-4 via l-alt1, l-alt2): later timestamps.
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:00.000Z' WHERE id = ?").run('l-alt1')
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:01.000Z' WHERE id = ?").run('l-alt2')
+
+    // Run ten times; assert the same path is returned each time, and that it is Path A
+    // (smaller first-hop created_at wins the lex comparison).
+    const winners = Array.from({ length: 10 }, () =>
+      store.findPath({
+        namespace: NS,
+        fromAssertionId: 'a-1',
+        toAssertionId: 'a-4',
+        maxDepth: 5,
+        temporalAnchor: 10,
+      }),
+    )
+    for (const path of winners) {
+      expect(path).not.toBeNull()
+      expect(path!.length).toBe(2)
+      expect(path![0]!.id).toBe('l-1')
+      expect(path![1]!.id).toBe('l-3')
+    }
+  })
+
   it('getConnected returns empty array when no links exist', () => {
     // a-5 has no outgoing links
     const connected = store.getConnected({
