@@ -1,10 +1,25 @@
 # trageti
-## Package Specification v0.3 (DRAFT rev 3)
+## Package Specification v0.3
 
-**Status:** DRAFT design specification - not yet implemented
+**Status:** Final design specification — implementation begins after sign-off
 **Date:** May 2026
 **License intent:** MIT
 **Target runtime:** Node.js 18+ / TypeScript 5+
+
+---
+
+## Contract Scope
+
+The v0.3 public contract is **every typed interface in this document**, **every
+documented MUST / MUST NOT invariant**, **every error code in the Error Model
+tables**, **every log code in the Logging codes table**, and **every schema
+migration described in Schema and Migrations**. Behavior outside that surface
+is implementation latitude; consumers MUST NOT depend on it.
+
+Concretely: changing the shape of a typed interface, removing or renaming an
+error code or log code, weakening a documented invariant, or altering a
+schema-migration step is a breaking change. Adding new optional fields,
+introducing new log codes, or shipping new opt-in APIs is not.
 
 ---
 
@@ -312,6 +327,8 @@ await store.writeAssertion({
     sourceRef: 'intake#L4', excerpt: 'occasional insomnia',
   }],
 })
+// Provider derives the embedding from assertion.content (no `embedding`
+// field supplied, so MockEmbeddingProvider is consulted).
 await store.indexBatch([{ assertionId: 'a-1' }])
 
 const { results, meta } = await store.retrieve({
@@ -418,13 +435,37 @@ embedding providers are replaceable. The defaults fail closed on integrity.
 
 ### Episode
 
-Episodes are source input events. Each episode belongs to a namespace and has a
-caller-defined `position`, display/audit timestamp, type, content, and creation
-timestamp.
+Episodes are source input events. Each episode belongs to a namespace and has
+a caller-defined `position` (the temporal anchor unit; consistent, comparable,
+and stable within a namespace), a display/audit timestamp, a type, content,
+and creation timestamp.
 
-v0.3 keeps the v0.2 episode shape. The write path validates required fields and
-warns through the configured logger when content exceeds
-`maxEpisodeContentBytes`.
+v0.3 keeps the v0.2 episode shape:
+
+```typescript
+interface Episode {
+  id: string
+  namespace: string
+  /** Caller-defined ordinal: consistent, comparable, stable within a
+   *  namespace. This is the unit `temporalAnchor` is expressed in
+   *  throughout retrieval. */
+  position: number
+  /** ISO 8601 — real-world time of the event; display and audit only.
+   *  Never used for ordering or retrieval filtering — that is what
+   *  position is for. */
+  occurredAt: string
+  /** Caller-defined; opaque to the library. */
+  type: string
+  content: string
+  /** ISO 8601 — when the system recorded this episode. Filled by the
+   *  store on write; the write-side input shape omits this field. */
+  createdAt: string
+}
+```
+
+The write path is `store.writeEpisode(episode: Omit<Episode, 'createdAt'>)`.
+It validates required fields and warns through the configured logger when
+content exceeds `maxEpisodeContentBytes`.
 
 ### Assertion
 
@@ -567,14 +608,36 @@ deployments.
 
 ### AssertionLink
 
-Links connect assertions without implying replacement unless the caller assigns
-such semantics to the link type. Links retain their own validity windows and
-source episode references.
+Links connect assertions without implying replacement unless the caller
+assigns such semantics to the link type. Links retain their own validity
+windows and source episode references.
+
+```typescript
+interface AssertionLink {
+  id: string
+  namespace: string
+  /** Source assertion. */
+  fromId: string
+  /** Target assertion. */
+  toId: string
+  /** Caller-defined; opaque to the library. Recommended values include
+   *  'deepens', 'qualifies', 'contextualizes', 'contradicts', 'measures' —
+   *  but any string is allowed. */
+  linkType: string
+  validFrom: number
+  validUntil: number | null
+  /** FK → trl_episodes.id (must share the link's namespace). */
+  sourceEpisodeId: string
+  /** ISO 8601 — filled by the store on write. */
+  createdAt: string
+}
+```
+
+The write path is `store.writeLink(link: Omit<AssertionLink, 'createdAt'>)`.
 
 Accumulation/linking remains distinct from supersession. If new information
 layers on an older assertion, callers should keep both assertions valid and
-connect them with a link such as `deepens`, `qualifies`, `contextualizes`,
-`contradicts`, or `measures`.
+connect them with a link rather than reaching for `supersedesId`.
 
 ---
 
@@ -630,6 +693,21 @@ interface ScoredCandidate {
 interface RetrievalScorer {
   score(candidate: ScoredCandidate, context: ScoringContext): number
   scoreBatch?(candidates: readonly ScoredCandidate[], context: ScoringContext): number[]
+}
+
+interface ScoringContext {
+  /** The temporal anchor the active retrieval query was issued at. */
+  temporalAnchor: number
+  /** Min and max validFrom across the namespace's *active* assertions at
+   *  call time. Used for recency normalization. When the namespace has
+   *  zero active assertions, both fields equal each other (any value); a
+   *  degenerate range collapses recency to 1 per the DefaultScorer
+   *  contract. */
+  namespacePositionRange: { min: number; max: number }
+  /** The full RetrievalQuery being scored. Custom scorers may read any
+   *  field (e.g. minConfidence, entityTypes) to compose domain-specific
+   *  weights. */
+  query: RetrievalQuery
 }
 ```
 
@@ -704,6 +782,14 @@ validators are domain validators and run after library integrity checks.
 ```typescript
 interface AssertionValidator {
   validate(assertion: NormalizedNewAssertion): ValidationResult
+}
+
+interface ValidationResult {
+  valid: boolean
+  /** Human-readable validation errors. Library-defined codes flow through
+   *  `ValidationError.code` when thrown; per-message classification is at
+   *  the validator's discretion. */
+  errors: string[]
 }
 ```
 
@@ -1381,6 +1467,14 @@ installed, `prepareDatabase()` throws `MissingPeerDependencyError`
 alternative: "set loadSqliteVec: false and use vectorless namespaces or
 load the extension manually" }`).
 
+**`prepareDatabase()` is intentionally the one synchronous public function
+in v0.3.** It wraps only synchronous operations: `new Database(...)` from
+`better-sqlite3`, `db.loadExtension(...)` for `sqlite-vec` (synchronous),
+and `db.pragma(...)` calls. There is no async work to await, so a
+Promise-returning wrapper would be ceremony without payoff. It is safe to
+call indirectly from inside `await TemporalStore.create({ database: 'rag.db' })`
+(which the factory does on the caller's behalf when `database` is a string).
+
 ### `ensureVectorReady()` — single chokepoint for vec0-touching paths
 
 The library never creates the per-namespace vec0 virtual table at init time.
@@ -1412,11 +1506,11 @@ ensureVectorReady(namespace):
   - Return.
 
 Called by:    indexAssertion, indexBatch, reindexNamespace,
-              retrieve Step 2 (vector candidate selection),
-              retrieve Step 3 (semantic re-rank in hybrid).
+              retrieve Step 2 (vector candidate selection).
 NOT called by: writes (writeEpisode, writeAssertion, writeCitation, writeLink),
               retrieve Step 1 (temporal filter),
               retrieve Step 2-bm25 (FTS-only candidate selection),
+              retrieve Step 3 (keyword re-ranking — FTS-based, not vector),
               graph traversal (getConnected, findPath),
               snapshots/history (getEntityHistory, getEntityTrajectory,
                                  getTemporalSnapshot),
@@ -1609,6 +1703,32 @@ interface RetrievalResult {
   }
 }
 
+interface RetrievedAssertion extends Assertion {
+  /** Final score from the configured RetrievalScorer; higher = better. */
+  score: number
+  /** Raw scorer inputs, always populated for transparency and audit. */
+  scoreComponents: {
+    /** Cosine distance from sqlite-vec; lower = more similar. Null when
+     *  this candidate was selected by BM25-only path (Step 2-bm25) or
+     *  when the vector step was skipped via hybrid fallback. */
+    semanticDistance: number | null
+    /** Raw FTS5 BM25 score; null when this candidate did not contribute
+     *  to (or did not match) the BM25 step. More-negative = better. */
+    bm25Score: number | null
+    /** The assertion's validFrom, used for recency. */
+    position: number
+  }
+  /** Populated only when query.expandLinks === true. Graph-expanded
+   *  neighbors out to query.maxDepth, with full citations. */
+  linkedAssertions?: Assertion[]
+  /** Populated only when query.mode === 'trajectory'. Contains all *prior*
+   *  versions of this assertion in chronological order (oldest first),
+   *  each with full citations. Empty array means trajectory mode was
+   *  requested but this result has no predecessors. Absent in snapshot
+   *  mode (the default). */
+  supersessionChain?: Assertion[]
+}
+
 store.retrieve(query: RetrievalQuery): Promise<RetrievalResult>
 ```
 
@@ -1634,14 +1754,65 @@ not loaded."
 ### Context Assembly
 
 ```typescript
-store.assembleContext(query: RetrievalQuery, options?: ContextAssemblyOptions): Promise<AssembledContext>
+interface ContextAssemblyOptions {
+  namespace: string
+  /** Optional in v0.3 (was required in v0.2). Required only when the
+   *  resolved retrievalStrategy reaches Step 2 (vector candidate
+   *  selection) AND no queryText + EmbeddingProvider combination is
+   *  available to derive it. */
+  queryEmbedding?: Float32Array | number[]
+  queryText?: string
+  queryTextMode?: QueryTextMode
+  temporalAnchor: number
+  /** Soft cap on rendered context size; the formatter respects it and
+   *  reports actual usage in AssembledContext.tokenEstimate. */
+  tokenBudget: number
+  expandLinks?: boolean
+  maxDepth?: number
+  /** Default 'snapshot'. Propagates to retrieve(). Distinct from
+   *  retrievalStrategy. */
+  mode?: RetrievalMode
+  /** Default 'hybrid'. Propagates to retrieve(). Distinct from mode. */
+  retrievalStrategy?: RetrievalStrategy
+  scorer?: RetrievalScorer
+  middleware?: RetrievalMiddleware[]
+  /** Per-call formatter override. */
+  formatter?: ContextFormatter
+  signal?: AbortSignal
+  debug?: RetrievalDebug
+}
+
+interface AssembledContext {
+  /** Rendered text from the configured formatter. */
+  text: string
+  /** The full RetrievedAssertion[] used to compose `text`, post-truncation. */
+  assertions: RetrievedAssertion[]
+  /** Formatter's estimate of the rendered output's token cost. */
+  tokenEstimate: number
+  /** True iff the formatter dropped assertions to fit tokenBudget. */
+  truncated: boolean
+  /** Formatter-specific metadata; opaque to the library. */
+  metadata: Record<string, unknown>
+  /** Coverage stats relative to retrieval. `totalAssertions` is what
+   *  retrieve() returned; `includedAssertions` is what survived
+   *  truncation. */
+  coverage: {
+    totalAssertions: number
+    includedAssertions: number
+    /** validFrom range across the included assertions. */
+    positionRange: { from: number; to: number }
+  }
+}
+
+store.assembleContext(options: ContextAssemblyOptions): Promise<AssembledContext>
 ```
 
-Context assembly consumes a `RetrievalResult` (it calls `retrieve()`
-internally) and produces an envelope containing formatted text, included
-assertions, token estimate, truncation state, and coverage metadata. The
-formatter contract must expose included count explicitly; context assembly
-must not infer truncation state from formatter-private keys.
+Context assembly synthesizes a `RetrievalQuery` from `ContextAssemblyOptions`,
+calls `retrieve()` internally, then applies the configured (or
+per-call-overridden) `ContextFormatter` to produce the envelope. The
+formatter contract must expose included count explicitly through the
+returned envelope; context assembly must not infer truncation state from
+formatter-private keys.
 
 ### Temporal Snapshot, Entity History, Trajectory
 
@@ -1658,6 +1829,26 @@ and never touch vec0.
 ### Graph Traversal
 
 ```typescript
+interface TraversalOptions {
+  namespace: string
+  /** Source assertion(s) to traverse from. Single id for getConnected;
+   *  findPath uses the dedicated fromAssertionId on PathOptions. */
+  fromAssertionId: string
+  temporalAnchor: number
+  /** No hard cap; caller and adapter negotiate practical limits. */
+  maxDepth: number
+  /** undefined = all link types. */
+  linkTypes?: string[]
+  /** Include links to assertions whose validUntil has passed at
+   *  temporalAnchor. Default false. */
+  includeSuperseded?: boolean
+}
+
+interface PathOptions extends Omit<TraversalOptions, 'fromAssertionId'> {
+  fromAssertionId: string
+  toAssertionId: string
+}
+
 store.getConnected(options: TraversalOptions): Promise<Assertion[]>
 store.findPath(options: PathOptions): Promise<AssertionLink[] | null>
 ```
@@ -1837,6 +2028,50 @@ store.getPendingIndexing(namespace: string): Promise<Array<{ id: string; content
 store.explain(query: RetrievalQuery): Promise<RetrievalExplainResult>
 ```
 
+```typescript
+type RetrievalStep =
+  | 'validate' | 'temporal-filter' | 'semantic' | 'keyword'
+  | 'score' | 'rank' | 'graph-expand' | 'trajectory-expand'
+
+interface RetrievalExplainStep {
+  step: RetrievalStep
+  /** Prepared-statement SQL that would run for this step. Omitted for
+   *  steps with no SQL (e.g. 'score'). */
+  sql?: string
+  /** Output of `EXPLAIN QUERY PLAN` for the step's SQL, when applicable. */
+  queryPlan?: string
+  /** Adapter-best-effort row estimate, when cheaply available. */
+  estimatedRows?: number
+  /** For 'semantic' only: whether the namespace is vector-ready at
+   *  explain time. False indicates the step would either lazily create
+   *  vec0 (if sqlite-vec is loaded) or trigger the documented hybrid
+   *  fallback. */
+  vectorReady?: boolean
+}
+
+interface RetrievalExplainResult {
+  /** Echo of the input. */
+  query: RetrievalQuery
+  /** The strategy that would run (after defaults and routing). */
+  retrievalStrategy: RetrievalStrategy
+  /** Ordered list of steps the pipeline would execute, given current
+   *  state. */
+  steps: RetrievalExplainStep[]
+  /** True iff Step 2 (vector candidate selection) would actually run. */
+  wouldApplyVector: boolean
+  /** True iff Step 2-bm25 or Step 3 (keyword re-ranking) would run. */
+  wouldApplyBm25: boolean
+  /** Human-readable notes the explain pass produced (e.g. "would fall
+   *  back to BM25-only: no EmbeddingProvider configured"). */
+  notes: string[]
+}
+```
+
+`store.explain(query)` does NOT execute the query. It produces the planned
+shape: which steps would run given current namespace state, which SQL each
+step would prepare, and which capabilities are missing. Safe to call against
+production stores for tuning.
+
 `initNamespace(namespace, options?)` registers an additional namespace
 beyond the default one supplied to `TemporalStore.create()` /
 `TemporalStoreOptions.namespace`. Multi-namespace stores ARE supported:
@@ -1930,14 +2165,36 @@ swap proceeds with the partial new index. `'in-place'` is supported for
 callers that explicitly accept the partial-on-failure trade-off.
 
 `rebuildFts()` drops and recreates the global per-database `trl_fts` table
-and re-populates from `trl_assertions` in batches inside one transaction.
-The rowid invariant is mandatory: rebuild MUST insert with
+and re-populates from `trl_assertions` in batches inside one write
+transaction. The rowid invariant is mandatory: rebuild MUST insert with
 `INSERT INTO trl_fts(rowid, content) SELECT rowid, content FROM trl_assertions`
-so `trl_fts.rowid === trl_assertions.rowid` remains true for BM25 rowid joins.
-Used to switch tokenizers on a populated database (the path the migration
-system flags via `MigrationCompatibilityError` with
-`{ kind: 'rebuild-fts', ... }`). Throws `MigrationCompatibilityError` if the
-new tokenizer fails the v0.3 allow-list.
+so `trl_fts.rowid === trl_assertions.rowid` remains true for BM25 rowid
+joins. Used to switch tokenizers on a populated database (the path the
+migration system flags via `MigrationCompatibilityError` with
+`{ kind: 'rebuild-fts', ... }`). Throws `MigrationCompatibilityError` if
+the new tokenizer fails the v0.3 allow-list.
+
+**Tokenizer config metadata.** The "current tokenizer config" referenced
+by `RebuildFtsOptions.tokenizer` defaults is read from library-managed
+metadata (a dedicated `trl_fts_config` row inserted by the v001 migration
+and updated by every `rebuildFts()` call), NOT parsed from `sqlite_master`'s
+stored CREATE statement — SQL DDL parsing is brittle and version-dependent.
+The persisted metadata is the source of truth for "what is `trl_fts`
+actually tokenized with."
+
+**Re-tokenization.** `rebuildFts()` re-tokenizes **every row in
+`trl_assertions`** because tokenizer changes invalidate the index
+contents — there is no in-place tokenizer upgrade. With a large corpus
+this can be a multi-second-to-minute operation; `batchSize` (default 1000)
+controls memory pressure per chunk but does not bound total runtime.
+
+**Operational impact.** The rebuild runs inside one write transaction;
+SQLite serializes concurrent writes for its duration, and reads of
+`trl_fts` block until the transaction commits. Callers MUST schedule
+`rebuildFts()` as a service-impacting maintenance operation and SHOULD
+quiesce write traffic to the database first. `signal` allows cooperative
+cancellation between batches but cannot interrupt a running SQLite
+statement; cancellation granularity is per-batch.
 
 #### `getStats()` and `getPendingIndexing()` — vec0-state matrix
 
@@ -2025,6 +2282,17 @@ computed deterministically from the namespace at registration time; its
 presence in metadata does not prove the virtual table exists. Code paths
 that need the existence answer must query `sqlite_master` or use
 `getStats().vectorReady`.
+
+**Unregistered namespaces.** `getStats(namespace)` and
+`getPendingIndexing(namespace)` both throw `NamespaceNotInitializedError`
+when the supplied `namespace` is not present in `trl_namespaces`. This is
+consistent with every other public store method: the `requireOpen()` guard
+treats unknown namespaces as a precondition failure, not as an empty
+result. To distinguish "namespace exists but is vectorless" (returns
+`{ ..., vectorReady: false, embeddingDimension: null, ... }`) from
+"namespace was never registered" (throws), callers should either always
+register via `initNamespace()` first or catch
+`NamespaceNotInitializedError` explicitly.
 `getStats()` and `getPendingIndexing()` use this same `sqlite_master` lookup
 for vec0 existence; they do not infer existence from the planned
 `embedding_table` value in `trl_namespaces`.
@@ -2256,7 +2524,7 @@ Required log codes:
 | Code | Severity | Emitted by |
 |---|---|---|
 | `TRGT_NON_WAL_MODE` | warn | `DefaultConnectionVerifier` |
-| `TRGT_FOREIGN_KEYS_UNAVAILABLE` | error | `DefaultConnectionVerifier` (FK enforcement is fail-closed in v0.3) |
+| `TRGT_FOREIGN_KEYS_ENABLED` | debug | `DefaultConnectionVerifier` — emitted once on successful enablement. The failure path is a thrown `ConnectionVerificationError`, NOT a log. |
 | `TRGT_CITATION_EXCERPT_MISSING` | warn | `writeAssertion`/`writeCitation` (only when `validation.requireCitationExcerpt` is false) |
 | `TRGT_EPISODE_CONTENT_LARGE` | warn | `writeEpisode` |
 | `TRGT_INDEX_BATCH_SKIPPED` | warn | `indexBatch` (one record per call, with skipped count) |
@@ -2458,6 +2726,37 @@ Required test classes:
   accumulation, contradiction, resolution, citation-rich context assembly;
   domain-flavored fixtures for at least one of medical / legal / mental
   health to exercise the full provenance + supersession + retrieval path.
+- **Public type compile coverage.** Every type the spec exports as part of
+  the v0.3 contract (per Contract Scope) can be imported and used in a
+  consumer-side `.ts` file without compile errors. Catches missing exports,
+  broken cross-references between types, and stale alias targets. Runs in
+  CI as `tsc --noEmit` against a test fixture that imports each public type.
+- **`RetrievedAssertion` envelope shape.** Vector-only result populates
+  `scoreComponents.semanticDistance: number` and `bm25Score: null`;
+  BM25-only result populates `bm25Score: number` and `semanticDistance: null`;
+  hybrid populates both; trajectory-mode results carry `supersessionChain`;
+  `expandLinks: true` results carry `linkedAssertions`.
+- **`AssembledContext` envelope shape.** Returned `text`, `assertions: RetrievedAssertion[]`,
+  `tokenEstimate`, `truncated`, `metadata`, and `coverage` are all populated
+  correctly. `coverage.includedAssertions === assertions.length`.
+- **`store.explain()` result shape.** Returns `RetrievalExplainResult`
+  without executing the query. `wouldApplyVector` / `wouldApplyBm25` match
+  the routing rules; `steps[].vectorReady` is correctly reported for the
+  current `(sqlite-vec, vec0)` state; `notes[]` documents any fallback
+  reasons.
+- **`getStats` unknown namespace.** `await store.getStats('nonexistent')`
+  throws `NamespaceNotInitializedError`. Same for `getPendingIndexing`.
+  Distinguishes from vectorless-but-registered (which returns
+  `{ ..., vectorReady: false, embeddingDimension: null, ... }`).
+- **FTS tokenizer metadata round-trip.** `prepareDatabase` → `initNamespace` →
+  write assertions → `rebuildFts({ tokenizer })` → close → reopen → confirm
+  the tokenizer config readable from the library-managed `trl_fts_config`
+  row matches the post-rebuild config (NOT parsed from `sqlite_master`).
+- **FK verifier fail-closed.** A `ConnectionVerifier` against a DB where
+  `PRAGMA foreign_keys = ON` cannot be enabled throws
+  `ConnectionVerificationError`; no `TRGT_FOREIGN_KEYS_UNAVAILABLE` log is
+  ever emitted; on success, exactly one `TRGT_FOREIGN_KEYS_ENABLED` debug
+  log is emitted.
 
 Coverage thresholds (raised from v0.2):
 
@@ -2656,6 +2955,30 @@ await store.writeAssertion({
 })
 ```
 
+### Custom loggers
+
+v0.2 emitted structured warnings through a single `structuredWarn(code, fields)`
+function. v0.3 replaces this with the `Logger` interface, which requires
+four methods (`debug`, `info`, `warn`, `error`). Adopters who wrote custom
+v0.2 wrappers around `structuredWarn` must implement all four methods on
+their custom `Logger`. The four-method shape is required so the library can
+emit at the appropriate severity for each event class (debug for
+introspection, info for normal lifecycle, warn for recoverable
+inconsistencies, error for unhandlable state) and so severity-aware log
+shipping (Datadog, Sumo, Cloud Logging) routes records correctly without
+prefix parsing.
+
+The defaults shipped in core:
+
+- `ConsoleLogger` — writes structured records to stderr at `warn` and
+  `error`; silent at `debug` and `info`. Matches the v0.2 stderr behavior
+  for the warn-level events that v0.2 already emitted.
+- `NoopLogger` — drops everything; useful in tests.
+
+Migrate by either using `ConsoleLogger` (default, no code changes needed
+on the warn path) or supplying a custom implementation that satisfies the
+four-method `Logger` shape.
+
 ### Custom validators
 
 If you typed your `AssertionValidator.validate()` parameter as `NewAssertion`,
@@ -2787,6 +3110,20 @@ await store.close()
 
 If you want trageti to also close the underlying `better-sqlite3` handle,
 pass `closeDatabaseOnStoreClose: true` to `TemporalStore.create()`.
+
+### Additive APIs
+
+v0.3 adds `initNamespace()` and `upgradeNamespaceToVector()` as additive
+multi-namespace and vectorless-upgrade APIs. Existing single-namespace
+v0.2 code requires no migration to either; reach for them only when the
+new capability is needed:
+
+- **`initNamespace(name, options?)`** when a single store registers more
+  than one namespace beyond the constructor's default.
+- **`upgradeNamespaceToVector(name, options)`** when a vectorless
+  namespace needs to gain a vector configuration after the fact
+  (vectorless → vector-configured is the only state transition the
+  library supports for an existing namespace; the reverse is not).
 
 ---
 
