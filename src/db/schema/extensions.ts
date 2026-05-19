@@ -48,6 +48,9 @@ export class SchemaExtensionApplier {
           `Table "${tbl.tableName}": names starting with "trl_" are reserved for library use`,
         )
       }
+      if (tbl.referencesNamespace && !tbl.namespaceColumn) {
+        violations.push(`Table "${tbl.tableName}": referencesNamespace requires namespaceColumn`)
+      }
     }
 
     if (violations.length > 0) {
@@ -68,6 +71,14 @@ export class SchemaExtensionApplier {
       }
       for (const tbl of extensions.tables ?? []) {
         db.exec(tbl.createSQL)
+        if (tbl.referencesNamespace && tbl.namespaceColumn) {
+          const columns = db.prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(tbl.tableName)})`).all()
+          if (!columns.some((column) => column.name === tbl.namespaceColumn)) {
+            throw new SchemaExtensionError([
+              `namespaceColumn "${tbl.namespaceColumn}" does not exist on table "${tbl.tableName}" after createSQL ran.`,
+            ])
+          }
+        }
       }
     })()
   }

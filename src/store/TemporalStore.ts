@@ -44,9 +44,15 @@ import {
   NamespaceNotInitializedError,
   StoreClosedError,
   ValidationError,
+  IndexingError,
+  MissingPeerDependencyError,
+  ReferencedExtensionTableError,
+  RetrievalInputError,
+  ErrorCode,
 } from '../errors/index.js'
 import { ConsoleLogger, setDefaultLogger, structuredWarn } from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
+import { quoteIdent } from '../internal/sql-ident.js'
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js'
 import { retrieve } from '../pipeline/retrieve.js'
 import { assembleContext } from '../pipeline/assemble.js'
@@ -141,8 +147,8 @@ export class TemporalStore {
 
     // (d) namespace registration
     this.namespaceRepo = new NamespaceRepository(this.db)
-    const dimension = this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension
-    this.namespaceRepo.upsert(this.options.namespace, dimension ?? 384)
+    const dimension = this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
+    this.namespaceRepo.upsert(this.options.namespace, dimension)
 
     // (e) warm extension column cache
     this.warmExtensionCache()
@@ -158,10 +164,6 @@ export class TemporalStore {
     this.linkRepo = new LinkRepository(this.db)
     this.embeddingRepo = new EmbeddingRepository(this.db)
 
-    // Ensure vec0 table for default namespace
-    const embeddingTable = this.getOrCacheEmbeddingTable(this.options.namespace)
-    this.embeddingRepo.ensureVec0Table(embeddingTable, dimension ?? 384)
-
     // Add default validators if none provided
     if (this.options.validators.length === 0) {
       this.options.validators.push(new DefaultAssertionValidator(this.db))
@@ -172,10 +174,8 @@ export class TemporalStore {
 
   async initNamespace(namespace: string, config: Partial<NamespaceConfig> = {}): Promise<NamespaceConfig> {
     this.requireInit()
-    const dimension = config.embeddingDimension ?? this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? 384
+    const dimension = config.embeddingDimension ?? this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
     this.namespaceRepo.upsert(namespace, dimension, config.config ?? {})
-    const embeddingTable = this.getOrCacheEmbeddingTable(namespace)
-    this.embeddingRepo.ensureVec0Table(embeddingTable, dimension)
     const stored = this.namespaceRepo.get(namespace)
     if (!stored) throw new NamespaceNotInitializedError(namespace)
     return stored
@@ -300,7 +300,7 @@ export class TemporalStore {
     this.requireInit()
     const assertion = this.assertionRepo.getById(assertionId)
     if (!assertion) throw new ValidationError([`Assertion "${assertionId}" not found`])
-    const table = this.requireEmbeddingTable(assertion.namespace)
+    const table = this.ensureVectorReady(assertion.namespace, 'indexing')
     this.embeddingRepo.insert(table, assertionId, embedding)
   }
 
@@ -311,7 +311,7 @@ export class TemporalStore {
     for (const item of items) {
       const assertion = this.assertionRepo.getById(item.assertionId)
       if (!assertion || !item.embedding) continue
-      const table = this.requireEmbeddingTable(assertion.namespace)
+      const table = this.ensureVectorReady(assertion.namespace, 'indexing')
       const group = byTable.get(table) ?? []
       group.push({ assertionId: item.assertionId, embedding: item.embedding })
       byTable.set(table, group)
@@ -324,7 +324,7 @@ export class TemporalStore {
 
   async getPendingIndexing(namespace: string): Promise<Array<{ id: string; content: string }>> {
     this.requireNamespaceInit(namespace)
-    const table = this.requireEmbeddingTable(namespace)
+    const table = this.ensureVectorReady(namespace, 'indexing')
     return this.embeddingRepo.getPendingIndexing(table, namespace)
   }
 
@@ -335,7 +335,7 @@ export class TemporalStore {
     return retrieve(this.db, {
       assertionRepo: this.assertionRepo,
       embeddingRepo: this.embeddingRepo,
-      getEmbeddingTable: (ns) => this.requireEmbeddingTable(ns),
+      getEmbeddingTable: (ns) => this.ensureVectorReady(ns, 'retrieval'),
       getPositionRange: (ns) => this.namespaceRepo.getPositionRange(ns),
       globalScorer: this.options.scorer,
       globalMiddleware: this.options.middleware,
@@ -422,18 +422,21 @@ export class TemporalStore {
     return this.episodeRepo.getById(id)
   }
 
-  async deleteNamespace(namespace: string, _options: DeleteNamespaceOptions = {}): Promise<void> {
+  async deleteNamespace(namespace: string, options: DeleteNamespaceOptions = {}): Promise<void> {
     this.requireInit()
     const refTables = (this.options.schemaExtensions.tables ?? []).filter((t) => t.referencesNamespace)
     if (refTables.length > 0) {
-      structuredWarn('DELETE_NAMESPACE_HAS_REFERENCES', {
-        namespace,
-        referencingTables: refTables.map((t) => t.tableName).join(','),
-      })
+      if (!options.cascade) {
+        throw new ReferencedExtensionTableError(namespace, refTables.map((table) => table.tableName))
+      }
     }
     this.db.transaction(() => {
-      const table = this.embeddingTableCache.get(namespace)
-      if (table) this.db.exec(`DROP TABLE IF EXISTS ${table}`)
+      for (const table of refTables) {
+        if (!table.namespaceColumn) continue
+        this.db.prepare(`DELETE FROM ${quoteIdent(table.tableName)} WHERE ${quoteIdent(table.namespaceColumn)} = ?`).run(namespace)
+      }
+      const table = this.namespaceRepo.getEmbeddingTable(namespace)
+      if (table) this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(table)}`)
       // Citations must go before assertions (FK from trl_citations.assertion_id).
       this.citationRepo.deleteByAssertionNamespace(namespace)
       this.db.prepare('DELETE FROM trl_links WHERE namespace = ?').run(namespace)
@@ -467,14 +470,16 @@ export class TemporalStore {
         .prepare<[string], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trl_episodes WHERE namespace = ?')
         .get(namespace)
     )?.cnt ?? 0
-    const table = this.requireEmbeddingTable(namespace)
-    const indexedCount = this.embeddingRepo.getIndexedCount(table, namespace)
+    const ns = this.namespaceRepo.get(namespace)
+    const table = this.namespaceRepo.getEmbeddingTable(namespace)
+    const vectorReady = Boolean(table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table))
+    const indexedCount = vectorReady && table ? this.embeddingRepo.getIndexedCount(table, namespace) : 0
     const linkCount = this.linkRepo.getCount(namespace)
     const positionRange = this.namespaceRepo.getPositionRange(namespace)
     return {
       namespace,
-      embeddingDimension: this.namespaceRepo.get(namespace)?.embeddingDimension ?? null,
-      vectorReady: true,
+      embeddingDimension: ns?.embeddingDimension ?? null,
+      vectorReady,
       episodeCount,
       ...assertionStats,
       citationCount: this.citationRepo.getCountByNamespace(namespace),
@@ -510,8 +515,14 @@ export class TemporalStore {
   async upgradeNamespaceToVector(namespace: string, options: { embeddingDimension: number }): Promise<void> {
     this.requireNamespaceInit(namespace)
     const table = namespaceToEmbeddingTable(namespace)
-    this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
-    this.embeddingTableCache.set(namespace, table)
+    this.db.transaction(() => {
+      this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
+      this.embeddingTableCache.set(namespace, table)
+    })()
+    this.options.logger.info?.('TRGT_NAMESPACE_VECTOR_UPGRADED', {
+      namespace,
+      embeddingDimension: options.embeddingDimension,
+    })
   }
 
   async explain(query: RetrievalQuery): Promise<RetrievalExplainResult> {
@@ -626,7 +637,7 @@ export class TemporalStore {
     }
   }
 
-  private getOrCacheEmbeddingTable(namespace: string): string {
+  private getOrCacheEmbeddingTable(namespace: string): string | null {
     const cached = this.embeddingTableCache.get(namespace)
     if (cached) return cached
     const fromDb = this.namespaceRepo.getEmbeddingTable(namespace)
@@ -635,15 +646,51 @@ export class TemporalStore {
       return fromDb
     }
     // Namespace just created in this call — compute from hash
-    const table = namespaceToEmbeddingTable(namespace)
-    this.embeddingTableCache.set(namespace, table)
-    return table
+    return null
   }
 
   private requireEmbeddingTable(namespace: string): string {
     const table = this.getOrCacheEmbeddingTable(namespace)
     if (!table) throw new NamespaceNotInitializedError(namespace)
     return table
+  }
+
+  private ensureVectorReady(namespace: string, purpose: 'indexing' | 'retrieval'): string {
+    this.requireNamespaceInit(namespace)
+    const config = this.namespaceRepo.get(namespace)
+    const table = this.getOrCacheEmbeddingTable(namespace)
+    if (!config || config.embeddingDimension === null || table === null) {
+      if (purpose === 'indexing') {
+        throw new IndexingError(
+          ErrorCode.INDEXING_NAMESPACE_VECTORLESS,
+          `Namespace "${namespace}" is vectorless. Call upgradeNamespaceToVector() before indexing.`,
+        )
+      }
+      throw new RetrievalInputError(
+        ErrorCode.RETRIEVAL_NAMESPACE_VECTORLESS,
+        `Namespace "${namespace}" is vectorless. Use BM25 retrieval or upgrade the namespace before vector retrieval.`,
+      )
+    }
+    if (!this.isSqliteVecLoaded()) {
+      throw new MissingPeerDependencyError(
+        'sqlite-vec',
+        'npm install sqlite-vec',
+        'use vectorless/BM25-only retrieval or load sqlite-vec with prepareDatabase()',
+      )
+    }
+    if (!this.embeddingRepo.tableExists(table)) {
+      this.embeddingRepo.ensureVec0Table(table, config.embeddingDimension)
+    }
+    return table
+  }
+
+  private isSqliteVecLoaded(): boolean {
+    try {
+      this.db.prepare('SELECT vec_version()').get()
+      return true
+    } catch {
+      return false
+    }
   }
 
   private warmExtensionCache(): void {
@@ -655,6 +702,56 @@ export class TemporalStore {
     for (const table of tables) {
       const cols = this.extensionApplier.getExtensionColumns(this.db, table)
       this.extensionColumnCache.set(table, cols)
+    }
+  }
+
+  /**
+   * The single chokepoint guarding every vec0-touching path (spec §1527).
+   *
+   * - Throws when the namespace is vectorless (RetrievalInputError or
+   *   IndexingError depending on call-site `kind`).
+   * - Throws MissingPeerDependencyError when sqlite-vec is not loaded.
+   * - Lazily CREATEs the namespace's vec0 virtual table on first use.
+   *
+   * Returns the stored embedding-table name on success.
+   */
+  private ensureVectorReady(namespace: string, kind: 'indexing' | 'retrieval'): string {
+    const config = this.namespaceRepo.get(namespace)
+    if (!config) throw new NamespaceNotInitializedError(namespace)
+    const table = this.namespaceRepo.getEmbeddingTable(namespace)
+    if (config.embeddingDimension === null || !table) {
+      if (kind === 'indexing') {
+        throw new IndexingError(
+          ErrorCode.INDEXING_NAMESPACE_VECTORLESS,
+          `Namespace "${namespace}" is vectorless; call upgradeNamespaceToVector() before indexing.`,
+        )
+      }
+      throw new RetrievalInputError(
+        ErrorCode.RETRIEVAL_NAMESPACE_VECTORLESS,
+        `Namespace "${namespace}" is vectorless; use retrievalStrategy: 'bm25' or upgrade the namespace first.`,
+      )
+    }
+    if (!this.isSqliteVecLoaded()) {
+      throw new MissingPeerDependencyError(
+        'sqlite-vec',
+        'npm install sqlite-vec',
+        kind === 'retrieval' ? "use retrievalStrategy: 'bm25'" : 'load sqlite-vec or use vectorless namespaces',
+      )
+    }
+    if (!this.embeddingRepo.tableExists(table)) {
+      this.embeddingRepo.ensureVec0Table(table, config.embeddingDimension)
+    }
+    this.embeddingTableCache.set(namespace, table)
+    return table
+  }
+
+  /** Returns true when sqlite-vec's vec_version() function is callable. */
+  private isSqliteVecLoaded(): boolean {
+    try {
+      this.db.prepare('SELECT vec_version() AS v').get()
+      return true
+    } catch {
+      return false
     }
   }
 }

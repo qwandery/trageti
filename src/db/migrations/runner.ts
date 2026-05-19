@@ -32,17 +32,71 @@ export class MigrationRunner {
 
     for (const migration of this.migrations) {
       if (migration.version <= current) continue
-
-      try {
-        db.transaction(() => {
-          migration.up(db)
-          db.prepare(
-            'INSERT INTO trl_schema_version (version, description) VALUES (?, ?)',
-          ).run(migration.version, migration.description)
-        })()
-      } catch (err) {
-        throw new MigrationError(migration.version, err)
+      if (migration.requiresForeignKeyToggle) {
+        this.runFkToggleMigration(db, migration)
+      } else {
+        this.runStandardMigration(db, migration)
       }
+    }
+  }
+
+  /**
+   * Standard migration: single transaction wraps the migration body and the
+   * schema_version insert (atomic).
+   */
+  private runStandardMigration(db: Database, migration: Migration): void {
+    try {
+      db.transaction(() => {
+        migration.up(db)
+        db.prepare(
+          'INSERT INTO trl_schema_version (version, description) VALUES (?, ?)',
+        ).run(migration.version, migration.description)
+      })()
+    } catch (err) {
+      throw new MigrationError(migration.version, err)
+    }
+  }
+
+  /**
+   * FK-toggle migration (spec §1326). PRAGMA foreign_keys cannot be changed
+   * inside an active transaction, so we capture the current setting, disable
+   * FKs, then run the migration body in an explicit BEGIN/COMMIT, run
+   * `foreign_key_check`, and restore the captured FK state in `finally`.
+   *
+   * The schema_version insert lives INSIDE the transaction (before COMMIT) so
+   * a failed FK check causes the entire migration to roll back atomically.
+   */
+  private runFkToggleMigration(db: Database, migration: Migration): void {
+    const capturedFk = (db.pragma('foreign_keys', { simple: true }) as number) === 1
+    db.pragma('foreign_keys = OFF')
+    let txOpen = false
+    try {
+      db.exec('BEGIN')
+      txOpen = true
+      migration.up(db)
+      const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>
+      if (Array.isArray(violations) && violations.length > 0) {
+        throw new MigrationError(migration.version, 'foreign_key_check found violations after migration body', {
+          violations,
+        })
+      }
+      db.prepare(
+        'INSERT INTO trl_schema_version (version, description) VALUES (?, ?)',
+      ).run(migration.version, migration.description)
+      db.exec('COMMIT')
+      txOpen = false
+    } catch (err) {
+      if (txOpen) {
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* nothing further to do */
+        }
+      }
+      if (err instanceof MigrationError) throw err
+      throw new MigrationError(migration.version, err)
+    } finally {
+      db.pragma(`foreign_keys = ${capturedFk ? 'ON' : 'OFF'}`)
     }
   }
 

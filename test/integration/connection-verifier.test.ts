@@ -1,15 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { DefaultConnectionVerifier } from '../../src/defaults/connection/DefaultConnectionVerifier.js'
-import { ConnectionVerificationError } from '../../src/errors/index.js'
 
 describe('DefaultConnectionVerifier', () => {
-  it('throws when sqlite-vec is not loaded', async () => {
+  it('does NOT throw when sqlite-vec is not loaded (vectorless mode is now supported in v0.3)', async () => {
     const db = new Database(':memory:')
     // Intentionally do NOT load sqlite-vec
     const verifier = new DefaultConnectionVerifier()
-    expect(() => verifier.verify(db)).toThrow(ConnectionVerificationError)
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      expect(() => verifier.verify(db)).not.toThrow()
+      const calls = writeSpy.mock.calls.map((args) => String(args[0]))
+      const warned = calls.some((s) => s.includes('TRGT_SQLITE_VEC_NOT_LOADED'))
+      expect(warned).toBe(true)
+    } finally {
+      writeSpy.mockRestore()
+    }
   })
 
   it('passes when sqlite-vec is loaded and WAL+FK are set', async () => {

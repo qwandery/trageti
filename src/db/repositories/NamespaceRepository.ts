@@ -1,12 +1,12 @@
 import type { Database } from 'better-sqlite3'
 import type { NamespaceConfig } from '../../domain/types.js'
 import { namespaceToEmbeddingTable } from '../../internal/hash.js'
-import { NamespaceHashCollisionError } from '../../errors/index.js'
+import { NamespaceDimensionMismatchError, NamespaceHashCollisionError } from '../../errors/index.js'
 
 interface NamespaceRow {
   namespace: string
-  embedding_dimension: number
-  embedding_table: string
+  embedding_dimension: number | null
+  embedding_table: string | null
   created_at: string
   config: string
 }
@@ -38,33 +38,63 @@ export class NamespaceRepository {
 
   getEmbeddingTable(namespace: string): string | null {
     const row = this.db
-      .prepare<[string], { embedding_table: string }>(
+      .prepare<[string], { embedding_table: string | null }>(
         'SELECT embedding_table FROM trl_namespaces WHERE namespace = ?',
       )
       .get(namespace)
     return row?.embedding_table ?? null
   }
 
-  upsert(namespace: string, embeddingDimension: number, config: Record<string, unknown> = {}): void {
-    const embeddingTable = namespaceToEmbeddingTable(namespace)
+  /**
+   * Register or no-op-on-existing a namespace.
+   *
+   * v0.3 semantics:
+   *   - embeddingDimension === null OR 0/undefined → vectorless namespace
+   *     (both embedding_dimension and embedding_table stored as NULL).
+   *   - embeddingDimension > 0 → vector-configured namespace; embedding_table
+   *     deterministically derived from the namespace name.
+   *
+   * The schema CHECK forbids the partial state where dimension is set but
+   * table name is not, so both fields are written atomically.
+   */
+  upsert(
+    namespace: string,
+    embeddingDimension: number | null | undefined,
+    config: Record<string, unknown> = {},
+  ): void {
+    const dim = embeddingDimension && embeddingDimension > 0 ? embeddingDimension : null
+    const existing = this.get(namespace)
+    if (existing) {
+      if (dim !== null) {
+        if (existing.embeddingDimension === null) {
+          throw new NamespaceDimensionMismatchError(namespace, dim, 0)
+        }
+        if (existing.embeddingDimension !== dim) {
+          throw new NamespaceDimensionMismatchError(namespace, existing.embeddingDimension, dim)
+        }
+      }
+      return
+    }
 
-    // Guard against hash collision
-    const collision = this.db
-      .prepare<[string, string], { namespace: string }>(
-        'SELECT namespace FROM trl_namespaces WHERE embedding_table = ? AND namespace != ?',
-      )
-      .get(embeddingTable, namespace)
-    if (collision) {
-      throw new NamespaceHashCollisionError(namespace, collision.namespace, embeddingTable)
+    const embeddingTable = dim !== null ? namespaceToEmbeddingTable(namespace) : null
+
+    if (embeddingTable !== null) {
+      const collision = this.db
+        .prepare<[string, string], { namespace: string }>(
+          'SELECT namespace FROM trl_namespaces WHERE embedding_table = ? AND namespace != ?',
+        )
+        .get(embeddingTable, namespace)
+      if (collision) {
+        throw new NamespaceHashCollisionError(namespace, collision.namespace, embeddingTable)
+      }
     }
 
     this.db
       .prepare(
         `INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table, config)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(namespace) DO NOTHING`,
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(namespace, embeddingDimension, embeddingTable, JSON.stringify(config))
+      .run(namespace, dim, embeddingTable, JSON.stringify(config))
   }
 
   updateEmbeddingDimension(namespace: string, newDimension: number, newTable: string): void {
