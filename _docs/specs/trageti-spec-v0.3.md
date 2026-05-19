@@ -194,16 +194,17 @@ semantic retrieval, graph traversal, and extension interfaces.
 
 ---
 
-## Release Plan
+## Implementation Plan
 
-v0.3 is a clean break, but the correctness fixes inside it do not have to wait
-for the redesign to ship. The work is staged so consumers receive safety
-improvements as soon as they are ready.
+v0.3 is a clean break. The work is staged into internal implementation
+checkpoints so each change set is reviewable, historically verifiable,
+moderate in complexity, and practical to roll back in an emergency. These
+phases are commit boundaries, not public release boundaries.
 
-### Phase 1 — Correctness patches (target: 0.2.1, no API/behavior changes)
+### Phase 1 — Correctness patches
 
-Ships as a patch release against the current public surface. No breaking
-changes; no new abstractions; nothing externally visible to consumers
+Commit as an internal checkpoint against the current public surface. No
+breaking changes; no new abstractions; nothing externally visible to consumers
 beyond fixed defects.
 
 - Fix the broken README supersession example: replace the two-call sequence
@@ -219,7 +220,7 @@ beyond fixed defects.
 - Regression tests: multi-instance namespace lifecycle (the deleteNamespace
   fix), README example snippet test.
 
-### Phase 2 — Safety hardening (target: 0.2.2, additive)
+### Phase 2 — Safety hardening
 
 Adds new optional behavior with backward-compatible defaults. Existing call
 sites continue to work without changes.
@@ -236,7 +237,7 @@ sites continue to work without changes.
   preserves the current stderr behavior.
 - Schema-extension surfaces gain explicit "trusted code" docstrings.
 
-### Phase 3 — DX redesign (target: 0.3.0, breaking)
+### Phase 3 — DX redesign
 
 The full v0.3 surface described in this spec, including everything moved
 out of Phase 1 because it is in fact API/behavior-changing:
@@ -264,8 +265,9 @@ out of Phase 1 because it is in fact API/behavior-changing:
 - Coverage thresholds raised to 95/95/95/85.
 - Version, README, CHANGELOG, and changesets aligned at 0.3.0.
 
-Phase 1 and Phase 2 ship independently of Phase 3 design work; nothing in
-Phase 3 should block Phase 1 from shipping when the patches are ready.
+Phase 1 and Phase 2 are stable internal commit points before the full Phase 3
+redesign. They are not public release boundaries, and no partial v0.3 upgrade
+is intended before the complete v0.3 release.
 
 ---
 
