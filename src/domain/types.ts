@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3'
+import type { Logger, Metrics } from '../internal/logger.js'
 
 // ─── Core domain ─────────────────────────────────────────────────────────────
 
@@ -76,10 +77,36 @@ export interface AssertionCitation {
 export type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>
 
 /**
- * Assertion shape accepted by writeAssertion(). createdAt and extensions are filled
- * in by the store; citations are inline NewAssertionCitation objects.
+ * Legacy v0.2 input shape. v0.3 introduces NewAssertionInput (nullable fields
+ * become optional) and NormalizedNewAssertion (validators receive null-filled
+ * shape). NewAssertion is preserved for back-compat; v0.3 writeAssertion accepts
+ * NewAssertionInput and normalizes to NormalizedNewAssertion internally.
  */
 export type NewAssertion =
+  Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
+    citations: NewAssertionCitation[]
+  }
+
+/**
+ * v0.3 public write-API shape. `validUntil`, `supersedesId`, `entityId`, and
+ * `entityType` are optional; omitting them is equivalent to passing `null`.
+ */
+export type NewAssertionInput = Omit<
+  Assertion,
+  'createdAt' | 'extensions' | 'citations' | 'validUntil' | 'supersedesId' | 'entityId' | 'entityType'
+> & {
+  validUntil?: number | null
+  supersedesId?: string | null
+  entityId?: string | null
+  entityType?: string | null
+  citations: NewAssertionCitation[]
+}
+
+/**
+ * v0.3 shape passed to AssertionValidator.validate(). Every nullable field is
+ * explicit `null` (never `undefined`).
+ */
+export type NormalizedNewAssertion =
   Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
     citations: NewAssertionCitation[]
   }
@@ -101,7 +128,8 @@ export interface AssertionLink {
 
 export interface NamespaceConfig {
   namespace: string
-  embeddingDimension: number
+  /** Null for vectorless namespaces in v0.3. */
+  embeddingDimension: number | null
   createdAt: string
   /** Arbitrary caller metadata; stored as JSON. */
   config: Record<string, unknown>
@@ -110,12 +138,21 @@ export interface NamespaceConfig {
 // ─── Retrieval ────────────────────────────────────────────────────────────────
 
 export type RetrievalMode = 'snapshot' | 'trajectory'
+export type RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'
+export type QueryTextMode = 'phrase' | 'fts5'
+
+export interface RetrievalDebug {
+  onStep?: (step: string, info: Record<string, unknown>) => void
+}
 
 export interface RetrievalQuery {
   namespace: string
-  queryEmbedding: Float32Array | number[]
+  /** Optional in v0.3; required when retrievalStrategy is 'vector' and no provider configured. */
+  queryEmbedding?: Float32Array | number[]
   /** Enables BM25 scoring if provided. */
   queryText?: string
+  /** v0.3: default 'phrase' (escapes user input). 'fts5' preserves raw FTS5 syntax. */
+  queryTextMode?: QueryTextMode
   /** Retrieve assertions valid AT this position. */
   temporalAnchor: number
   temporalWindow?: {
@@ -135,19 +172,22 @@ export interface RetrievalQuery {
   limit?: number
   /** Default: 'snapshot'. Trajectory mode attaches each result's supersession chain. */
   mode?: RetrievalMode
+  /** Default: 'hybrid'. */
+  retrievalStrategy?: RetrievalStrategy
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
+  debug?: RetrievalDebug
 }
 
 export interface RetrievedAssertion extends Assertion {
   score: number
   /**
    * Raw scorer inputs; always populated for transparency.
-   * bm25Score is the raw FTS5 BM25 value (negative; more-negative = better) —
-   * v0.2 changed this from a normalised [0, 1] value (BREAKING for custom scorers).
+   * bm25Score is the raw FTS5 BM25 value (negative; more-negative = better).
+   * semanticDistance is null when this candidate came from a BM25-only branch.
    */
   scoreComponents: {
-    semanticDistance: number
+    semanticDistance: number | null
     bm25Score: number | null
     position: number
   }
@@ -161,11 +201,42 @@ export interface RetrievedAssertion extends Assertion {
   supersessionChain?: Assertion[]
 }
 
+/**
+ * v0.3 retrieval envelope. `retrieve()` returns this shape; the bare-array
+ * v0.2 return type is removed.
+ */
+export interface RetrievalResult {
+  results: RetrievedAssertion[]
+  meta: {
+    retrievalStrategy: RetrievalStrategy
+    vectorApplied: boolean
+    bm25Applied: boolean
+    tookMs: number
+    warnings: string[]
+  }
+}
+
+export interface RetrievalExplainStep {
+  name: string
+  estimatedCandidates?: number
+  vectorReady?: boolean
+  notes?: string[]
+}
+
+export interface RetrievalExplainResult {
+  query: RetrievalQuery
+  retrievalStrategy: RetrievalStrategy
+  steps: RetrievalExplainStep[]
+  wouldApplyVector: boolean
+  wouldApplyBm25: boolean
+  notes: string[]
+}
+
 export interface ScoredCandidate {
   assertion: Assertion
-  /** Cosine distance from sqlite-vec; lower = more similar. */
-  semanticDistance: number
-  /** FTS5 BM25 score; null if no queryText. More negative = better match. */
+  /** Cosine distance from sqlite-vec; null when candidate came from BM25-only. */
+  semanticDistance: number | null
+  /** FTS5 BM25 score; null when no queryText or vector-only branch. More negative = better. */
   bm25Score: number | null
   /** assertion's validFrom, for recency calculations. */
   position: number
@@ -184,14 +255,16 @@ export interface ScoringContext {
 
 export interface ContextAssemblyOptions {
   namespace: string
-  queryEmbedding: Float32Array | number[]
+  queryEmbedding?: Float32Array | number[]
   queryText?: string
+  queryTextMode?: QueryTextMode
   temporalAnchor: number
   tokenBudget: number
   expandLinks?: boolean
   maxDepth?: number
   /** Default: 'snapshot'. Trajectory mode propagates to retrieve(). */
   mode?: RetrievalMode
+  retrievalStrategy?: RetrievalStrategy
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
   /** Per-call formatter override. */
@@ -268,16 +341,95 @@ export interface ContextFormatter {
 }
 
 export interface AssertionValidator {
-  validate(assertion: NewAssertion): ValidationResult
+  validate(assertion: NormalizedNewAssertion): ValidationResult
 }
 
 export interface ConnectionVerifier {
-  verify(db: Database): void
+  verify(db: Database, logger?: Logger): void
 }
 
 export interface RetrievalMiddleware {
   before?(query: RetrievalQuery): RetrievalQuery
   after?(results: RetrievedAssertion[], query: RetrievalQuery): RetrievedAssertion[]
+  /** Optional disposal hook; called from TemporalStore.close(). */
+  dispose?(): void | Promise<void>
+}
+
+// ─── Embedding provider ──────────────────────────────────────────────────────
+
+export interface EmbedOptions {
+  signal?: AbortSignal
+  purpose?: 'assertion' | 'query' | 'reindex'
+}
+
+export interface EmbeddingProvider {
+  readonly name: string
+  readonly dimension: number
+  embed(texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]>
+}
+
+// ─── Indexing ────────────────────────────────────────────────────────────────
+
+export interface IndexBatchItem {
+  assertionId: string
+  /** Optional pre-computed embedding. Required if no EmbeddingProvider is
+   *  configured for the namespace. */
+  embedding?: Float32Array | number[]
+}
+
+export interface IndexBatchOptions {
+  /** Default 'fail-fast'. */
+  onProviderError?: 'fail-fast' | 'skip'
+  /** Default 64. Ignored in 'skip' mode. */
+  batchSize?: number
+  signal?: AbortSignal
+}
+
+export interface IndexBatchSkipped {
+  assertionId: string
+  reason: string
+  errorCode?: string
+}
+
+export interface IndexBatchResult {
+  indexed: number
+  skipped: IndexBatchSkipped[]
+}
+
+// ─── Reindex / rebuild FTS ──────────────────────────────────────────────────
+
+export interface ReindexOptions {
+  /** Default 'staging-swap'. */
+  strategy?: 'staging-swap' | 'in-place'
+  /** Default 'fail-fast'. */
+  onProviderError?: 'fail-fast' | 'skip'
+  /** Default false. Required to commit a partial staging swap when skipped > 0. */
+  allowPartialSwap?: boolean
+  /** Optional new dimension; defaults to the namespace's current dimension. */
+  newDimension?: number
+  /** Optional cancellation signal. */
+  signal?: AbortSignal
+  /** Embedding provider override for this reindex. */
+  embeddingProvider?: EmbeddingProvider
+}
+
+export interface ReindexResult {
+  reindexed: number
+  skipped: IndexBatchSkipped[]
+  swappedAt?: string
+  durationMs: number
+}
+
+export interface RebuildFtsOptions {
+  tokenizer?: FTS5TokenizerConfig
+  batchSize?: number
+  signal?: AbortSignal
+}
+
+export interface RebuildFtsResult {
+  reindexedRows: number
+  newTokenizer: FTS5TokenizerConfig
+  durationMs: number
 }
 
 // ─── Schema extensions ────────────────────────────────────────────────────────
@@ -299,8 +451,12 @@ export interface TableExtension {
   tableName: string
   /** Full CREATE TABLE IF NOT EXISTS statement. */
   createSQL: string
-  /** If true, deleteNamespace() warns before proceeding. */
+  /** v0.3: when true, deleteNamespace() requires cascade: true and generates a
+   *  DELETE on the namespaceColumn. */
   referencesNamespace: boolean
+  /** v0.3: required when referencesNamespace is true. Validated at init() time
+   *  against PRAGMA table_info on the created table. */
+  namespaceColumn?: string
   description?: string
 }
 
@@ -314,8 +470,19 @@ export interface SchemaExtensions {
 export interface Migration {
   version: number
   description: string
+  /** v0.3: optional short name for migration logs. */
+  name?: string
+  /** v0.3: when true, runner toggles PRAGMA foreign_keys around the migration. */
+  requiresForeignKeyToggle?: boolean
   up: (db: Database) => void
   down?: (db: Database) => void
+}
+
+export interface MigrationDescriptor {
+  version: number
+  name: string
+  description: string
+  requiresForeignKeyToggle: boolean
 }
 
 // ─── FTS5 tokenizer ───────────────────────────────────────────────────────────
@@ -327,9 +494,19 @@ export interface FTS5TokenizerConfig {
 
 // ─── Init options ─────────────────────────────────────────────────────────────
 
+export interface ValidationOptions {
+  /** When true, writing a citation with null excerpt fails validation. When
+   *  false (default), it emits TRGT_CITATION_EXCERPT_MISSING and proceeds. */
+  requireCitationExcerpt?: boolean
+}
+
 export interface TemporalStoreOptions {
   namespace: string
-  embeddingDimension: number
+  /** v0.3: optional. Omitting it registers the namespace as vectorless
+   *  (BM25-only retrieval; cannot index vectors until upgradeNamespaceToVector). */
+  embeddingDimension?: number
+  /** v0.3: optional embedding provider for the default namespace. */
+  embeddingProvider?: EmbeddingProvider
   maxEpisodeContentBytes?: number
   graphAdapter?: GraphQueryAdapter
   scorer?: RetrievalScorer
@@ -339,18 +516,65 @@ export interface TemporalStoreOptions {
   middleware?: RetrievalMiddleware[]
   fts5Tokenizer?: FTS5TokenizerConfig
   schemaExtensions?: SchemaExtensions
+  /** v0.3: optional structured logger. Defaults to ConsoleLogger (warn/error to stderr). */
+  logger?: Logger
+  /** v0.3: optional metrics sink. No default; emission is a no-op when unset. */
+  metrics?: Metrics
+  validation?: ValidationOptions
+}
+
+export interface CreateStoreOptions extends TemporalStoreOptions {
+  /** Filename to open a new better-sqlite3 database, OR an existing Database
+   *  instance to wrap. */
+  database: string | Database
+  /** Forwarded to prepareDatabase() when `database` is a string. */
+  prepare?: PrepareDatabaseOptions
+  /** When true, close() also closes the underlying database. Defaults: true
+   *  if `database` was a string (store opened it), false if a Database
+   *  instance was passed in (caller owns it). */
+  closeDatabaseOnStoreClose?: boolean
+}
+
+export interface PrepareDatabaseOptions {
+  /** Default true. */
+  loadSqliteVec?: boolean
+  /** Default 'WAL'. */
+  journalMode?: 'WAL' | 'DELETE' | 'TRUNCATE' | 'PERSIST' | 'MEMORY' | 'OFF'
+  /** Default 5000. */
+  busyTimeoutMs?: number
+  /** Default 'MEMORY'. */
+  tempStore?: 'DEFAULT' | 'FILE' | 'MEMORY'
+  pragmas?: Record<string, string | number>
+  /** Forwarded to `new Database(filename, options)` when source is a filename. */
+  betterSqlite3?: Record<string, unknown>
+}
+
+export interface UpgradeNamespaceToVectorOptions {
+  embeddingDimension: number
+  embeddingProvider?: EmbeddingProvider
+}
+
+export interface DeleteNamespaceOptions {
+  /** Required when extension tables with referencesNamespace: true exist. */
+  cascade?: boolean
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
 export interface NamespaceStats {
+  namespace: string
+  /** Null for vectorless namespaces. */
+  embeddingDimension: number | null
+  /** True iff sqlite-vec is loaded AND the namespace's vec0 table exists. */
+  vectorReady: boolean
   episodeCount: number
   assertionCount: number
   activeAssertionCount: number
   supersededCount: number
-  indexedCount: number
+  citationCount: number
   linkCount: number
-  positionRange: { min: number; max: number }
+  indexedCount: number
+  positionRange: { min: number | null; max: number | null }
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────

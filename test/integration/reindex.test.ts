@@ -23,21 +23,21 @@ describe('TemporalStore — reindexNamespace', () => {
   beforeEach(async () => {
     db = openTestDb()
     store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM_INIT })
-    store.init()
-    store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
-    store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'First.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
-    store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-2', 'ep-2')] })
-    store.writeAssertion({ id: 'a-3', namespace: NS, type: 'fact', content: 'Third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-3', 'ep-3')] })
+    await store.init()
+    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
+    await store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
+    await store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
+    await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'First.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
+    await store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-2', 'ep-2')] })
+    await store.writeAssertion({ id: 'a-3', namespace: NS, type: 'fact', content: 'Third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-3', 'ep-3')] })
     // Index all three at dim=4
-    store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
-    store.indexAssertion('a-2', new Float32Array([0, 1, 0, 0]))
-    store.indexAssertion('a-3', new Float32Array([0, 0, 1, 0]))
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
+    await store.indexAssertion('a-2', new Float32Array([0, 1, 0, 0]))
+    await store.indexAssertion('a-3', new Float32Array([0, 0, 1, 0]))
   })
 
-  it('initial indexedCount is 3', () => {
-    expect(store.getStats(NS).indexedCount).toBe(3)
+  it('initial indexedCount is 3', async () => {
+    expect((await store.getStats(NS)).indexedCount).toBe(3)
   })
 
   it('reindex dim 4→8: indexedCount is 3 after reindex', async () => {
@@ -45,7 +45,7 @@ describe('TemporalStore — reindexNamespace', () => {
       newDimension: DIM_NEW,
       embeddingProvider: makeEmbeddingProvider(DIM_NEW),
     })
-    expect(store.getStats(NS).indexedCount).toBe(3)
+    expect((await store.getStats(NS)).indexedCount).toBe(3)
   })
 
   it('reindex clears old embeddings before inserting new ones', async () => {
@@ -54,7 +54,7 @@ describe('TemporalStore — reindexNamespace', () => {
       newDimension: DIM_NEW,
       embeddingProvider: makeEmbeddingProvider(DIM_NEW),
     })
-    const pending = store.getPendingIndexing(NS)
+    const pending = await store.getPendingIndexing(NS)
     expect(pending).toHaveLength(0)
   })
 
@@ -71,7 +71,7 @@ describe('TemporalStore — reindexNamespace', () => {
     ).rejects.toThrow('Embedding service unavailable')
 
     // Table was recreated empty — all assertions are pending
-    const pending = store.getPendingIndexing(NS)
+    const pending = await store.getPendingIndexing(NS)
     expect(pending).toHaveLength(3)
     expect(pending.map((p) => p.id).sort()).toEqual(['a-1', 'a-2', 'a-3'])
   })
@@ -91,18 +91,18 @@ describe('TemporalStore — reindexNamespace', () => {
       embeddingProvider: makeEmbeddingProvider(DIM_NEW),
     })
 
-    expect(store.getStats(NS).indexedCount).toBe(3)
-    expect(store.getPendingIndexing(NS)).toHaveLength(0)
+    expect((await store.getStats(NS)).indexedCount).toBe(3)
+    expect(await store.getPendingIndexing(NS)).toHaveLength(0)
   })
 
   it('getStats().indexedCount reflects indexed count after reindex', async () => {
-    expect(store.getStats(NS).indexedCount).toBe(3) // before
+    expect((await store.getStats(NS)).indexedCount).toBe(3) // before
 
     await store.reindexNamespace(NS, {
       newDimension: DIM_NEW,
       embeddingProvider: makeEmbeddingProvider(DIM_NEW),
     })
 
-    expect(store.getStats(NS).indexedCount).toBe(3) // after
+    expect((await store.getStats(NS)).indexedCount).toBe(3) // after
   })
 })

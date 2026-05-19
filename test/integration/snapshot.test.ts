@@ -11,15 +11,15 @@ describe('TemporalStore — getTemporalSnapshot', () => {
   let db: Database
   let store: TemporalStore
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
     store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
-    store.init()
-    loadScenario(store, NS)
+    await store.init()
+    await loadScenario(store, NS)
   })
 
-  it('returns only assertions valid at the requested position', () => {
-    const snap = store.getTemporalSnapshot({ namespace: NS, atPosition: 1 })
+  it('returns only assertions valid at the requested position', async () => {
+    const snap = await store.getTemporalSnapshot({ namespace: NS, atPosition: 1 })
     for (const a of snap) {
       expect(a.validFrom).toBeLessThanOrEqual(1)
     }
@@ -27,8 +27,8 @@ describe('TemporalStore — getTemporalSnapshot', () => {
     expect(snap.map((a) => a.id)).not.toContain('a-5') // validFrom=10
   })
 
-  it('filters by entityTypes', () => {
-    const concepts = store.getTemporalSnapshot({
+  it('filters by entityTypes', async () => {
+    const concepts = await store.getTemporalSnapshot({
       namespace: NS,
       atPosition: 10,
       entityTypes: ['concept'],
@@ -40,8 +40,8 @@ describe('TemporalStore — getTemporalSnapshot', () => {
     expect(concepts.map((a) => a.id)).not.toContain('a-4')
   })
 
-  it('filters by assertionTypes', () => {
-    const facts = store.getTemporalSnapshot({
+  it('filters by assertionTypes', async () => {
+    const facts = await store.getTemporalSnapshot({
       namespace: NS,
       atPosition: 10,
       assertionTypes: ['fact'],
@@ -54,8 +54,8 @@ describe('TemporalStore — getTemporalSnapshot', () => {
     expect(facts.map((a) => a.id)).not.toContain('a-4')
   })
 
-  it('combines entityTypes and assertionTypes filters', () => {
-    const filtered = store.getTemporalSnapshot({
+  it('combines entityTypes and assertionTypes filters', async () => {
+    const filtered = await store.getTemporalSnapshot({
       namespace: NS,
       atPosition: 10,
       entityTypes: ['concept'],
@@ -67,12 +67,12 @@ describe('TemporalStore — getTemporalSnapshot', () => {
     }
   })
 
-  it('respects supersession at the snapshot position', () => {
+  it('respects supersession at the snapshot position', async () => {
     // a-6 was superseded at position 5 — should be visible at pos 4, gone at pos 6
-    const before = store.getTemporalSnapshot({ namespace: NS, atPosition: 4 })
+    const before = await store.getTemporalSnapshot({ namespace: NS, atPosition: 4 })
     expect(before.map((a) => a.id)).toContain('a-6')
 
-    const after = store.getTemporalSnapshot({ namespace: NS, atPosition: 6 })
+    const after = await store.getTemporalSnapshot({ namespace: NS, atPosition: 6 })
     expect(after.map((a) => a.id)).not.toContain('a-6')
   })
 })

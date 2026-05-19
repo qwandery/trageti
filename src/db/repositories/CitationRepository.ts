@@ -129,4 +129,16 @@ export class CitationRepository {
       )
       .run(namespace)
   }
+
+  getCountByNamespace(namespace: string): number {
+    const row = this.db
+      .prepare<[string], { cnt: number }>(
+        `SELECT COUNT(*) AS cnt
+         FROM trl_citations c
+         JOIN trl_assertions a ON a.id = c.assertion_id
+         WHERE a.namespace = ?`,
+      )
+      .get(namespace)
+    return row?.cnt ?? 0
+  }
 }

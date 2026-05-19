@@ -7,11 +7,16 @@ export type {
   Assertion,
   AssertionCitation,
   NewAssertion,
+  NewAssertionInput,
+  NormalizedNewAssertion,
   NewAssertionCitation,
   AssertionLink,
   NamespaceConfig,
   RetrievalQuery,
   RetrievalMode,
+  RetrievalStrategy,
+  QueryTextMode,
+  RetrievalResult,
   RetrievedAssertion,
   ScoredCandidate,
   ScoringContext,
@@ -25,9 +30,27 @@ export type {
   TableExtension,
   SchemaExtensions,
   Migration,
+  MigrationDescriptor,
   FTS5TokenizerConfig,
   TemporalStoreOptions,
+  CreateStoreOptions,
+  PrepareDatabaseOptions,
+  ValidationOptions,
+  DeleteNamespaceOptions,
+  UpgradeNamespaceToVectorOptions,
   NamespaceStats,
+  IndexBatchItem,
+  IndexBatchOptions,
+  IndexBatchResult,
+  ReindexOptions,
+  ReindexResult,
+  RebuildFtsOptions,
+  RebuildFtsResult,
+  RetrievalExplainResult,
+  RetrievalExplainStep,
+  RetrievalDebug,
+  EmbeddingProvider,
+  EmbedOptions,
   ValidationResult,
   // Extension interfaces
   GraphQueryAdapter,
@@ -37,6 +60,7 @@ export type {
   ConnectionVerifier,
   RetrievalMiddleware,
 } from './domain/types.js'
+export type { Logger, Metrics, LogFields } from './internal/logger.js'
 
 // ─── Vocabulary constants ──────────────────────────────────────────────────────
 export { RecommendedAssertionTypes, RecommendedLinkTypes } from './domain/vocabulary.js'
@@ -50,6 +74,9 @@ export { StructuredFormatter } from './defaults/formatting/StructuredFormatter.j
 export { JsonFormatter } from './defaults/formatting/JsonFormatter.js'
 export { DefaultAssertionValidator } from './defaults/validation/DefaultAssertionValidator.js'
 export { DefaultConnectionVerifier } from './defaults/connection/DefaultConnectionVerifier.js'
+export { prepareDatabase } from './defaults/connection/prepareDatabase.js'
+export type { BetterSqlite3Options } from './defaults/connection/prepareDatabase.js'
+export { ConsoleLogger, NoopLogger } from './internal/logger.js'
 
 // ─── Error classes ──────────────────────────────────────────────────────────────
 export {
@@ -60,5 +87,14 @@ export {
   SchemaExtensionError,
   ValidationError,
   MigrationError,
+  MigrationCompatibilityError,
   ConnectionVerificationError,
+  StoreClosedError,
+  NamespaceDimensionMismatchError,
+  IndexingError,
+  RetrievalInputError,
+  ReindexError,
+  EmbeddingProviderError,
+  ReferencedExtensionTableError,
+  MissingPeerDependencyError,
 } from './errors/index.js'

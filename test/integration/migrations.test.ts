@@ -18,11 +18,11 @@ function getObjects(db: Database, type: string): SqliteMasterRow[] {
 describe('MigrationRunner', () => {
   let db: Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
   })
 
-  it('applies all migrations on a fresh database', () => {
+  it('applies all migrations on a fresh database', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
@@ -37,7 +37,7 @@ describe('MigrationRunner', () => {
     expect(tables).toContain('trl_schema_version')
   })
 
-  it('is idempotent — second applyMigrations does not re-apply', () => {
+  it('is idempotent — second applyMigrations does not re-apply', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     runner.applyMigrations(db)
@@ -47,14 +47,14 @@ describe('MigrationRunner', () => {
     expect(versionRows.cnt).toBe(2)
   })
 
-  it('creates FTS5 table', () => {
+  it('creates FTS5 table', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     const vtables = getObjects(db, 'table').map((r) => r.name)
     expect(vtables).toContain('trl_fts')
   })
 
-  it('creates FTS5 sync triggers', () => {
+  it('creates FTS5 sync triggers', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     const triggers = getObjects(db, 'trigger').map((r) => r.name)
@@ -63,7 +63,7 @@ describe('MigrationRunner', () => {
     expect(triggers).toContain('trl_fts_au')
   })
 
-  it('creates all required indexes', () => {
+  it('creates all required indexes', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     const indexes = getObjects(db, 'index').map((r) => r.name)
@@ -111,7 +111,7 @@ describe('MigrationRunner', () => {
     expect(a?.id).toBe('a-legacy')
   })
 
-  it('records tokenizer args in FTS5 table DDL', () => {
+  it('records tokenizer args in FTS5 table DDL', async () => {
     const runner = new MigrationRunner({ tokenizer: 'unicode61', tokenizerArgs: ['remove_diacritics', '1'] })
     runner.applyMigrations(db)
     const ftsObj = getObjects(db, 'table').find((r) => r.name === 'trl_fts')
@@ -119,7 +119,7 @@ describe('MigrationRunner', () => {
     expect(ftsObj?.sql).toContain('remove_diacritics')
   })
 
-  it('trl_namespaces has embedding_table column', () => {
+  it('trl_namespaces has embedding_table column', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     const cols = db

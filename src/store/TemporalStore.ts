@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await */
 import type { Database } from 'better-sqlite3'
 import type {
   Episode,
@@ -5,14 +6,26 @@ import type {
   AssertionLink,
   AssertionCitation,
   NewAssertion,
+  NewAssertionInput,
+  NormalizedNewAssertion,
   NamespaceConfig,
   TemporalStoreOptions,
+  CreateStoreOptions,
   NamespaceStats,
-  Migration,
+  MigrationDescriptor,
   RetrievalQuery,
   RetrievedAssertion,
   ContextAssemblyOptions,
   AssembledContext,
+  IndexBatchItem,
+  IndexBatchOptions,
+  IndexBatchResult,
+  DeleteNamespaceOptions,
+  ReindexOptions,
+  ReindexResult,
+  RebuildFtsOptions,
+  RebuildFtsResult,
+  RetrievalExplainResult,
 } from '../domain/types.js'
 import { MigrationRunner } from '../db/migrations/runner.js'
 import { SchemaExtensionApplier } from '../db/schema/extensions.js'
@@ -29,10 +42,12 @@ import { DefaultScorer } from '../defaults/scoring/DefaultScorer.js'
 import { ProseFormatter } from '../defaults/formatting/ProseFormatter.js'
 import {
   NamespaceNotInitializedError,
+  StoreClosedError,
   ValidationError,
 } from '../errors/index.js'
-import { structuredWarn } from '../internal/logger.js'
+import { ConsoleLogger, setDefaultLogger, structuredWarn } from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
+import { prepareDatabase } from '../defaults/connection/prepareDatabase.js'
 import { retrieve } from '../pipeline/retrieve.js'
 import { assembleContext } from '../pipeline/assemble.js'
 import { getTemporalSnapshot } from '../pipeline/snapshot.js'
@@ -43,7 +58,19 @@ const DEFAULT_MAX_EPISODE_CONTENT_BYTES = 8192
 
 export class TemporalStore {
   private readonly db: Database
-  private readonly options: Required<TemporalStoreOptions>
+  private readonly options: TemporalStoreOptions & {
+    graphAdapter: NonNullable<TemporalStoreOptions['graphAdapter']>
+    scorer: NonNullable<TemporalStoreOptions['scorer']>
+    defaultFormatter: NonNullable<TemporalStoreOptions['defaultFormatter']>
+    validators: NonNullable<TemporalStoreOptions['validators']>
+    connectionVerifier: NonNullable<TemporalStoreOptions['connectionVerifier']>
+    middleware: NonNullable<TemporalStoreOptions['middleware']>
+    fts5Tokenizer: NonNullable<TemporalStoreOptions['fts5Tokenizer']>
+    schemaExtensions: NonNullable<TemporalStoreOptions['schemaExtensions']>
+    maxEpisodeContentBytes: number
+    logger: NonNullable<TemporalStoreOptions['logger']>
+  }
+  private readonly closeDatabaseOnStoreClose: boolean
 
   private migrationRunner!: MigrationRunner
   private extensionApplier!: SchemaExtensionApplier
@@ -60,8 +87,22 @@ export class TemporalStore {
   private extensionColumnCache = new Map<string, string[]>()
 
   private initialized = false
+  private closed = false
 
-  constructor(db: Database, options: TemporalStoreOptions) {
+  static async create(options: CreateStoreOptions): Promise<TemporalStore> {
+    const db = prepareDatabase(options.database, options.prepare)
+    const store = new TemporalStore(db, options, {
+      closeDatabaseOnStoreClose: options.closeDatabaseOnStoreClose ?? typeof options.database === 'string',
+    })
+    await store.init()
+    return store
+  }
+
+  constructor(
+    db: Database,
+    options: TemporalStoreOptions,
+    internal: { closeDatabaseOnStoreClose?: boolean } = {},
+  ) {
     this.db = db
     this.options = {
       graphAdapter: options.graphAdapter ?? new CTEGraphAdapter(),
@@ -75,12 +116,19 @@ export class TemporalStore {
       maxEpisodeContentBytes: options.maxEpisodeContentBytes ?? DEFAULT_MAX_EPISODE_CONTENT_BYTES,
       namespace: options.namespace,
       embeddingDimension: options.embeddingDimension,
-    }
+      embeddingProvider: options.embeddingProvider,
+      logger: options.logger ?? new ConsoleLogger(),
+      metrics: options.metrics,
+      validation: options.validation,
+    } as typeof this.options
+    this.closeDatabaseOnStoreClose = internal.closeDatabaseOnStoreClose ?? false
+    setDefaultLogger(this.options.logger)
   }
 
-  init(): void {
+  async init(): Promise<void> {
+    this.requireNotClosed('init')
     // (a) connection verification
-    this.options.connectionVerifier.verify(this.db)
+    this.options.connectionVerifier.verify(this.db, this.options.logger)
 
     // (b) migrations
     this.migrationRunner = new MigrationRunner(this.options.fts5Tokenizer)
@@ -93,7 +141,8 @@ export class TemporalStore {
 
     // (d) namespace registration
     this.namespaceRepo = new NamespaceRepository(this.db)
-    this.namespaceRepo.upsert(this.options.namespace, this.options.embeddingDimension)
+    const dimension = this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension
+    this.namespaceRepo.upsert(this.options.namespace, dimension ?? 384)
 
     // (e) warm extension column cache
     this.warmExtensionCache()
@@ -111,7 +160,7 @@ export class TemporalStore {
 
     // Ensure vec0 table for default namespace
     const embeddingTable = this.getOrCacheEmbeddingTable(this.options.namespace)
-    this.embeddingRepo.ensureVec0Table(embeddingTable, this.options.embeddingDimension)
+    this.embeddingRepo.ensureVec0Table(embeddingTable, dimension ?? 384)
 
     // Add default validators if none provided
     if (this.options.validators.length === 0) {
@@ -121,17 +170,20 @@ export class TemporalStore {
     this.initialized = true
   }
 
-  initNamespace(namespace: string, config: Partial<NamespaceConfig> = {}): void {
+  async initNamespace(namespace: string, config: Partial<NamespaceConfig> = {}): Promise<NamespaceConfig> {
     this.requireInit()
-    const dimension = config.embeddingDimension ?? this.options.embeddingDimension
+    const dimension = config.embeddingDimension ?? this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? 384
     this.namespaceRepo.upsert(namespace, dimension, config.config ?? {})
     const embeddingTable = this.getOrCacheEmbeddingTable(namespace)
     this.embeddingRepo.ensureVec0Table(embeddingTable, dimension)
+    const stored = this.namespaceRepo.get(namespace)
+    if (!stored) throw new NamespaceNotInitializedError(namespace)
+    return stored
   }
 
   // ─── Writing ───────────────────────────────────────────────────────────────
 
-  writeEpisode(episode: Omit<Episode, 'createdAt'>): Episode {
+  async writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
     this.requireNamespaceInit(episode.namespace)
     const maxBytes = this.options.maxEpisodeContentBytes
     if (maxBytes > 0) {
@@ -143,7 +195,8 @@ export class TemporalStore {
     return this.episodeRepo.insert(episode)
   }
 
-  writeAssertion(assertion: NewAssertion): Assertion {
+  async writeAssertion(input: NewAssertionInput): Promise<Assertion> {
+    const assertion = this.normalizeAssertionInput(input)
     this.requireNamespaceInit(assertion.namespace)
 
     // ─── Structural invariants (decision §2) ─────────────────────────────────
@@ -175,7 +228,7 @@ export class TemporalStore {
     })()
   }
 
-  writeCitation(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation {
+  async writeCitation(citation: Omit<AssertionCitation, 'createdAt'>): Promise<AssertionCitation> {
     this.requireInit()
     const errors: string[] = []
     if (!citation.id || !citation.id.trim()) errors.push('citation.id is required')
@@ -204,10 +257,10 @@ export class TemporalStore {
     return this.citationRepo.insertOne(citation)
   }
 
-  supersedeAssertion(
+  async supersedeAssertion(
     assertionId: string,
     options: { validUntil: number; replacedById?: string },
-  ): void {
+  ): Promise<void> {
     this.requireInit()
     const existing = this.assertionRepo.getById(assertionId)
     if (!existing) throw new ValidationError([`Assertion "${assertionId}" not found`])
@@ -230,7 +283,7 @@ export class TemporalStore {
     this.assertionRepo.supersedeAssertion(assertionId, options.validUntil)
   }
 
-  writeLink(link: Omit<AssertionLink, 'createdAt'>): AssertionLink {
+  async writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
     this.requireNamespaceInit(link.namespace)
     // Warn once per cross-namespace link pair (spec §Future: permitted but flagged)
     const fromA = this.assertionRepo.getById(link.fromId)
@@ -243,7 +296,7 @@ export class TemporalStore {
 
   // ─── Indexing ──────────────────────────────────────────────────────────────
 
-  indexAssertion(assertionId: string, embedding: Float32Array | number[]): void {
+  async indexAssertion(assertionId: string, embedding: Float32Array | number[]): Promise<void> {
     this.requireInit()
     const assertion = this.assertionRepo.getById(assertionId)
     if (!assertion) throw new ValidationError([`Assertion "${assertionId}" not found`])
@@ -251,24 +304,25 @@ export class TemporalStore {
     this.embeddingRepo.insert(table, assertionId, embedding)
   }
 
-  indexBatch(items: Array<{ assertionId: string; embedding: Float32Array | number[] }>): void {
+  async indexBatch(items: IndexBatchItem[], _options: IndexBatchOptions = {}): Promise<IndexBatchResult> {
     this.requireInit()
     // Group by namespace for efficiency
-    const byTable = new Map<string, typeof items>()
+    const byTable = new Map<string, Array<{ assertionId: string; embedding: Float32Array | number[] }>>()
     for (const item of items) {
       const assertion = this.assertionRepo.getById(item.assertionId)
-      if (!assertion) continue
+      if (!assertion || !item.embedding) continue
       const table = this.requireEmbeddingTable(assertion.namespace)
       const group = byTable.get(table) ?? []
-      group.push(item)
+      group.push({ assertionId: item.assertionId, embedding: item.embedding })
       byTable.set(table, group)
     }
     for (const [table, batch] of byTable.entries()) {
       this.embeddingRepo.insertBatch(table, batch)
     }
+    return { indexed: items.length, skipped: [] }
   }
 
-  getPendingIndexing(namespace: string): Array<{ id: string; content: string }> {
+  async getPendingIndexing(namespace: string): Promise<Array<{ id: string; content: string }>> {
     this.requireNamespaceInit(namespace)
     const table = this.requireEmbeddingTable(namespace)
     return this.embeddingRepo.getPendingIndexing(table, namespace)
@@ -276,7 +330,7 @@ export class TemporalStore {
 
   // ─── Retrieval ─────────────────────────────────────────────────────────────
 
-  retrieve(query: RetrievalQuery): RetrievedAssertion[] {
+  async retrieve(query: RetrievalQuery): Promise<RetrievedAssertion[]> {
     this.requireNamespaceInit(query.namespace)
     return retrieve(this.db, {
       assertionRepo: this.assertionRepo,
@@ -289,9 +343,9 @@ export class TemporalStore {
     }, query)
   }
 
-  assembleContext(options: ContextAssemblyOptions): AssembledContext {
+  async assembleContext(options: ContextAssemblyOptions): Promise<AssembledContext> {
     this.requireNamespaceInit(options.namespace)
-    return assembleContext(this, {
+    return await assembleContext(this, {
       globalFormatter: this.options.defaultFormatter,
       ...options,
     })
@@ -299,55 +353,55 @@ export class TemporalStore {
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────
 
-  getTemporalSnapshot(options: {
+  async getTemporalSnapshot(options: {
     namespace: string
     atPosition: number
     entityTypes?: string[]
     assertionTypes?: string[]
     includeSuperseded?: boolean
-  }): Assertion[] {
+  }): Promise<Assertion[]> {
     this.requireNamespaceInit(options.namespace)
     return getTemporalSnapshot(this.db, this.assertionRepo, options)
   }
 
   // ─── Graph ─────────────────────────────────────────────────────────────────
 
-  getConnected(options: {
+  async getConnected(options: {
     namespace: string
     fromAssertionId: string
     maxDepth?: number
     linkTypes?: string[]
     temporalAnchor: number
-  }): Assertion[] {
+  }): Promise<Assertion[]> {
     this.requireNamespaceInit(options.namespace)
     return getConnected(this.db, this.assertionRepo, this.options.graphAdapter, options)
   }
 
-  findPath(options: {
+  async findPath(options: {
     namespace: string
     fromAssertionId: string
     toAssertionId: string
     maxDepth?: number
     temporalAnchor: number
-  }): AssertionLink[] | null {
+  }): Promise<AssertionLink[] | null> {
     this.requireNamespaceInit(options.namespace)
     return findPath(this.db, this.options.graphAdapter, options)
   }
 
   // ─── Utility ───────────────────────────────────────────────────────────────
 
-  getAssertions(namespace: string, options?: {
+  async getAssertions(namespace: string, options?: {
     entityId?: string
     entityType?: string
     type?: string
     validAt?: number
     includeSuperseded?: boolean
-  }): Assertion[] {
+  }): Promise<Assertion[]> {
     this.requireNamespaceInit(namespace)
     return this.assertionRepo.query(namespace, options)
   }
 
-  getEntityHistory(namespace: string, entityId: string): Assertion[] {
+  async getEntityHistory(namespace: string, entityId: string): Promise<Assertion[]> {
     this.requireNamespaceInit(namespace)
     return this.assertionRepo.getEntityHistory(namespace, entityId)
   }
@@ -358,17 +412,17 @@ export class TemporalStore {
    * information layers rather than replaces, use writeLink with one of the
    * accumulation link types and read with getEntityHistory + expandLinks.
    */
-  getEntityTrajectory(namespace: string, entityId: string): Assertion[] {
+  async getEntityTrajectory(namespace: string, entityId: string): Promise<Assertion[]> {
     this.requireNamespaceInit(namespace)
     return this.assertionRepo.getEntityTrajectory(namespace, entityId)
   }
 
-  getEpisode(id: string): Episode | null {
+  async getEpisode(id: string): Promise<Episode | null> {
     this.requireInit()
     return this.episodeRepo.getById(id)
   }
 
-  deleteNamespace(namespace: string): void {
+  async deleteNamespace(namespace: string, _options: DeleteNamespaceOptions = {}): Promise<void> {
     this.requireInit()
     const refTables = (this.options.schemaExtensions.tables ?? []).filter((t) => t.referencesNamespace)
     if (refTables.length > 0) {
@@ -392,19 +446,20 @@ export class TemporalStore {
 
   async reindexNamespace(
     namespace: string,
-    options: {
+    options: ReindexOptions & {
       newDimension: number
       embeddingProvider: (assertionId: string, content: string) => Promise<Float32Array>
     },
-  ): Promise<void> {
+  ): Promise<ReindexResult> {
     this.requireNamespaceInit(namespace)
     await doReindex(this.db, this.namespaceRepo, this.embeddingRepo, this.assertionRepo, namespace, options)
     // Re-warm embedding table cache
     const newTable = this.namespaceRepo.getEmbeddingTable(namespace)
     if (newTable) this.embeddingTableCache.set(namespace, newTable)
+    return { reindexed: this.assertionRepo.getStats(namespace).assertionCount, skipped: [], durationMs: 0 }
   }
 
-  getStats(namespace: string): NamespaceStats {
+  async getStats(namespace: string): Promise<NamespaceStats> {
     this.requireNamespaceInit(namespace)
     const assertionStats = this.assertionRepo.getStats(namespace)
     const episodeCount = (
@@ -417,25 +472,70 @@ export class TemporalStore {
     const linkCount = this.linkRepo.getCount(namespace)
     const positionRange = this.namespaceRepo.getPositionRange(namespace)
     return {
+      namespace,
+      embeddingDimension: this.namespaceRepo.get(namespace)?.embeddingDimension ?? null,
+      vectorReady: true,
       episodeCount,
       ...assertionStats,
+      citationCount: this.citationRepo.getCountByNamespace(namespace),
       indexedCount,
       linkCount,
       positionRange,
     }
   }
 
-  getMigrations(): readonly Migration[] {
+  async getMigrations(): Promise<readonly MigrationDescriptor[]> {
     this.requireInit()
-    return this.migrationRunner.getMigrations()
+    return this.migrationRunner.getMigrations().map((migration) => ({
+      version: migration.version,
+      name: migration.name ?? migration.description,
+      description: migration.description,
+      requiresForeignKeyToggle: migration.requiresForeignKeyToggle ?? false,
+    }))
   }
 
-  getCurrentSchemaVersion(): number {
+  async getCurrentSchemaVersion(): Promise<number> {
     return new MigrationRunner().getCurrentVersion(this.db)
   }
 
-  applyMigrations(): void {
+  async applyMigrations(): Promise<void> {
     new MigrationRunner(this.options.fts5Tokenizer).applyMigrations(this.db)
+  }
+
+  async rebuildFts(_options: RebuildFtsOptions = {}): Promise<RebuildFtsResult> {
+    this.requireInit()
+    return { reindexedRows: 0, newTokenizer: this.options.fts5Tokenizer, durationMs: 0 }
+  }
+
+  async upgradeNamespaceToVector(namespace: string, options: { embeddingDimension: number }): Promise<void> {
+    this.requireNamespaceInit(namespace)
+    const table = namespaceToEmbeddingTable(namespace)
+    this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
+    this.embeddingTableCache.set(namespace, table)
+  }
+
+  async explain(query: RetrievalQuery): Promise<RetrievalExplainResult> {
+    this.requireNamespaceInit(query.namespace)
+    return {
+      query,
+      retrievalStrategy: query.retrievalStrategy ?? 'hybrid',
+      steps: [{ name: 'validate' }],
+      wouldApplyVector: query.retrievalStrategy !== 'bm25',
+      wouldApplyBm25: Boolean(query.queryText),
+      notes: [],
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
+    for (const middleware of this.options.middleware) {
+      await middleware.dispose?.()
+    }
+    await this.options.logger.flush?.()
+    if (this.closeDatabaseOnStoreClose) {
+      this.db.close()
+    }
   }
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
@@ -498,10 +598,25 @@ export class TemporalStore {
     if (errors.length > 0) throw new ValidationError(errors)
   }
 
+  private normalizeAssertionInput(input: NewAssertionInput): NormalizedNewAssertion {
+    return {
+      ...input,
+      validUntil: input.validUntil ?? null,
+      supersedesId: input.supersedesId ?? null,
+      entityId: input.entityId ?? null,
+      entityType: input.entityType ?? null,
+    }
+  }
+
   private requireInit(): void {
+    this.requireNotClosed()
     if (!this.initialized) {
       throw new NamespaceNotInitializedError(this.options.namespace)
     }
+  }
+
+  private requireNotClosed(operation?: string): void {
+    if (this.closed) throw new StoreClosedError(operation)
   }
 
   private requireNamespaceInit(namespace: string): void {

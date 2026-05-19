@@ -42,14 +42,14 @@ const baseOptions: ContextAssemblyOptions = {
 }
 
 describe('ProseFormatter', () => {
-  it('formats assertions as prose lines', () => {
+  it('formats assertions as prose lines', async () => {
     const f = new ProseFormatter()
     const result = f.format([makeAssertion('a-1', 'The sky is blue.')], baseOptions)
     expect(result.text).toContain('The sky is blue.')
     expect(result.truncated).toBe(false)
   })
 
-  it('truncates when token budget is exceeded', () => {
+  it('truncates when token budget is exceeded', async () => {
     const f = new ProseFormatter(1) // 1 token per char = very aggressive
     const assertions = Array.from({ length: 20 }, (_, i) =>
       makeAssertion(`a-${i}`, `This is a fairly long assertion number ${i} with plenty of text.`),
@@ -58,13 +58,13 @@ describe('ProseFormatter', () => {
     expect(result.truncated).toBe(true)
   })
 
-  it('tokenEstimate is non-negative', () => {
+  it('tokenEstimate is non-negative', async () => {
     const f = new ProseFormatter()
     const result = f.format([makeAssertion('a-1', 'Hello.')], baseOptions)
     expect(result.tokenEstimate).toBeGreaterThan(0)
   })
 
-  it('appends a compact citation marker', () => {
+  it('appends a compact citation marker', async () => {
     const f = new ProseFormatter()
     const result = f.format(
       [makeAssertion('a-1', 'Cited claim.', null, [
@@ -76,7 +76,7 @@ describe('ProseFormatter', () => {
     expect(result.text).toContain('[ep-1#chunk:3, ep-2#0:08:14-0:12:30]')
   })
 
-  it('citation marker length is counted toward tokenEstimate', () => {
+  it('citation marker length is counted toward tokenEstimate', async () => {
     const f = new ProseFormatter()
     const noCit = f.format(
       [makeAssertion('a-1', 'Same content.', null, [])],
@@ -91,7 +91,7 @@ describe('ProseFormatter', () => {
 })
 
 describe('StructuredFormatter', () => {
-  it('groups assertions by entityType', () => {
+  it('groups assertions by entityType', async () => {
     const f = new StructuredFormatter()
     const assertions = [
       makeAssertion('a-1', 'Claim one.', 'person'),
@@ -102,13 +102,13 @@ describe('StructuredFormatter', () => {
     expect(result.text).toContain('## location')
   })
 
-  it('uses (unclassified) for null entityType', () => {
+  it('uses (unclassified) for null entityType', async () => {
     const f = new StructuredFormatter()
     const result = f.format([makeAssertion('a-1', 'No entity.')], baseOptions)
     expect(result.text).toContain('(unclassified)')
   })
 
-  it('truncates when budget is exceeded', () => {
+  it('truncates when budget is exceeded', async () => {
     const f = new StructuredFormatter(1)
     const assertions = Array.from({ length: 10 }, (_, i) =>
       makeAssertion(`a-${i}`, `Long assertion text ${i}.`, 'type-a'),
@@ -117,7 +117,7 @@ describe('StructuredFormatter', () => {
     expect(result.truncated).toBe(true)
   })
 
-  it('appends a compact citation marker per bullet', () => {
+  it('appends a compact citation marker per bullet', async () => {
     const f = new StructuredFormatter()
     const result = f.format(
       [makeAssertion('a-1', 'Cited claim.', 'concept', [makeCitation('a-1:c0', 'ep-1', 'chunk:3')])],
@@ -128,13 +128,13 @@ describe('StructuredFormatter', () => {
 })
 
 describe('JsonFormatter', () => {
-  it('produces valid JSON', () => {
+  it('produces valid JSON', async () => {
     const f = new JsonFormatter()
     const result = f.format([makeAssertion('a-1', 'Test claim.')], baseOptions)
     expect(() => JSON.parse(result.text)).not.toThrow()
   })
 
-  it('includes content and id in output', () => {
+  it('includes content and id in output', async () => {
     const f = new JsonFormatter()
     const result = f.format([makeAssertion('a-1', 'Test claim.')], baseOptions)
     const parsed = JSON.parse(result.text) as Array<{ id: string; content: string }>
@@ -142,7 +142,7 @@ describe('JsonFormatter', () => {
     expect(parsed[0]?.content).toBe('Test claim.')
   })
 
-  it('truncates when budget is exceeded', () => {
+  it('truncates when budget is exceeded', async () => {
     const f = new JsonFormatter(1)
     const assertions = Array.from({ length: 20 }, (_, i) =>
       makeAssertion(`a-${i}`, `Assertion with substantial content text number ${i}.`),
@@ -151,7 +151,7 @@ describe('JsonFormatter', () => {
     expect(result.truncated).toBe(true)
   })
 
-  it('includes citations in payload', () => {
+  it('includes citations in payload', async () => {
     const f = new JsonFormatter()
     const result = f.format(
       [makeAssertion('a-1', 'Cited.', null, [makeCitation('a-1:c0', 'ep-1', 'chunk:3')])],
@@ -162,7 +162,7 @@ describe('JsonFormatter', () => {
     expect(parsed[0]?.citations[0]?.sourceRef).toBe('chunk:3')
   })
 
-  it('includes supersessionChain in payload when present', () => {
+  it('includes supersessionChain in payload when present', async () => {
     const f = new JsonFormatter()
     const a = makeAssertion('a-2', 'Current.')
     a.supersessionChain = [makeAssertion('a-1', 'Older version.')]

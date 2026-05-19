@@ -11,19 +11,19 @@ const NS = 'test-ns'
 const DIM = 4
 const VEC = new Float32Array([1, 0, 0, 0])
 
-function setupStore(db: Database): TemporalStore {
+async function setupStore(db: Database): Promise<TemporalStore> {
   const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
-  store.init()
-  store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-  store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
-  store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
+  await store.init()
+  await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
+  await store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
+  await store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
   // Three assertions, slightly different embeddings so all are ranked
-  store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Alpha is first.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: 'e-a', entityType: 'concept', citations: [citationFor('a-1', 'ep-1')] })
-  store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Beta is second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: 'e-b', entityType: 'concept', citations: [citationFor('a-2', 'ep-2')] })
-  store.writeAssertion({ id: 'a-3', namespace: NS, type: 'update', content: 'Gamma is third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: 'e-g', entityType: 'relationship', citations: [citationFor('a-3', 'ep-3')] })
-  store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
-  store.indexAssertion('a-2', new Float32Array([0.9, 0.44, 0, 0]))
-  store.indexAssertion('a-3', new Float32Array([0.8, 0.6, 0, 0]))
+  await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Alpha is first.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: 'e-a', entityType: 'concept', citations: [citationFor('a-1', 'ep-1')] })
+  await store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Beta is second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: 'e-b', entityType: 'concept', citations: [citationFor('a-2', 'ep-2')] })
+  await store.writeAssertion({ id: 'a-3', namespace: NS, type: 'update', content: 'Gamma is third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: 'e-g', entityType: 'relationship', citations: [citationFor('a-3', 'ep-3')] })
+  await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
+  await store.indexAssertion('a-2', new Float32Array([0.9, 0.44, 0, 0]))
+  await store.indexAssertion('a-3', new Float32Array([0.8, 0.6, 0, 0]))
   return store
 }
 
@@ -31,13 +31,13 @@ describe('TemporalStore — context assembly', () => {
   let db: Database
   let store: TemporalStore
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
-    store = setupStore(db)
+    store = await setupStore(db)
   })
 
-  it('assembleContext returns non-empty text', () => {
-    const ctx = store.assembleContext({
+  it('assembleContext returns non-empty text', async () => {
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -47,8 +47,8 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.assertions.length).toBeGreaterThan(0)
   })
 
-  it('tokenEstimate is positive and reasonable', () => {
-    const ctx = store.assembleContext({
+  it('tokenEstimate is positive and reasonable', async () => {
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -58,8 +58,8 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.tokenEstimate).toBeLessThan(2000)
   })
 
-  it('coverage.totalAssertions reflects total retrieved', () => {
-    const ctx = store.assembleContext({
+  it('coverage.totalAssertions reflects total retrieved', async () => {
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -69,8 +69,8 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.coverage.includedAssertions).toBeLessThanOrEqual(ctx.coverage.totalAssertions)
   })
 
-  it('coverage.positionRange spans validFrom values of retrieved assertions', () => {
-    const ctx = store.assembleContext({
+  it('coverage.positionRange spans validFrom values of retrieved assertions', async () => {
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -81,9 +81,9 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.coverage.positionRange.from).toBeLessThanOrEqual(ctx.coverage.positionRange.to)
   })
 
-  it('token budget truncation sets truncated=true and limits assertions', () => {
+  it('token budget truncation sets truncated=true and limits assertions', async () => {
     // Very small budget should force truncation
-    const ctx = store.assembleContext({
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -93,8 +93,8 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.coverage.includedAssertions).toBeLessThan(ctx.coverage.totalAssertions)
   })
 
-  it('no truncation within large budget', () => {
-    const ctx = store.assembleContext({
+  it('no truncation within large budget', async () => {
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -104,9 +104,9 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.coverage.includedAssertions).toBe(ctx.coverage.totalAssertions)
   })
 
-  it('per-call formatter override is used', () => {
+  it('per-call formatter override is used', async () => {
     const jsonFormatter = new JsonFormatter()
-    const ctx = store.assembleContext({
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -117,8 +117,8 @@ describe('TemporalStore — context assembly', () => {
     expect(() => JSON.parse(ctx.text)).not.toThrow()
   })
 
-  it('ProseFormatter produces human-readable text', () => {
-    const prose = store.assembleContext({
+  it('ProseFormatter produces human-readable text', async () => {
+    const prose = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -129,8 +129,8 @@ describe('TemporalStore — context assembly', () => {
     expect(prose.metadata['formatter']).toBe('prose')
   })
 
-  it('StructuredFormatter groups by entity type', () => {
-    const structured = store.assembleContext({
+  it('StructuredFormatter groups by entity type', async () => {
+    const structured = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
@@ -141,8 +141,8 @@ describe('TemporalStore — context assembly', () => {
     expect(structured.metadata['formatter']).toBe('structured')
   })
 
-  it('JsonFormatter produces parseable JSON with assertions array', () => {
-    const json = store.assembleContext({
+  it('JsonFormatter produces parseable JSON with assertions array', async () => {
+    const json = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,

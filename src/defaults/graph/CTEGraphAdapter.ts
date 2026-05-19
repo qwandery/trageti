@@ -163,7 +163,9 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
     if (rows.length === 0) return null
 
-    const minDepth = rows[0]!.depth
+    const first = rows[0]
+    if (!first) return null
+    const minDepth = first.depth
     const candidates: string[][] = rows
       .filter((r) => r.depth === minDepth)
       .map((r) => JSON.parse(r.path_ids) as string[])
@@ -178,12 +180,18 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const byId = new Map<string, AssertionLink>()
     for (const r of linkRows) byId.set(r.id, rowToLink(r))
 
-    let winner = candidates[0]!
+    const firstCandidate = candidates[0]
+    if (!firstCandidate) return null
+    let winner = firstCandidate
     for (let i = 1; i < candidates.length; i++) {
-      if (comparePaths(candidates[i]!, winner, byId) < 0) winner = candidates[i]!
+      const candidate = candidates[i]
+      if (candidate && comparePaths(candidate, winner, byId) < 0) winner = candidate
     }
 
-    return winner.map((id) => byId.get(id)!)
+    return winner.flatMap((id) => {
+      const link = byId.get(id)
+      return link ? [link] : []
+    })
   }
 }
 
@@ -193,8 +201,12 @@ function comparePaths(
   byId: Map<string, AssertionLink>,
 ): number {
   for (let i = 0; i < a.length; i++) {
-    const la = byId.get(a[i]!)!
-    const lb = byId.get(b[i]!)!
+    const aId = a[i]
+    const bId = b[i]
+    if (!aId || !bId) return 0
+    const la = byId.get(aId)
+    const lb = byId.get(bId)
+    if (!la || !lb) return 0
     if (la.createdAt < lb.createdAt) return -1
     if (la.createdAt > lb.createdAt) return 1
     if (la.id < lb.id) return -1

@@ -11,11 +11,11 @@ describe('TemporalStore — graph traversal', () => {
   let db: Database
   let store: TemporalStore
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
     store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
-    store.init()
-    loadScenario(store, NS)
+    await store.init()
+    await loadScenario(store, NS)
   })
 
   // Scenario links:
@@ -25,8 +25,8 @@ describe('TemporalStore — graph traversal', () => {
   //   l-4: a-3 → a-5 (sequential, validFrom=10)
   //   l-5: a-6 → a-7 (supersedes, validFrom=5)
 
-  it('getConnected returns directly linked assertions at depth 1', () => {
-    const connected = store.getConnected({
+  it('getConnected returns directly linked assertions at depth 1', async () => {
+    const connected = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 1,
@@ -38,9 +38,9 @@ describe('TemporalStore — graph traversal', () => {
     expect(ids).not.toContain('a-1') // source excluded
   })
 
-  it('getConnected respects depth boundary', () => {
+  it('getConnected respects depth boundary', async () => {
     // At depth 1 from a-1, should not include a-4 (a-1→a-2→a-4 is depth 2)
-    const depth1 = store.getConnected({
+    const depth1 = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 1,
@@ -49,7 +49,7 @@ describe('TemporalStore — graph traversal', () => {
     expect(depth1.map((a) => a.id)).not.toContain('a-4')
 
     // At depth 2 from a-1, a-4 should be reachable via a-1→a-2→a-4
-    const depth2 = store.getConnected({
+    const depth2 = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 2,
@@ -58,8 +58,8 @@ describe('TemporalStore — graph traversal', () => {
     expect(depth2.map((a) => a.id)).toContain('a-4')
   })
 
-  it('getConnected filters by link type', () => {
-    const related = store.getConnected({
+  it('getConnected filters by link type', async () => {
+    const related = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 1,
@@ -71,9 +71,9 @@ describe('TemporalStore — graph traversal', () => {
     expect(ids).not.toContain('a-3') // l-2 is 'sequential', not 'related'
   })
 
-  it('getConnected excludes links with validFrom > temporalAnchor', () => {
+  it('getConnected excludes links with validFrom > temporalAnchor', async () => {
     // l-2 has validFrom=5; querying at anchor=4 should exclude it
-    const connected = store.getConnected({
+    const connected = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 1,
@@ -84,9 +84,9 @@ describe('TemporalStore — graph traversal', () => {
     expect(ids).not.toContain('a-3') // l-2 validFrom=5, not yet valid at anchor=4
   })
 
-  it('getConnected excludes expired links (valid_until <= temporalAnchor)', () => {
+  it('getConnected excludes expired links (valid_until <= temporalAnchor)', async () => {
     // Add a link that expires at position 8
-    store.writeLink({
+    await store.writeLink({
       id: 'l-temp',
       namespace: NS,
       fromId: 'a-1',
@@ -98,17 +98,17 @@ describe('TemporalStore — graph traversal', () => {
     })
 
     // At anchor=7: link is still valid (validUntil=8 > 7)
-    const before = store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 7 })
+    const before = await store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 7 })
     expect(before.map((a) => a.id)).toContain('a-5')
 
     // At anchor=8: link has expired (validUntil=8, condition is valid_until > anchor fails for equal)
-    const after = store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 8 })
+    const after = await store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 8 })
     expect(after.map((a) => a.id)).not.toContain('a-5')
   })
 
-  it('findPath returns links on the path between two assertions', () => {
+  it('findPath returns links on the path between two assertions', async () => {
     // a-1 → a-2 (l-1) is a direct 1-hop path
-    const path = store.findPath({
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-1',
       toAssertionId: 'a-2',
@@ -116,15 +116,15 @@ describe('TemporalStore — graph traversal', () => {
       temporalAnchor: 10,
     })
     expect(path).not.toBeNull()
-    expect(path!.length).toBeGreaterThan(0)
+    expect(path.length).toBeGreaterThan(0)
     // Path should end at a-2
-    const lastLink = path![path!.length - 1]!
+    const lastLink = path[path.length - 1]!
     expect(lastLink.toId).toBe('a-2')
   })
 
-  it('findPath returns null when no path exists within maxDepth', () => {
+  it('findPath returns null when no path exists within maxDepth', async () => {
     // a-5 has no outgoing links in the fixture — no path from a-5 to a-1
-    const path = store.findPath({
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-5',
       toAssertionId: 'a-1',
@@ -134,9 +134,9 @@ describe('TemporalStore — graph traversal', () => {
     expect(path).toBeNull()
   })
 
-  it('findPath returns the full ordered path for multi-hop walks', () => {
+  it('findPath returns the full ordered path for multi-hop walks', async () => {
     // a-1 → a-2 → a-4 via l-1 and l-3
-    const path = store.findPath({
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-1',
       toAssertionId: 'a-4',
@@ -144,17 +144,17 @@ describe('TemporalStore — graph traversal', () => {
       temporalAnchor: 10,
     })
     expect(path).not.toBeNull()
-    expect(path!.length).toBe(2)
-    expect(path![0]!.fromId).toBe('a-1')
-    expect(path![0]!.toId).toBe('a-2')
-    expect(path![1]!.fromId).toBe('a-2')
-    expect(path![1]!.toId).toBe('a-4')
-    expect(path![0]!.id).toBe('l-1')
-    expect(path![1]!.id).toBe('l-3')
+    expect(path.length).toBe(2)
+    expect(path[0]!.fromId).toBe('a-1')
+    expect(path[0]!.toId).toBe('a-2')
+    expect(path[1]!.fromId).toBe('a-2')
+    expect(path[1]!.toId).toBe('a-4')
+    expect(path[0]!.id).toBe('l-1')
+    expect(path[1]!.id).toBe('l-3')
   })
 
-  it('findPath returns [] for zero-hop (same source and target)', () => {
-    const path = store.findPath({
+  it('findPath returns [] for zero-hop (same source and target)', async () => {
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-1',
       toAssertionId: 'a-1',
@@ -164,9 +164,9 @@ describe('TemporalStore — graph traversal', () => {
     expect(path).toEqual([])
   })
 
-  it('findPath handles cycles without infinite loop or repeated assertions', () => {
+  it('findPath handles cycles without infinite loop or repeated assertions', async () => {
     // Construct a cycle: a-2 → a-1 (closing a-1 → a-2 → a-1)
-    store.writeLink({
+    await store.writeLink({
       id: 'l-cycle',
       namespace: NS,
       fromId: 'a-2',
@@ -178,7 +178,7 @@ describe('TemporalStore — graph traversal', () => {
     })
     // Path from a-1 to a-1 is zero-hop, returns [] (no cycle traversal).
     expect(
-      store.findPath({
+      await store.findPath({
         namespace: NS,
         fromAssertionId: 'a-1',
         toAssertionId: 'a-1',
@@ -187,7 +187,7 @@ describe('TemporalStore — graph traversal', () => {
       }),
     ).toEqual([])
     // Path from a-1 to nonexistent target — must terminate without infinite loop.
-    const path = store.findPath({
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-1',
       toAssertionId: 'a-nonexistent',
@@ -196,7 +196,7 @@ describe('TemporalStore — graph traversal', () => {
     })
     expect(path).toBeNull()
     // Path from a-2 to a-4 (a-2 → a-4 directly via l-3) — cycle guard must not skip it.
-    const valid = store.findPath({
+    const valid = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-2',
       toAssertionId: 'a-4',
@@ -205,14 +205,14 @@ describe('TemporalStore — graph traversal', () => {
     })
     expect(valid).not.toBeNull()
     // Visited-set invariant: no assertion appears more than once in the path.
-    const assertions = [valid![0]!.fromId, ...valid!.map((l) => l.toId)]
+    const assertions = [valid[0]!.fromId, ...valid.map((l) => l.toId)]
     expect(new Set(assertions).size).toBe(assertions.length)
   })
 
-  it('findPath picks the deterministic path among equal-depth candidates', () => {
+  it('findPath picks the deterministic path among equal-depth candidates', async () => {
     // Build a second 2-hop route a-1 → a-5 → a-4 alongside a-1 → a-2 → a-4.
     // a-1 → a-5 needs a new link; a-5 → a-4 also needs a new link.
-    store.writeLink({
+    await store.writeLink({
       id: 'l-alt1',
       namespace: NS,
       fromId: 'a-1',
@@ -222,7 +222,7 @@ describe('TemporalStore — graph traversal', () => {
       validUntil: null,
       sourceEpisodeId: 'ep-1',
     })
-    store.writeLink({
+    await store.writeLink({
       id: 'l-alt2',
       namespace: NS,
       fromId: 'a-5',
@@ -242,7 +242,7 @@ describe('TemporalStore — graph traversal', () => {
 
     // Run ten times; assert the same path is returned each time, and that it is Path A
     // (smaller first-hop created_at wins the lex comparison).
-    const winners = Array.from({ length: 10 }, () =>
+    const winners = await Promise.all(Array.from({ length: 10 }, () =>
       store.findPath({
         namespace: NS,
         fromAssertionId: 'a-1',
@@ -250,18 +250,18 @@ describe('TemporalStore — graph traversal', () => {
         maxDepth: 5,
         temporalAnchor: 10,
       }),
-    )
+    ))
     for (const path of winners) {
       expect(path).not.toBeNull()
-      expect(path!.length).toBe(2)
-      expect(path![0]!.id).toBe('l-1')
-      expect(path![1]!.id).toBe('l-3')
+      expect(path.length).toBe(2)
+      expect(path[0]!.id).toBe('l-1')
+      expect(path[1]!.id).toBe('l-3')
     }
   })
 
-  it('getConnected returns empty array when no links exist', () => {
+  it('getConnected returns empty array when no links exist', async () => {
     // a-5 has no outgoing links
-    const connected = store.getConnected({
+    const connected = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-5',
       maxDepth: 3,

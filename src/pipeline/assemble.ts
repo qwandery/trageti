@@ -10,21 +10,23 @@ interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter
 }
 
-export function assembleContext(store: TemporalStore, options: AssembleOptions): AssembledContext {
+export async function assembleContext(store: TemporalStore, options: AssembleOptions): Promise<AssembledContext> {
   const query: RetrievalQuery = {
     namespace: options.namespace,
-    queryEmbedding: options.queryEmbedding,
     temporalAnchor: options.temporalAnchor,
     limit: 100, // large initial fetch; formatter truncates by token budget
-    ...(options.queryText !== undefined && { queryText: options.queryText }),
-    ...(options.expandLinks !== undefined && { expandLinks: options.expandLinks }),
-    ...(options.maxDepth !== undefined && { maxDepth: options.maxDepth }),
-    ...(options.mode !== undefined && { mode: options.mode }),
-    ...(options.scorer !== undefined && { scorer: options.scorer }),
-    ...(options.middleware !== undefined && { middleware: options.middleware }),
   }
+  if (options.queryEmbedding !== undefined) query.queryEmbedding = options.queryEmbedding
+  if (options.queryText !== undefined) query.queryText = options.queryText
+  if (options.queryTextMode !== undefined) query.queryTextMode = options.queryTextMode
+  if (options.expandLinks !== undefined) query.expandLinks = options.expandLinks
+  if (options.maxDepth !== undefined) query.maxDepth = options.maxDepth
+  if (options.mode !== undefined) query.mode = options.mode
+  if (options.scorer !== undefined) query.scorer = options.scorer
+  if (options.middleware !== undefined) query.middleware = options.middleware
+  if (options.retrievalStrategy !== undefined) query.retrievalStrategy = options.retrievalStrategy
 
-  const assertions = store.retrieve(query)
+  const assertions = await store.retrieve(query)
 
   const formatter = options.formatter ?? options.globalFormatter
   const formatted = formatter.format(assertions, options)

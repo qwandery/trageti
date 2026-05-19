@@ -16,30 +16,30 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     // ── 1. Setup ──────────────────────────────────────────────────────────────
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
-    store.init()
+    await store.init()
 
     // ── 2. Write episodes and assertions ─────────────────────────────────────
-    loadScenario(store, NS)
+    await loadScenario(store, NS)
 
     // Verify writes
-    const ep = store.getEpisode('ep-1')
+    const ep = await store.getEpisode('ep-1')
     expect(ep).not.toBeNull()
-    expect(ep!.position).toBe(1)
+    expect(ep.position).toBe(1)
 
-    const assertions = store.getAssertions(NS)
+    const assertions = await store.getAssertions(NS)
     expect(assertions.length).toBeGreaterThan(0)
 
     // ── 3. Index a subset ────────────────────────────────────────────────────
-    store.indexAssertion('a-1', VEC_A)
-    store.indexAssertion('a-2', VEC_B)
-    store.indexAssertion('a-3', VEC_A)
-    store.indexAssertion('a-4', VEC_B)
-    store.indexAssertion('a-5', VEC_A)
+    await store.indexAssertion('a-1', VEC_A)
+    await store.indexAssertion('a-2', VEC_B)
+    await store.indexAssertion('a-3', VEC_A)
+    await store.indexAssertion('a-4', VEC_B)
+    await store.indexAssertion('a-5', VEC_A)
 
-    expect(store.getStats(NS).indexedCount).toBe(5)
+    expect((await store.getStats(NS)).indexedCount).toBe(5)
 
     // ── 4. Hybrid retrieve ───────────────────────────────────────────────────
-    const results = store.retrieve({
+    const results = await store.retrieve({
       namespace: NS,
       queryEmbedding: VEC_A,
       queryText: 'Alpha',
@@ -54,7 +54,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     }
 
     // ── 5. Context assembly ──────────────────────────────────────────────────
-    const ctx = store.assembleContext({
+    const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC_A,
       temporalAnchor: 10,
@@ -67,7 +67,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ctx.coverage.positionRange.from).toBeGreaterThanOrEqual(1)
 
     // ── 6. Temporal snapshot at past position ─────────────────────────────────
-    const snapshot = store.getTemporalSnapshot({
+    const snapshot = await store.getTemporalSnapshot({
       namespace: NS,
       atPosition: 4,
     })
@@ -79,7 +79,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(snapshot.map((a) => a.id)).not.toContain('a-5')
 
     // ── 7. Graph expand ──────────────────────────────────────────────────────
-    const connected = store.getConnected({
+    const connected = await store.getConnected({
       namespace: NS,
       fromAssertionId: 'a-1',
       maxDepth: 2,
@@ -88,7 +88,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(connected.map((a) => a.id)).toContain('a-2')
 
     // ── 8. findPath ───────────────────────────────────────────────────────────
-    const path = store.findPath({
+    const path = await store.findPath({
       namespace: NS,
       fromAssertionId: 'a-1',
       toAssertionId: 'a-2',
@@ -98,20 +98,20 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(path).not.toBeNull()
 
     // ── 9. Supersede and verify history ──────────────────────────────────────
-    store.supersedeAssertion('a-1', { validUntil: 5, replacedById: 'a-3' })
-    const history = store.getEntityHistory(NS, 'entity-alpha')
+    await store.supersedeAssertion('a-1', { validUntil: 5, replacedById: 'a-3' })
+    const history = await store.getEntityHistory(NS, 'entity-alpha')
     const ids = history.map((a) => a.id)
     expect(ids).toContain('a-1')
     expect(ids).toContain('a-3')
 
     // ── 10. Stats ─────────────────────────────────────────────────────────────
-    const stats = store.getStats(NS)
+    const stats = await store.getStats(NS)
     expect(stats.episodeCount).toBe(3)
     expect(stats.assertionCount).toBeGreaterThan(0)
     expect(stats.indexedCount).toBe(5)
 
     // ── 11. Delete namespace ──────────────────────────────────────────────────
-    store.deleteNamespace(NS)
+    await store.deleteNamespace(NS)
     // Namespace is gone — assertions no longer accessible
     const nsAssertions = db
       .prepare<[string], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trl_assertions WHERE namespace = ?')
@@ -119,22 +119,22 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(nsAssertions?.cnt).toBe(0)
   })
 
-  it('multi-namespace isolation', () => {
+  it('multi-namespace isolation', async () => {
     const db = openTestDb()
     const ns1 = 'ns-one'
     const ns2 = 'ns-two'
 
     const store1 = new TemporalStore(db, { namespace: ns1, embeddingDimension: DIM })
-    store1.init()
-    store1.initNamespace(ns2)
+    await store1.init()
+    await store1.initNamespace(ns2)
 
-    store1.writeEpisode({ id: 'ep-ns1', namespace: ns1, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store1.writeEpisode({ id: 'ep-ns2', namespace: ns2, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    store1.writeAssertion({ id: 'a-ns1', namespace: ns1, type: 'fact', content: 'NS1 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns1', 'ep-ns1')] })
-    store1.writeAssertion({ id: 'a-ns2', namespace: ns2, type: 'fact', content: 'NS2 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns2', 'ep-ns2')] })
+    await store1.writeEpisode({ id: 'ep-ns1', namespace: ns1, position: 1, occurredAt: '', type: 'doc', content: 'c' })
+    await store1.writeEpisode({ id: 'ep-ns2', namespace: ns2, position: 1, occurredAt: '', type: 'doc', content: 'c' })
+    await store1.writeAssertion({ id: 'a-ns1', namespace: ns1, type: 'fact', content: 'NS1 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns1', 'ep-ns1')] })
+    await store1.writeAssertion({ id: 'a-ns2', namespace: ns2, type: 'fact', content: 'NS2 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns2', 'ep-ns2')] })
 
-    const ns1Assertions = store1.getAssertions(ns1)
-    const ns2Assertions = store1.getAssertions(ns2)
+    const ns1Assertions = await store1.getAssertions(ns1)
+    const ns2Assertions = await store1.getAssertions(ns2)
 
     expect(ns1Assertions.map((a) => a.id)).toContain('a-ns1')
     expect(ns1Assertions.map((a) => a.id)).not.toContain('a-ns2')
@@ -142,10 +142,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1')
   })
 
-  it('schema version is 2 after init (v002 = citations)', () => {
+  it('schema version is 2 after init (v002 = citations)', async () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
-    store.init()
-    expect(store.getCurrentSchemaVersion()).toBe(2)
+    await store.init()
+    expect(await store.getCurrentSchemaVersion()).toBe(2)
   })
 })

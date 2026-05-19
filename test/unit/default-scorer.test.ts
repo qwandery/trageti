@@ -38,7 +38,7 @@ function makeContext(overrides: Partial<ScoringContext> = {}): ScoringContext {
 describe('DefaultScorer', () => {
   const scorer = new DefaultScorer()
 
-  it('returns a number between 0 and 1 (no BM25)', () => {
+  it('returns a number between 0 and 1 (no BM25)', async () => {
     const candidate: ScoredCandidate = {
       assertion: makeAssertion(),
       semanticDistance: 0.3,
@@ -50,21 +50,21 @@ describe('DefaultScorer', () => {
     expect(score).toBeLessThanOrEqual(1)
   })
 
-  it('perfect semantic match (distance=0) scores higher than poor match (distance=1)', () => {
+  it('perfect semantic match (distance=0) scores higher than poor match (distance=1)', async () => {
     const ctx = makeContext()
     const perfect: ScoredCandidate = { assertion: makeAssertion(), semanticDistance: 0, bm25Score: null, position: 5 }
     const poor: ScoredCandidate = { assertion: makeAssertion(), semanticDistance: 1, bm25Score: null, position: 5 }
     expect(scorer.score(perfect, ctx)).toBeGreaterThan(scorer.score(poor, ctx))
   })
 
-  it('more recent assertion scores higher than older one with same semantic distance', () => {
+  it('more recent assertion scores higher than older one with same semantic distance', async () => {
     const ctx = makeContext({ namespacePositionRange: { min: 0, max: 10 } })
     const recent: ScoredCandidate = { assertion: makeAssertion({ validFrom: 9 }), semanticDistance: 0.5, bm25Score: null, position: 9 }
     const old: ScoredCandidate = { assertion: makeAssertion({ validFrom: 1 }), semanticDistance: 0.5, bm25Score: null, position: 1 }
     expect(scorer.score(recent, ctx)).toBeGreaterThan(scorer.score(old, ctx))
   })
 
-  it('per-candidate score handles raw FTS5 BM25 (negative values)', () => {
+  it('per-candidate score handles raw FTS5 BM25 (negative values)', async () => {
     const ctx = makeContext()
     // v0.2: BM25 arrives as raw FTS5 (negative; more-negative = better).
     const withBm25: ScoredCandidate = {
@@ -82,14 +82,14 @@ describe('DefaultScorer', () => {
     expect(scorer.score(withBm25, ctx)).not.toBe(scorer.score(noBm25, ctx))
   })
 
-  it('handles flat position range (min === max) without division by zero', () => {
+  it('handles flat position range (min === max) without division by zero', async () => {
     const ctx = makeContext({ namespacePositionRange: { min: 5, max: 5 } })
     const candidate: ScoredCandidate = { assertion: makeAssertion({ validFrom: 5 }), semanticDistance: 0.2, bm25Score: null, position: 5 }
     expect(() => scorer.score(candidate, ctx)).not.toThrow()
   })
 
   describe('scoreBatch — cross-candidate BM25 normalisation (v0.2)', () => {
-    it('returns array of same length as input', () => {
+    it('returns array of same length as input', async () => {
       const ctx = makeContext()
       const candidates: ScoredCandidate[] = [
         { assertion: makeAssertion({ id: 'a' }), semanticDistance: 0.1, bm25Score: -1.0, position: 5 },
@@ -104,7 +104,7 @@ describe('DefaultScorer', () => {
       }
     })
 
-    it('most-negative raw BM25 (best match) gets highest BM25-normalised contribution', () => {
+    it('most-negative raw BM25 (best match) gets highest BM25-normalised contribution', async () => {
       const ctx = makeContext()
       // Make semantic + recency identical across candidates so BM25 dominates ranking.
       const candidates: ScoredCandidate[] = [
@@ -115,7 +115,7 @@ describe('DefaultScorer', () => {
       expect(scores[0]).toBeGreaterThan(scores[1] ?? 0)
     })
 
-    it('handles single candidate (range = 0) without NaN', () => {
+    it('handles single candidate (range = 0) without NaN', async () => {
       const ctx = makeContext()
       const candidates: ScoredCandidate[] = [
         { assertion: makeAssertion(), semanticDistance: 0.2, bm25Score: -2.0, position: 5 },
@@ -125,7 +125,7 @@ describe('DefaultScorer', () => {
       expect(Number.isFinite(scores[0])).toBe(true)
     })
 
-    it('handles identical BM25 scores across candidates (range = 0)', () => {
+    it('handles identical BM25 scores across candidates (range = 0)', async () => {
       const ctx = makeContext()
       const candidates: ScoredCandidate[] = [
         { assertion: makeAssertion({ id: 'a' }), semanticDistance: 0.5, bm25Score: -2.0, position: 5 },
@@ -136,7 +136,7 @@ describe('DefaultScorer', () => {
       expect(scores[0]).toBeCloseTo(scores[1] ?? 0)
     })
 
-    it('handles all-null BM25 (no queryText) like the no-keyword fallback', () => {
+    it('handles all-null BM25 (no queryText) like the no-keyword fallback', async () => {
       const ctx = makeContext()
       const candidates: ScoredCandidate[] = [
         { assertion: makeAssertion({ id: 'a' }), semanticDistance: 0.5, bm25Score: null, position: 5 },
@@ -146,7 +146,7 @@ describe('DefaultScorer', () => {
       expect(Number.isFinite(scores[0])).toBe(true)
     })
 
-    it('empty input returns empty output', () => {
+    it('empty input returns empty output', async () => {
       const ctx = makeContext()
       expect(scorer.scoreBatch([], ctx)).toEqual([])
     })

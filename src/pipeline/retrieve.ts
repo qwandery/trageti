@@ -68,6 +68,7 @@ function retrieveCore(
   const candidateJson = buildCandidateJson(step1.map((r) => r.id))
 
   // Step 2: Semantic scoring
+  if (!query.queryEmbedding) return []
   const embeddingTable = ctx.getEmbeddingTable(query.namespace)
   const step2 = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
   if (step2.length === 0) return []

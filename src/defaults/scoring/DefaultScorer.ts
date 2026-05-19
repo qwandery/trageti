@@ -29,18 +29,27 @@ export class DefaultScorer implements RetrievalScorer {
    * meaningfully normalised; this fallback uses tanh-style compression.
    */
   score(candidate: ScoredCandidate, context: ScoringContext): number {
-    const semanticSimilarity = Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
+    const semanticSimilarity = candidate.semanticDistance === null
+      ? null
+      : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
     const { min, max } = context.namespacePositionRange
     const recency = max > min ? (candidate.position - min) / (max - min) : 1
 
     if (candidate.bm25Score !== null) {
       // Raw FTS5: negative, more-negative = better. Compress via 1 / (1 + |x|).
       const bm25 = 1 / (1 + Math.abs(candidate.bm25Score))
+      if (semanticSimilarity === null) {
+        const w = WEIGHT_BM25 + WEIGHT_RECENCY
+        return (WEIGHT_BM25 / w) * bm25 + (WEIGHT_RECENCY / w) * recency
+      }
       return (
         WEIGHT_SEMANTIC * semanticSimilarity +
         WEIGHT_BM25 * bm25 +
         WEIGHT_RECENCY * recency
       )
+    }
+    if (semanticSimilarity === null) {
+      throw new Error('SCORER_NO_USABLE_SIGNAL')
     }
     const w = WEIGHT_SEMANTIC + WEIGHT_RECENCY
     return (WEIGHT_SEMANTIC / w) * semanticSimilarity + (WEIGHT_RECENCY / w) * recency
@@ -75,16 +84,25 @@ export class DefaultScorer implements RetrievalScorer {
 
     const { min, max } = context.namespacePositionRange
     return candidates.map((candidate, i) => {
-      const semanticSimilarity = Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
+      const semanticSimilarity = candidate.semanticDistance === null
+        ? null
+        : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
       const recency = max > min ? (candidate.position - min) / (max - min) : 1
 
       if (candidate.bm25Score !== null) {
         const bm25 = bm25NormalisedById.get(i) ?? 0
+        if (semanticSimilarity === null) {
+          const w = WEIGHT_BM25 + WEIGHT_RECENCY
+          return (WEIGHT_BM25 / w) * bm25 + (WEIGHT_RECENCY / w) * recency
+        }
         return (
           WEIGHT_SEMANTIC * semanticSimilarity +
           WEIGHT_BM25 * bm25 +
           WEIGHT_RECENCY * recency
         )
+      }
+      if (semanticSimilarity === null) {
+        throw new Error('SCORER_NO_USABLE_SIGNAL')
       }
       const w = WEIGHT_SEMANTIC + WEIGHT_RECENCY
       return (WEIGHT_SEMANTIC / w) * semanticSimilarity + (WEIGHT_RECENCY / w) * recency

@@ -10,7 +10,7 @@ function setupDb(db: Database): void {
 }
 
 describe('SchemaExtensionApplier.validate', () => {
-  it('accepts valid extensions without throwing', () => {
+  it('accepts valid extensions without throwing', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
@@ -21,28 +21,28 @@ describe('SchemaExtensionApplier.validate', () => {
     ).not.toThrow()
   })
 
-  it('rejects column names starting with trl_', () => {
+  it('rejects column names starting with trl_', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({ columns: [{ table: 'trl_assertions', column: 'trl_foo', definition: 'TEXT' }] }),
     ).toThrow(SchemaExtensionError)
   })
 
-  it('rejects SQLite reserved keywords as column names', () => {
+  it('rejects SQLite reserved keywords as column names', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({ columns: [{ table: 'trl_assertions', column: 'select', definition: 'TEXT' }] }),
     ).toThrow(SchemaExtensionError)
   })
 
-  it('rejects columns that shadow library columns', () => {
+  it('rejects columns that shadow library columns', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({ columns: [{ table: 'trl_assertions', column: 'content', definition: 'TEXT' }] }),
     ).toThrow(SchemaExtensionError)
   })
 
-  it('rejects table names starting with trl_', () => {
+  it('rejects table names starting with trl_', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
@@ -51,7 +51,7 @@ describe('SchemaExtensionApplier.validate', () => {
     ).toThrow(SchemaExtensionError)
   })
 
-  it('accumulates multiple violations in one error', () => {
+  it('accumulates multiple violations in one error', async () => {
     const applier = new SchemaExtensionApplier()
     let err: SchemaExtensionError | undefined
     try {
@@ -72,12 +72,12 @@ describe('SchemaExtensionApplier.validate', () => {
 describe('SchemaExtensionApplier.apply', () => {
   let db: Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
     setupDb(db)
   })
 
-  it('adds a new column to trl_assertions', () => {
+  it('adds a new column to trl_assertions', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
       columns: [{ table: 'trl_assertions', column: 'approval_status', definition: "TEXT NOT NULL DEFAULT 'pending'" }],
@@ -86,7 +86,7 @@ describe('SchemaExtensionApplier.apply', () => {
     expect(cols.map((c) => c.name)).toContain('approval_status')
   })
 
-  it('is idempotent — second apply does not error or duplicate', () => {
+  it('is idempotent — second apply does not error or duplicate', async () => {
     const applier = new SchemaExtensionApplier()
     const ext = {
       columns: [{ table: 'trl_assertions' as const, column: 'my_flag', definition: 'INTEGER DEFAULT 0' }],
@@ -97,7 +97,7 @@ describe('SchemaExtensionApplier.apply', () => {
     expect(cols.filter((c) => c.name === 'my_flag').length).toBe(1)
   })
 
-  it('creates extension tables', () => {
+  it('creates extension tables', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
       tables: [
@@ -118,17 +118,17 @@ describe('SchemaExtensionApplier.apply', () => {
 describe('SchemaExtensionApplier.getExtensionColumns', () => {
   let db: Database
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = openTestDb()
     setupDb(db)
   })
 
-  it('returns empty array when no extensions added', () => {
+  it('returns empty array when no extensions added', async () => {
     const applier = new SchemaExtensionApplier()
     expect(applier.getExtensionColumns(db, 'trl_assertions')).toEqual([])
   })
 
-  it('returns added extension columns', () => {
+  it('returns added extension columns', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
       columns: [{ table: 'trl_assertions', column: 'approval_status', definition: 'TEXT' }],
@@ -136,7 +136,7 @@ describe('SchemaExtensionApplier.getExtensionColumns', () => {
     expect(applier.getExtensionColumns(db, 'trl_assertions')).toContain('approval_status')
   })
 
-  it('does not include library columns', () => {
+  it('does not include library columns', async () => {
     const applier = new SchemaExtensionApplier()
     const cols = applier.getExtensionColumns(db, 'trl_assertions')
     expect(cols).not.toContain('content')
