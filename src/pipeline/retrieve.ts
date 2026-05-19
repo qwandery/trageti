@@ -12,7 +12,7 @@ import type { AssertionRepository } from '../db/repositories/AssertionRepository
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
 import { buildCandidateJson } from '../db/candidates.js'
 import { applyMiddleware } from './middleware.js'
-import { ValidationError } from '../errors/index.js'
+import { ErrorCode, RetrievalInputError, ValidationError } from '../errors/index.js'
 
 interface RetrieveContext {
   assertionRepo: AssertionRepository
@@ -30,6 +30,7 @@ interface Step1Row {
   valid_from: number
   confidence: number
   entity_type: string | null
+  created_at: string
 }
 
 interface Step2Row {
@@ -48,8 +49,17 @@ export function retrieve(
   query: RetrievalQuery,
 ): RetrievedAssertion[] {
   const callMiddleware = query.middleware ?? []
-  const core = (q: RetrievalQuery) => retrieveCore(db, ctx, q)
+  const core = (q: RetrievalQuery): RetrievedAssertion[] => retrieveCore(db, ctx, q)
   return applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core)
+}
+
+/**
+ * Escape user input for safe FTS5 phrase matching. Wraps in double quotes
+ * and escapes inner double quotes; FTS5 treats the result as a literal
+ * phrase rather than operator syntax (spec §queryTextMode: 'phrase' default).
+ */
+function escapeFts5Phrase(text: string): string {
+  return `"${text.replace(/"/g, '""')}"`
 }
 
 function retrieveCore(
@@ -58,52 +68,101 @@ function retrieveCore(
   query: RetrievalQuery,
 ): RetrievedAssertion[] {
   const limit = query.limit ?? 10
+  if (limit < 1) {
+    throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, `limit must be >= 1, got ${String(limit)}`)
+  }
   const oversample = limit * 3
   const mode = query.mode ?? 'snapshot'
+  const strategy = query.retrievalStrategy ?? 'hybrid'
 
-  // Step 1: Temporal filter
+  // Strategy-specific input validation.
+  if (strategy === 'vector' && !query.queryEmbedding) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_REQUIRES_VECTOR_INPUT,
+      "retrievalStrategy 'vector' requires queryEmbedding or an embedding provider",
+    )
+  }
+  if (strategy === 'bm25' && !query.queryText) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_REQUIRES_QUERY_TEXT,
+      "retrievalStrategy 'bm25' requires queryText",
+    )
+  }
+  if (!query.queryText && !query.queryEmbedding) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      'retrieve requires queryText, queryEmbedding, or both',
+    )
+  }
+
+  // Step 1: Temporal filter (applies in all strategies).
   const step1 = runStep1(db, query)
   if (step1.length === 0) return []
 
   const candidateJson = buildCandidateJson(step1.map((r) => r.id))
+  const step1Map = new Map(step1.map((r) => [r.id, r]))
 
-  // Step 2: Semantic scoring
-  if (!query.queryEmbedding) return []
-  const embeddingTable = ctx.getEmbeddingTable(query.namespace)
-  const step2 = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
-  if (step2.length === 0) return []
+  // Step 2: Vector candidate selection (when applicable).
+  const step2Rows: Step2Row[] = []
+  const applyVector = strategy !== 'bm25' && Boolean(query.queryEmbedding)
+  if (applyVector && query.queryEmbedding) {
+    const embeddingTable = ctx.getEmbeddingTable(query.namespace)
+    const rows = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
+    for (const r of rows) step2Rows.push(r)
+  }
 
-  // Step 3: BM25 scoring (optional). v0.2: raw FTS5 values pass through unmodified.
+  // Step 3: BM25 candidate / re-rank (when applicable).
   const bm25Map = new Map<string, number>()
-  if (query.queryText) {
-    const step3 = runStep3(db, candidateJson, query.queryText)
-    for (const row of step3) {
-      bm25Map.set(row.assertion_id, row.bm25_score)
+  const applyBm25 = strategy !== 'vector' && Boolean(query.queryText)
+  if (applyBm25 && query.queryText) {
+    const queryTextMode = query.queryTextMode ?? 'phrase'
+    const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText
+    try {
+      const step3 = runStep3(db, candidateJson, ftsText)
+      for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score)
+    } catch (err) {
+      // Malformed FTS5 input under raw mode bubbles up as RetrievalInputError;
+      // under 'phrase' mode (the default) the escaping above prevents this.
+      if (queryTextMode === 'fts5') {
+        throw new RetrievalInputError(
+          ErrorCode.RETRIEVAL_REQUIRES_QUERY_TEXT,
+          `FTS5 query failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      throw err
     }
   }
 
-  // Step 4: Score. Hydrate ScoredCandidate.assertion (decision §8).
-  const step1Map = new Map(step1.map((r) => [r.id, r]))
-  const oversampledIds = step2.map((r) => r.assertion_id).filter((id) => step1Map.has(id))
+  // Build candidate set: union of vector and BM25 hits.
+  const candidateIds = new Set<string>()
+  for (const r of step2Rows) candidateIds.add(r.assertion_id)
+  for (const id of bm25Map.keys()) candidateIds.add(id)
+  if (candidateIds.size === 0) return []
+
+  const oversampledIds = [...candidateIds].filter((id) => step1Map.has(id))
   const hydrated = ctx.assertionRepo.getByIds(oversampledIds)
   const hydratedById = new Map(hydrated.map((a) => [a.id, a]))
+  const semanticById = new Map(step2Rows.map((r) => [r.assertion_id, r.semantic_distance]))
 
-  const candidates: Array<{ id: string; candidate: ScoredCandidate }> = []
-  for (const s2row of step2) {
-    const s1row = step1Map.get(s2row.assertion_id)
-    const assertion = hydratedById.get(s2row.assertion_id)
+  const candidates: Array<{ id: string; candidate: ScoredCandidate; s1: Step1Row; assertion: Assertion }> = []
+  for (const id of oversampledIds) {
+    const s1row = step1Map.get(id)
+    const assertion = hydratedById.get(id)
     if (!s1row || !assertion) continue
     candidates.push({
-      id: s2row.assertion_id,
+      id,
+      s1: s1row,
+      assertion,
       candidate: {
         assertion,
-        semanticDistance: s2row.semantic_distance,
-        bm25Score: bm25Map.get(s2row.assertion_id) ?? null,
+        semanticDistance: semanticById.get(id) ?? null,
+        bm25Score: bm25Map.get(id) ?? null,
         position: s1row.valid_from,
       },
     })
   }
 
+  // Step 4: Score.
   const scorer = query.scorer ?? ctx.globalScorer
   const positionRange = ctx.getPositionRange(query.namespace)
   const scoringContext = { temporalAnchor: query.temporalAnchor, namespacePositionRange: positionRange, query }
@@ -120,10 +179,17 @@ function retrieveCore(
     scores = candidates.map((c) => scorer.score(c.candidate, scoringContext))
   }
 
+  // Step 5: Rank + truncate with deterministic tie-breaking
+  //   (score DESC, validFrom DESC, createdAt ASC, id ASC).
   const ranked = candidates.map((c, i) => ({ ...c, score: scores[i] ?? 0 }))
-
-  // Step 5: Rank and truncate
-  ranked.sort((a, b) => b.score - a.score)
+  ranked.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if (b.s1.valid_from !== a.s1.valid_from) return b.s1.valid_from - a.s1.valid_from
+    if (a.assertion.createdAt !== b.assertion.createdAt) {
+      return a.assertion.createdAt < b.assertion.createdAt ? -1 : 1
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
   const topCandidates = ranked.slice(0, limit)
 
   const results: RetrievedAssertion[] = topCandidates.map((c) => ({
@@ -169,7 +235,6 @@ function retrieveCore(
   if (mode === 'trajectory') {
     for (const result of results) {
       const chain = ctx.assertionRepo.getSupersessionChain(result.id)
-      // Helper returns oldest-first INCLUDING the result itself; slice off the last entry.
       result.supersessionChain = chain.length > 0 ? chain.slice(0, -1) : []
     }
   }
@@ -185,9 +250,6 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
   ]
   const params: unknown[] = [query.namespace, query.temporalAnchor, query.temporalAnchor]
 
-  // v0.2: spec wording for includeSuperseded (decision §12).
-  // includeSuperseded:false includes current replacements (supersedes_id IS NOT NULL,
-  // valid_until IS NULL) and excludes closed rows (valid_until IS NOT NULL).
   if (!query.includeSuperseded) {
     conditions.push('(a.supersedes_id IS NULL OR a.valid_until IS NULL)')
   }
@@ -212,7 +274,7 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
     params.push(...query.assertionTypes)
   }
 
-  const sql = `SELECT a.id, a.content, a.valid_from, a.confidence, a.entity_type
+  const sql = `SELECT a.id, a.content, a.valid_from, a.confidence, a.entity_type, a.created_at
                FROM trl_assertions a
                WHERE ${conditions.join(' AND ')}`
 
@@ -239,8 +301,6 @@ function runStep2(
 }
 
 function runStep3(db: Database, candidateJson: string, queryText: string): Step3Row[] {
-  // Join to trl_assertions via rowid — FTS5 external-content tables cannot read UNINDEXED
-  // columns back directly; the backing table is the authoritative source.
   const sql = `
     SELECT a.id AS assertion_id, bm25(trl_fts) AS bm25_score
     FROM trl_fts

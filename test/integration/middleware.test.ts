@@ -67,12 +67,13 @@ describe('TemporalStore — middleware', () => {
 
   it('before middleware can mutate the query', async () => {
     const mw: RetrievalMiddleware = {
-      before: (q: RetrievalQuery) => ({ ...q, limit: 0 }),
+      // v0.3: limit=0 is rejected by RETRIEVAL_INVALID_LIMIT validation.
+      before: (q: RetrievalQuery) => ({ ...q, limit: 1 }),
     }
     const store = await makeStoreWithMiddleware([mw])
     const results = await store.retrieve({ namespace: NS, queryEmbedding: VEC_A, temporalAnchor: 1 })
-    // limit=0 means empty results (or the pipeline interprets 0 as no-limit — check results are an array)
     expect(Array.isArray(results)).toBe(true)
+    expect(results.length).toBeLessThanOrEqual(1)
   })
 
   it('after middleware can filter results', async () => {

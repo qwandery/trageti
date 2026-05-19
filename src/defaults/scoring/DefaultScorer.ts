@@ -1,4 +1,5 @@
 import type { RetrievalScorer, ScoredCandidate, ScoringContext } from '../../domain/types.js'
+import { ErrorCode, TragetiError } from '../../errors/index.js'
 
 const WEIGHT_SEMANTIC = 0.6
 const WEIGHT_BM25 = 0.3
@@ -49,7 +50,7 @@ export class DefaultScorer implements RetrievalScorer {
       )
     }
     if (semanticSimilarity === null) {
-      throw new Error('SCORER_NO_USABLE_SIGNAL')
+      throw new TragetiError(ErrorCode.SCORER_NO_USABLE_SIGNAL, 'candidate has no usable signal')
     }
     const w = WEIGHT_SEMANTIC + WEIGHT_RECENCY
     return (WEIGHT_SEMANTIC / w) * semanticSimilarity + (WEIGHT_RECENCY / w) * recency
@@ -102,7 +103,7 @@ export class DefaultScorer implements RetrievalScorer {
         )
       }
       if (semanticSimilarity === null) {
-        throw new Error('SCORER_NO_USABLE_SIGNAL')
+        throw new TragetiError(ErrorCode.SCORER_NO_USABLE_SIGNAL, 'candidate has no usable signal')
       }
       const w = WEIGHT_SEMANTIC + WEIGHT_RECENCY
       return (WEIGHT_SEMANTIC / w) * semanticSimilarity + (WEIGHT_RECENCY / w) * recency
