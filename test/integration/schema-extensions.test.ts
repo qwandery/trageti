@@ -113,6 +113,33 @@ describe('SchemaExtensionApplier.apply', () => {
       .all() as Array<{ name: string }>
     expect(tables.length).toBe(1)
   })
+
+  it('rejects referencesNamespace table without namespaceColumn', async () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.validate({
+        tables: [{
+          tableName: 'app_bad_refs',
+          createSQL: 'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY)',
+          referencesNamespace: true,
+        }],
+      }),
+    ).toThrow(SchemaExtensionError)
+  })
+
+  it('validates namespaceColumn exists after createSQL runs', async () => {
+    const applier = new SchemaExtensionApplier()
+    expect(() =>
+      applier.apply(db, {
+        tables: [{
+          tableName: 'app_bad_refs',
+          createSQL: 'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY, namespace TEXT)',
+          referencesNamespace: true,
+          namespaceColumn: 'ns',
+        }],
+      }),
+    ).toThrow(SchemaExtensionError)
+  })
 })
 
 describe('SchemaExtensionApplier.getExtensionColumns', () => {

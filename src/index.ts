@@ -77,6 +77,8 @@ export { DefaultConnectionVerifier } from './defaults/connection/DefaultConnecti
 export { prepareDatabase } from './defaults/connection/prepareDatabase.js'
 export type { BetterSqlite3Options } from './defaults/connection/prepareDatabase.js'
 export { ConsoleLogger, NoopLogger } from './internal/logger.js'
+export { MockEmbeddingProvider } from './defaults/providers/MockEmbeddingProvider.js'
+export { RawVectorProvider } from './defaults/providers/RawVectorProvider.js'
 
 // ─── Error classes ──────────────────────────────────────────────────────────────
 export {

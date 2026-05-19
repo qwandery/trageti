@@ -48,6 +48,7 @@ import {
   MissingPeerDependencyError,
   ReferencedExtensionTableError,
   RetrievalInputError,
+  EmbeddingProviderError,
   ErrorCode,
 } from '../errors/index.js'
 import { ConsoleLogger, setDefaultLogger, structuredWarn } from '../internal/logger.js'
@@ -296,30 +297,152 @@ export class TemporalStore {
 
   // ─── Indexing ──────────────────────────────────────────────────────────────
 
-  async indexAssertion(assertionId: string, embedding: Float32Array | number[]): Promise<void> {
+  async indexAssertion(assertionId: string, embedding?: Float32Array | number[]): Promise<void> {
     this.requireInit()
     const assertion = this.assertionRepo.getById(assertionId)
-    if (!assertion) throw new ValidationError([`Assertion "${assertionId}" not found`])
+    if (!assertion) {
+      throw new IndexingError(
+        ErrorCode.INDEXING_ASSERTION_NOT_FOUND,
+        `Assertion "${assertionId}" not found`,
+        { assertionId },
+      )
+    }
     const table = this.ensureVectorReady(assertion.namespace, 'indexing')
-    this.embeddingRepo.insert(table, assertionId, embedding)
+    if (embedding) {
+      this.embeddingRepo.insert(table, assertionId, embedding)
+      return
+    }
+    if (!this.options.embeddingProvider) {
+      throw new IndexingError(
+        ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+        `Cannot index "${assertionId}": no embedding supplied and no embedding provider configured`,
+        { assertionId },
+      )
+    }
+    const [computed] = await this.options.embeddingProvider.embed([assertion.content], { purpose: 'assertion' })
+    if (!computed) {
+      throw new IndexingError(
+        ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+        `Embedding provider returned no embedding for assertion "${assertionId}"`,
+        { assertionId },
+      )
+    }
+    this.embeddingRepo.insert(table, assertionId, computed)
   }
 
-  async indexBatch(items: IndexBatchItem[], _options: IndexBatchOptions = {}): Promise<IndexBatchResult> {
+  async indexBatch(items: IndexBatchItem[], options: IndexBatchOptions = {}): Promise<IndexBatchResult> {
     this.requireInit()
-    // Group by namespace for efficiency
-    const byTable = new Map<string, Array<{ assertionId: string; embedding: Float32Array | number[] }>>()
-    for (const item of items) {
+    const mode = options.onProviderError ?? 'fail-fast'
+    const provider = this.options.embeddingProvider
+    const skipped: IndexBatchResult['skipped'] = []
+
+    // Resolve each item: confirm the assertion exists, determine the embedding
+    // (caller-supplied or from the provider), and group by target vec0 table.
+    type Resolved = { table: string; assertionId: string; embedding: Float32Array | number[] }
+    const pending: Array<{ index: number; assertion: Assertion; needsProvider: boolean; supplied?: Float32Array | number[] }> = []
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (!item) continue
       const assertion = this.assertionRepo.getById(item.assertionId)
-      if (!assertion || !item.embedding) continue
-      const table = this.ensureVectorReady(assertion.namespace, 'indexing')
+      if (!assertion) {
+        skipped.push({ assertionId: item.assertionId, reason: 'assertion not found', errorCode: ErrorCode.INDEXING_ASSERTION_NOT_FOUND })
+        continue
+      }
+      // Validate that the namespace is vector-configured / sqlite-vec loaded.
+      this.ensureVectorReady(assertion.namespace, 'indexing')
+
+      if (item.embedding) {
+        pending.push({ index: i, assertion, needsProvider: false, supplied: item.embedding })
+      } else if (provider) {
+        pending.push({ index: i, assertion, needsProvider: true })
+      } else {
+        skipped.push({
+          assertionId: item.assertionId,
+          reason: 'no embedding supplied and no provider configured',
+          errorCode: ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+        })
+      }
+    }
+
+    // Compute provider embeddings (batched in fail-fast, single-item in skip).
+    const computedByIndex = new Map<number, Float32Array>()
+    const needsProvider = pending.filter((p) => p.needsProvider)
+    if (needsProvider.length > 0 && provider) {
+      if (mode === 'fail-fast') {
+        const batchSize = options.batchSize ?? 64
+        let indexedCount = 0
+        try {
+          for (let off = 0; off < needsProvider.length; off += batchSize) {
+            if (options.signal?.aborted) {
+              throw new EmbeddingProviderError(provider.name, indexedCount, 'aborted by signal')
+            }
+            const chunk = needsProvider.slice(off, off + batchSize)
+            const texts = chunk.map((p) => p.assertion.content)
+            const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
+            if (options.signal) opts.signal = options.signal
+            const vecs = await provider.embed(texts, opts)
+            for (let k = 0; k < chunk.length; k++) {
+              const vec = vecs[k]
+              const c = chunk[k]
+              if (!vec || !c) {
+                throw new EmbeddingProviderError(provider.name, indexedCount, `provider returned no vector for batch item ${String(k)}`)
+              }
+              computedByIndex.set(c.index, vec)
+              indexedCount++
+            }
+          }
+        } catch (err) {
+          if (err instanceof EmbeddingProviderError) throw err
+          throw new EmbeddingProviderError(provider.name, indexedCount, err)
+        }
+      } else {
+        // skip mode: embed one at a time, recording failures in skipped[].
+        for (const p of needsProvider) {
+          if (options.signal?.aborted) {
+            skipped.push({ assertionId: p.assertion.id, reason: 'aborted by signal', errorCode: 'ABORTED' })
+            continue
+          }
+          try {
+            const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
+            if (options.signal) opts.signal = options.signal
+            const [vec] = await provider.embed([p.assertion.content], opts)
+            if (!vec) {
+              skipped.push({ assertionId: p.assertion.id, reason: 'provider returned no embedding', errorCode: 'EMBEDDING_PROVIDER_EMPTY' })
+              continue
+            }
+            computedByIndex.set(p.index, vec)
+          } catch (err) {
+            skipped.push({
+              assertionId: p.assertion.id,
+              reason: err instanceof Error ? err.message : String(err),
+              errorCode: 'EMBEDDING_PROVIDER_ERROR',
+            })
+          }
+        }
+      }
+    }
+
+    // Resolve all rows we intend to write and group by table.
+    const byTable = new Map<string, Resolved[]>()
+    for (const p of pending) {
+      const table = this.namespaceRepo.getEmbeddingTable(p.assertion.namespace)
+      if (!table) continue
+      const embedding = p.needsProvider ? computedByIndex.get(p.index) : p.supplied
+      if (!embedding) continue
       const group = byTable.get(table) ?? []
-      group.push({ assertionId: item.assertionId, embedding: item.embedding })
+      group.push({ table, assertionId: p.assertion.id, embedding })
       byTable.set(table, group)
     }
     for (const [table, batch] of byTable.entries()) {
       this.embeddingRepo.insertBatch(table, batch)
     }
-    return { indexed: items.length, skipped: [] }
+
+    const indexed = Array.from(byTable.values()).reduce((acc, b) => acc + b.length, 0)
+    if (skipped.length > 0) {
+      this.options.logger.warn('TRGT_INDEX_BATCH_SKIPPED', { count: skipped.length })
+    }
+    return { indexed, skipped }
   }
 
   async getPendingIndexing(namespace: string): Promise<Array<{ id: string; content: string }>> {
@@ -507,9 +630,52 @@ export class TemporalStore {
     new MigrationRunner(this.options.fts5Tokenizer).applyMigrations(this.db)
   }
 
-  async rebuildFts(_options: RebuildFtsOptions = {}): Promise<RebuildFtsResult> {
+  async rebuildFts(options: RebuildFtsOptions = {}): Promise<RebuildFtsResult> {
     this.requireInit()
-    return { reindexedRows: 0, newTokenizer: this.options.fts5Tokenizer, durationMs: 0 }
+    const started = Date.now()
+    const tokenizer = options.tokenizer ?? this.options.fts5Tokenizer
+    const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
+    const batchSize = options.batchSize ?? 1000
+
+    // Drop and recreate trl_fts inside a single write transaction, then
+    // repopulate while preserving the rowid invariant (trl_fts.rowid ===
+    // trl_assertions.rowid) so BM25 joins continue to work.
+    let reindexed = 0
+    this.db.transaction(() => {
+      this.db.exec('DROP TABLE IF EXISTS trl_fts')
+      this.db.exec(`
+        CREATE VIRTUAL TABLE trl_fts USING fts5(
+          assertion_id UNINDEXED,
+          content,
+          content='trl_assertions',
+          content_rowid='rowid',
+          tokenize='${tokenizeArg}'
+        );
+      `)
+      const insert = this.db.prepare(
+        'INSERT INTO trl_fts(rowid, assertion_id, content) SELECT rowid, id, content FROM trl_assertions WHERE rowid > ? AND rowid <= ?',
+      )
+      const maxRow = this.db.prepare<[], { m: number | null }>('SELECT MAX(rowid) AS m FROM trl_assertions').get()
+      const max = maxRow?.m ?? 0
+      for (let start = 0; start < max; start += batchSize) {
+        if (options.signal?.aborted) throw new ValidationError(['rebuildFts aborted by signal'])
+        const end = Math.min(start + batchSize, max)
+        const info = insert.run(start, end)
+        reindexed += info.changes
+      }
+      // Update trl_fts_meta with the active tokenizer config.
+      this.db
+        .prepare(
+          `INSERT INTO trl_fts_meta (id, tokenizer, tokenizer_args, updated_at)
+           VALUES (1, ?, ?, datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET tokenizer = excluded.tokenizer,
+                                         tokenizer_args = excluded.tokenizer_args,
+                                         updated_at = excluded.updated_at`,
+        )
+        .run(tokenizer.tokenizer, JSON.stringify(tokenizer.tokenizerArgs ?? []))
+    })()
+
+    return { reindexedRows: reindexed, newTokenizer: tokenizer, durationMs: Date.now() - started }
   }
 
   async upgradeNamespaceToVector(namespace: string, options: { embeddingDimension: number }): Promise<void> {
@@ -519,7 +685,7 @@ export class TemporalStore {
       this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
       this.embeddingTableCache.set(namespace, table)
     })()
-    this.options.logger.info?.('TRGT_NAMESPACE_VECTOR_UPGRADED', {
+    this.options.logger.info('TRGT_NAMESPACE_VECTOR_UPGRADED', {
       namespace,
       embeddingDimension: options.embeddingDimension,
     })
@@ -653,44 +819,6 @@ export class TemporalStore {
     const table = this.getOrCacheEmbeddingTable(namespace)
     if (!table) throw new NamespaceNotInitializedError(namespace)
     return table
-  }
-
-  private ensureVectorReady(namespace: string, purpose: 'indexing' | 'retrieval'): string {
-    this.requireNamespaceInit(namespace)
-    const config = this.namespaceRepo.get(namespace)
-    const table = this.getOrCacheEmbeddingTable(namespace)
-    if (!config || config.embeddingDimension === null || table === null) {
-      if (purpose === 'indexing') {
-        throw new IndexingError(
-          ErrorCode.INDEXING_NAMESPACE_VECTORLESS,
-          `Namespace "${namespace}" is vectorless. Call upgradeNamespaceToVector() before indexing.`,
-        )
-      }
-      throw new RetrievalInputError(
-        ErrorCode.RETRIEVAL_NAMESPACE_VECTORLESS,
-        `Namespace "${namespace}" is vectorless. Use BM25 retrieval or upgrade the namespace before vector retrieval.`,
-      )
-    }
-    if (!this.isSqliteVecLoaded()) {
-      throw new MissingPeerDependencyError(
-        'sqlite-vec',
-        'npm install sqlite-vec',
-        'use vectorless/BM25-only retrieval or load sqlite-vec with prepareDatabase()',
-      )
-    }
-    if (!this.embeddingRepo.tableExists(table)) {
-      this.embeddingRepo.ensureVec0Table(table, config.embeddingDimension)
-    }
-    return table
-  }
-
-  private isSqliteVecLoaded(): boolean {
-    try {
-      this.db.prepare('SELECT vec_version()').get()
-      return true
-    } catch {
-      return false
-    }
   }
 
   private warmExtensionCache(): void {

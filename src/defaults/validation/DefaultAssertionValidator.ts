@@ -1,6 +1,11 @@
 import type { Database } from 'better-sqlite3'
-import type { AssertionValidator, NewAssertion, ValidationResult } from '../../domain/types.js'
+import type { AssertionValidator, NormalizedNewAssertion, ValidationResult } from '../../domain/types.js'
 import { structuredWarn } from '../../internal/logger.js'
+
+export interface DefaultAssertionValidatorOptions {
+  /** When true, citations with null excerpt fail validation. Default false. */
+  requireCitationExcerpt?: boolean
+}
 
 /**
  * Default user-facing validator. Enforces baseline checks (required fields,
@@ -15,12 +20,14 @@ import { structuredWarn } from '../../internal/logger.js'
  */
 export class DefaultAssertionValidator implements AssertionValidator {
   private readonly db: Database
+  private readonly requireCitationExcerpt: boolean
 
-  constructor(db: Database) {
+  constructor(db: Database, options: DefaultAssertionValidatorOptions = {}) {
     this.db = db
+    this.requireCitationExcerpt = options.requireCitationExcerpt ?? false
   }
 
-  validate(assertion: NewAssertion): ValidationResult {
+  validate(assertion: NormalizedNewAssertion): ValidationResult {
     const errors: string[] = []
 
     if (!assertion.id.trim()) errors.push('id is required')
@@ -51,16 +58,19 @@ export class DefaultAssertionValidator implements AssertionValidator {
       }
     }
 
-    // Excerpt warnings — advisory; not part of the structural-invariant set.
-    // A caller who replaces the validator chain to suppress this warning is
-    // doing so deliberately (per spec §AssertionCitation).
+    // Excerpt handling. v0.3: opt-in strict mode promotes null excerpts to
+    // validation failures; default behavior is to warn only.
     if (errors.length === 0) {
       for (const cit of assertion.citations) {
         if (cit.excerpt === null) {
-          structuredWarn('CITATION_EXCERPT_MISSING', {
-            assertionId: assertion.id,
-            citationId: cit.id,
-          })
+          if (this.requireCitationExcerpt) {
+            errors.push(`citation "${cit.id}" excerpt is required`)
+          } else {
+            structuredWarn('CITATION_EXCERPT_MISSING', {
+              assertionId: assertion.id,
+              citationId: cit.id,
+            })
+          }
         }
       }
     }

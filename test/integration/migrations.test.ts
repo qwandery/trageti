@@ -79,7 +79,7 @@ describe('MigrationRunner', () => {
     expect(indexes).toContain('trl_idx_assertions_supersedes')
   })
 
-  it('upgrades a v001-only DB to v002 cleanly with legacy citation-less assertions', async () => {
+  it('upgrades a v001-only DB to v003 cleanly with legacy citation-less assertions', async () => {
     const { createV001Migration } = await import('../../src/db/migrations/v001_initial.js')
     const v001 = createV001Migration()
     db.exec(`CREATE TABLE IF NOT EXISTS trl_schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')), description TEXT NOT NULL)`)
@@ -128,5 +128,18 @@ describe('MigrationRunner', () => {
       .all() as Array<{ name: string }>
     const names = cols.map((c) => c.name)
     expect(names).toContain('embedding_table')
+  })
+
+  it('v003 makes namespace vector columns nullable and stores tokenizer metadata', async () => {
+    const runner = new MigrationRunner()
+    runner.applyMigrations(db)
+
+    db.prepare('INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)').run('vectorless', null, null)
+    const row = db.prepare('SELECT tokenizer, tokenizer_args FROM trl_fts_meta WHERE id = 1').get() as {
+      tokenizer: string
+      tokenizer_args: string
+    }
+    expect(row.tokenizer).toBe('unicode61')
+    expect(JSON.parse(row.tokenizer_args) as string[]).toEqual(['remove_diacritics', '1'])
   })
 })
