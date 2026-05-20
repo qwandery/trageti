@@ -58,14 +58,17 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
     const linkTypeParams = linkTypes ?? []
 
-    // Recursive CTE BFS up to maxDepth hops
+    // Recursive CTE BFS up to maxDepth hops. `visited` carries the set of
+    // node ids already on the path so the recursive step never re-enters a
+    // node — cycle protection (spec §695).
     const sql = `
       WITH RECURSIVE traversal(id, namespace, from_id, to_id, link_type,
                                 valid_from, valid_until, source_episode_id, created_at,
-                                depth) AS (
+                                depth, visited) AS (
         SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
-               1 AS depth
+               1 AS depth,
+               json_array(l.from_id, l.to_id) AS visited
         FROM trl_links l
         WHERE l.namespace = ?
           AND l.from_id IN (SELECT value FROM json_each(?))
@@ -77,7 +80,8 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
         SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
-               t.depth + 1
+               t.depth + 1,
+               json_insert(t.visited, '$[#]', l.to_id)
         FROM trl_links l
         JOIN traversal t ON l.from_id = t.to_id
         WHERE l.namespace = ?
@@ -85,6 +89,9 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
           AND (l.valid_until IS NULL OR l.valid_until > ?)
           ${linkTypeFilter}
           AND t.depth < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(t.visited) WHERE value = l.to_id
+          )
       )
       SELECT DISTINCT id, namespace, from_id, to_id, link_type,
                       valid_from, valid_until, source_episode_id, created_at

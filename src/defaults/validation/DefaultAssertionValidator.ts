@@ -4,11 +4,15 @@ import type {
   NormalizedNewAssertion,
   ValidationResult,
 } from '../../domain/types.js'
-import { structuredWarn } from '../../internal/logger.js'
+import type { Logger } from '../../internal/logger.js'
+import { getDefaultLogger } from '../../internal/logger.js'
 
 export interface DefaultAssertionValidatorOptions {
   /** When true, citations with null excerpt fail validation. Default false. */
   requireCitationExcerpt?: boolean
+  /** Store-scoped logger for TRGT_CITATION_EXCERPT_MISSING warnings.
+   *  Falls back to the process-default logger when omitted. */
+  logger?: Logger
 }
 
 /**
@@ -25,10 +29,12 @@ export interface DefaultAssertionValidatorOptions {
 export class DefaultAssertionValidator implements AssertionValidator {
   private readonly db: Database
   private readonly requireCitationExcerpt: boolean
+  private readonly logger: Logger
 
   constructor(db: Database, options: DefaultAssertionValidatorOptions = {}) {
     this.db = db
     this.requireCitationExcerpt = options.requireCitationExcerpt ?? false
+    this.logger = options.logger ?? getDefaultLogger()
   }
 
   validate(assertion: NormalizedNewAssertion): ValidationResult {
@@ -71,7 +77,7 @@ export class DefaultAssertionValidator implements AssertionValidator {
           if (this.requireCitationExcerpt) {
             errors.push(`citation "${cit.id}" excerpt is required`)
           } else {
-            structuredWarn('CITATION_EXCERPT_MISSING', {
+            this.logger.warn('TRGT_CITATION_EXCERPT_MISSING', {
               assertionId: assertion.id,
               citationId: cit.id,
             })

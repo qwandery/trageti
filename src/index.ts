@@ -6,10 +6,12 @@ export type {
   Episode,
   Assertion,
   AssertionCitation,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- deliberate public back-compat alias
   NewAssertion,
   NewAssertionInput,
   NormalizedNewAssertion,
   NewAssertionCitation,
+  NewLateCitation,
   AssertionLink,
   NamespaceConfig,
   RetrievalQuery,
@@ -17,6 +19,8 @@ export type {
   RetrievalStrategy,
   QueryTextMode,
   RetrievalResult,
+  RetrievalMeta,
+  RetrievalWarning,
   RetrievedAssertion,
   ScoredCandidate,
   ScoringContext,
@@ -38,6 +42,7 @@ export type {
   ValidationOptions,
   DeleteNamespaceOptions,
   UpgradeNamespaceToVectorOptions,
+  InitNamespaceOptions,
   NamespaceStats,
   IndexBatchItem,
   IndexBatchOptions,
@@ -78,6 +83,8 @@ export { prepareDatabase } from './defaults/connection/prepareDatabase.js'
 export type { BetterSqlite3Options } from './defaults/connection/prepareDatabase.js'
 export { ConsoleLogger, NoopLogger } from './internal/logger.js'
 export { MockEmbeddingProvider } from './defaults/providers/MockEmbeddingProvider.js'
+export type { MockEmbeddingProviderOptions } from './defaults/providers/MockEmbeddingProvider.js'
+export type { DefaultAssertionValidatorOptions } from './defaults/validation/DefaultAssertionValidator.js'
 export { RawVectorProvider } from './defaults/providers/RawVectorProvider.js'
 
 // ─── Error classes ──────────────────────────────────────────────────────────────

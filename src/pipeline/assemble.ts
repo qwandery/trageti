@@ -41,16 +41,13 @@ export async function assembleContext(
 
   return {
     text: formatted.text,
-    assertions: formatted.truncated
-      ? assertions.slice(0, formatted.metadata['includedAssertions'] as number)
-      : assertions,
+    assertions: formatted.truncated ? assertions.slice(0, formatted.includedCount) : assertions,
     tokenEstimate: formatted.tokenEstimate,
     truncated: formatted.truncated,
     metadata: formatted.metadata,
     coverage: {
       totalAssertions: assertions.length,
-      includedAssertions:
-        (formatted.metadata['includedAssertions'] as number | undefined) ?? assertions.length,
+      includedAssertions: formatted.includedCount,
       positionRange: { from, to },
     },
   }

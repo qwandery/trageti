@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { Migration, FTS5TokenizerConfig } from '../../domain/types.js'
 import { MigrationError } from '../../errors/index.js'
+import { validateTokenizer } from '../../internal/tokenizer.js'
 import { getMigrations } from './index.js'
 
 const BOOTSTRAP_DDL = `
@@ -15,6 +16,9 @@ export class MigrationRunner {
   private readonly migrations: readonly Migration[]
 
   constructor(tokenizerConfig?: FTS5TokenizerConfig) {
+    // Validate the tokenizer config before any migration DDL is built — a
+    // rejected tokenizer must never reach a CREATE VIRTUAL TABLE string.
+    if (tokenizerConfig) validateTokenizer(tokenizerConfig)
     this.migrations = getMigrations(tokenizerConfig)
   }
 

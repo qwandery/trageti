@@ -8,9 +8,17 @@ export class EmbeddingRepository {
     this.db = db
   }
 
+  /**
+   * Create the namespace's vec0 virtual table if it does not already exist.
+   *
+   * Existence is checked via `sqlite_master` rather than relying on
+   * `CREATE VIRTUAL TABLE IF NOT EXISTS` — sqlite-vec's support for the
+   * `IF NOT EXISTS` clause on vec0 tables varies by version (spec §1544).
+   */
   ensureVec0Table(tableName: string, dimension: number): void {
+    if (this.tableExists(tableName)) return
     this.db.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS ${quoteIdent(tableName)} USING vec0(assertion_id TEXT PRIMARY KEY, embedding FLOAT[${dimension}])`,
+      `CREATE VIRTUAL TABLE ${quoteIdent(tableName)} USING vec0(assertion_id TEXT PRIMARY KEY, embedding FLOAT[${dimension}])`,
     )
   }
 
@@ -33,6 +41,7 @@ export class EmbeddingRepository {
   dropAndRecreate(tableName: string, dimension: number): void {
     this.db.transaction(() => {
       this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`)
+      // Existence already cleared by the DROP above; create unconditionally.
       this.db.exec(
         `CREATE VIRTUAL TABLE ${quoteIdent(tableName)} USING vec0(assertion_id TEXT PRIMARY KEY, embedding FLOAT[${dimension}])`,
       )

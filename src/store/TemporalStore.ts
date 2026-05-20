@@ -5,9 +5,9 @@ import type {
   Assertion,
   AssertionLink,
   AssertionCitation,
-  NewAssertion,
   NewAssertionInput,
   NormalizedNewAssertion,
+  NewLateCitation,
   NamespaceConfig,
   TemporalStoreOptions,
   CreateStoreOptions,
@@ -55,15 +55,9 @@ import {
   ReindexError,
   ErrorCode,
 } from '../errors/index.js'
-import {
-  ConsoleLogger,
-  setDefaultLogger,
-  structuredWarn,
-  emitOnce,
-  incr,
-  observe,
-} from '../internal/logger.js'
+import { ConsoleLogger, setDefaultLogger, emitOnce, incr, observe } from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
+import { validateTokenizer } from '../internal/tokenizer.js'
 import { quoteIdent } from '../internal/sql-ident.js'
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js'
 import { retrieve } from '../pipeline/retrieve.js'
@@ -188,7 +182,12 @@ export class TemporalStore {
 
     // Add default validators if none provided
     if (this.options.validators.length === 0) {
-      this.options.validators.push(new DefaultAssertionValidator(this.db))
+      this.options.validators.push(
+        new DefaultAssertionValidator(this.db, {
+          logger: this.options.logger,
+          requireCitationExcerpt: this.options.validation?.requireCitationExcerpt ?? false,
+        }),
+      )
     }
 
     this.initialized = true
@@ -235,7 +234,11 @@ export class TemporalStore {
     if (maxBytes > 0) {
       const byteLen = Buffer.byteLength(episode.content, 'utf8')
       if (byteLen > maxBytes) {
-        structuredWarn('EPISODE_CONTENT_LARGE', { namespace: episode.namespace, byteLen, maxBytes })
+        this.options.logger.warn('TRGT_EPISODE_CONTENT_LARGE', {
+          namespace: episode.namespace,
+          byteLen,
+          maxBytes,
+        })
       }
     }
     return this.episodeRepo.insert(episode)
@@ -274,7 +277,7 @@ export class TemporalStore {
     })()
   }
 
-  async writeCitation(citation: Omit<AssertionCitation, 'createdAt'>): Promise<AssertionCitation> {
+  async writeCitation(citation: NewLateCitation): Promise<AssertionCitation> {
     this.requireInit()
     const errors: string[] = []
     if (!citation.id || !citation.id.trim()) errors.push('citation.id is required')
@@ -302,7 +305,10 @@ export class TemporalStore {
     if (errors.length > 0) throw new ValidationError(errors)
 
     if (citation.excerpt === null) {
-      structuredWarn('CITATION_EXCERPT_MISSING', {
+      if (this.options.validation?.requireCitationExcerpt) {
+        throw new ValidationError([`citation "${citation.id}" excerpt is required`])
+      }
+      this.options.logger.warn('TRGT_CITATION_EXCERPT_MISSING', {
         assertionId: citation.assertionId,
         citationId: citation.id,
       })
@@ -357,7 +363,10 @@ export class TemporalStore {
     const fromA = this.assertionRepo.getById(link.fromId)
     const toA = this.assertionRepo.getById(link.toId)
     if (fromA && toA && fromA.namespace !== toA.namespace) {
-      structuredWarn('CROSS_NAMESPACE_LINK', { fromNs: fromA.namespace, toNs: toA.namespace })
+      this.options.logger.warn('TRGT_CROSS_NAMESPACE_LINK', {
+        fromNs: fromA.namespace,
+        toNs: toA.namespace,
+      })
     }
     return this.linkRepo.insert(link)
   }
@@ -644,7 +653,11 @@ export class TemporalStore {
 
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     this.requireNamespaceInit(query.namespace)
-    return retrieve(
+    // Step 0: routing. Resolve a provider-derived query embedding when the
+    // caller gave queryText but no queryEmbedding, or record why the vector
+    // branch is skipped under hybrid degradation.
+    const { query: routed, skipReason } = await this.resolveQueryEmbedding(query)
+    const result = retrieve(
       this.db,
       {
         assertionRepo: this.assertionRepo,
@@ -658,8 +671,84 @@ export class TemporalStore {
         logger: this.options.logger,
         metrics: this.options.metrics ?? null,
       },
-      query,
+      routed,
     )
+    if (skipReason) {
+      result.meta.warnings.push({
+        code: 'TRGT_RETRIEVE_VECTOR_SKIPPED',
+        message: `vector retrieval skipped: ${skipReason}`,
+      })
+    }
+    return result
+  }
+
+  /**
+   * Retrieval Step 0. When `queryText` is supplied without a `queryEmbedding`
+   * and the strategy permits vector retrieval, derive a query embedding from
+   * the configured provider. If the vector backend is unavailable, hybrid
+   * degrades to BM25 (returning a skip reason); a `vector` strategy throws.
+   */
+  private async resolveQueryEmbedding(
+    query: RetrievalQuery,
+  ): Promise<{ query: RetrievalQuery; skipReason?: string }> {
+    const strategy = query.retrievalStrategy ?? 'hybrid'
+    const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0
+    // Nothing to resolve: embedding already present, bm25-only, or no text.
+    if (query.queryEmbedding || strategy === 'bm25' || !hasQueryText) {
+      return { query }
+    }
+
+    const config = this.namespaceRepo.get(query.namespace)
+    const vectorless = !config || config.embeddingDimension === null
+    const provider = this.getNamespaceProvider(query.namespace)
+
+    const degrade = (reason: string): { query: RetrievalQuery; skipReason: string } => {
+      this.options.logger.info('TRGT_RETRIEVE_VECTOR_SKIPPED', {
+        namespace: query.namespace,
+        reason,
+      })
+      return { query, skipReason: reason }
+    }
+
+    if (vectorless) {
+      if (strategy === 'vector') {
+        throw new RetrievalInputError(
+          ErrorCode.RETRIEVAL_NAMESPACE_VECTORLESS,
+          `Namespace "${query.namespace}" is vectorless; retrievalStrategy 'vector' cannot apply`,
+        )
+      }
+      return degrade('NAMESPACE_VECTORLESS')
+    }
+    if (!provider) {
+      if (strategy === 'vector') {
+        throw new RetrievalInputError(
+          ErrorCode.RETRIEVAL_REQUIRES_VECTOR_INPUT,
+          "retrievalStrategy 'vector' with queryText requires a configured EmbeddingProvider",
+        )
+      }
+      return degrade('NO_PROVIDER')
+    }
+    if (!this.isSqliteVecLoaded()) {
+      if (strategy === 'vector') {
+        throw new MissingPeerDependencyError(
+          'sqlite-vec',
+          'npm install sqlite-vec',
+          "use retrievalStrategy: 'bm25'",
+        )
+      }
+      return degrade('NO_SQLITE_VEC')
+    }
+
+    const embedOpts: { purpose: 'query'; signal?: AbortSignal } = { purpose: 'query' }
+    if (query.signal) embedOpts.signal = query.signal
+    const [vec] = await provider.embed([query.queryText as string], embedOpts)
+    if (!vec) {
+      if (strategy === 'vector') {
+        throw new EmbeddingProviderError(provider.name, 0, 'provider returned no query embedding')
+      }
+      return degrade('NO_PROVIDER')
+    }
+    return { query: { ...query, queryEmbedding: vec } }
   }
 
   async assembleContext(options: ContextAssemblyOptions): Promise<AssembledContext> {
@@ -845,10 +934,17 @@ export class TemporalStore {
   }
 
   async getCurrentSchemaVersion(): Promise<number> {
+    this.requireNotClosed('getCurrentSchemaVersion')
     return new MigrationRunner().getCurrentVersion(this.db)
   }
 
+  /**
+   * Re-run the migration runner. Non-spec public surface, intentionally
+   * retained for advanced/operational use; guarded by the open-state check
+   * like every other public method.
+   */
   async applyMigrations(): Promise<void> {
+    this.requireNotClosed('applyMigrations')
     new MigrationRunner(this.options.fts5Tokenizer).applyMigrations(this.db)
   }
 
@@ -856,6 +952,8 @@ export class TemporalStore {
     this.requireInit()
     const started = Date.now()
     const tokenizer = options.tokenizer ?? this.options.fts5Tokenizer
+    // Reject an unsafe/unsupported tokenizer before generating any DDL.
+    validateTokenizer(tokenizer)
     const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
     const batchSize = options.batchSize ?? 1000
 
@@ -999,7 +1097,7 @@ export class TemporalStore {
    * Structural invariants (decision §2). These are enforced by TemporalStore
    * directly so that replacing the validators array cannot bypass them.
    */
-  private enforceStructuralInvariants(assertion: NewAssertion): void {
+  private enforceStructuralInvariants(assertion: NormalizedNewAssertion): void {
     const errors: string[] = []
 
     // Citation presence + per-citation fields

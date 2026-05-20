@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3'
-import type { Assertion, AssertionCitation, NewAssertion } from '../../domain/types.js'
+import type { Assertion, AssertionCitation, NormalizedNewAssertion } from '../../domain/types.js'
 import type { CitationRepository } from './CitationRepository.js'
 import { buildCandidateJson } from '../candidates.js'
 
@@ -42,7 +42,7 @@ export class AssertionRepository {
     this.extensionColumns = extensionColumns
   }
 
-  insert(assertion: Omit<NewAssertion, 'citations'>): void {
+  insert(assertion: Omit<NormalizedNewAssertion, 'citations'>): void {
     this.db
       .prepare(
         `INSERT INTO trl_assertions

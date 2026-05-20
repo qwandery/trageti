@@ -45,6 +45,7 @@ export class ProseFormatter implements ContextFormatter {
       text: lines.join('\n\n'),
       tokenEstimate,
       truncated,
+      includedCount: included,
       metadata: { formatter: 'prose', includedAssertions: included },
     }
   }

@@ -89,11 +89,21 @@ validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
 - Schema-extension validation runs at `init()` time:
   `referencesNamespace: true` requires `namespaceColumn`, and that column
   is verified against `PRAGMA table_info` after `createSQL` runs.
-- New log codes: `TRGT_NON_WAL_MODE`, `TRGT_SQLITE_VEC_NOT_LOADED`,
-  `TRGT_FOREIGN_KEYS_DISABLED`, `TRGT_EPISODE_CONTENT_LARGE`,
+- Log codes (all `TRGT_`-prefixed): `TRGT_NON_WAL_MODE`,
+  `TRGT_FOREIGN_KEYS_ENABLED`, `TRGT_EPISODE_CONTENT_LARGE`,
   `TRGT_CITATION_EXCERPT_MISSING`, `TRGT_CROSS_NAMESPACE_LINK`,
-  `TRGT_INDEX_BATCH_SKIPPED`, `TRGT_DELETE_NAMESPACE_HAS_REFERENCES`,
-  `TRGT_MOCK_PROVIDER_NON_PRODUCTION`.
+  `TRGT_INDEX_BATCH_SKIPPED`, `TRGT_MOCK_PROVIDER_NON_PRODUCTION`,
+  `TRGT_RETRIEVE_VECTOR_SKIPPED`, `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`,
+  `TRGT_DEPRECATED_USAGE`, `TRGT_NAMESPACE_VECTOR_UPGRADED`,
+  `TRGT_PENDING_INDEXING_VECTORLESS`, `TRGT_REINDEX_STAGING_LEFTOVER`,
+  `TRGT_STATS_VEC_NOT_INTROSPECTED`, `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`,
+  `TRGT_MIDDLEWARE_DISPOSE_ERROR`.
+  The v0.2-era `TRGT_DELETE_NAMESPACE_HAS_REFERENCES` is retired (the
+  warn-and-proceed deleteNamespace path is replaced by the cascade option
+  and `ReferencedExtensionTableError`); the generic init-time
+  `TRGT_SQLITE_VEC_NOT_LOADED` / `TRGT_FOREIGN_KEYS_DISABLED` verifier
+  warnings are removed (foreign keys are now enforced, and sqlite-vec is
+  an optional peer dependency).
 
 ## 0.2.0
 

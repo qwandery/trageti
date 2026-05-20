@@ -77,14 +77,24 @@ export interface AssertionCitation {
 export type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>
 
 /**
+ * Citation shape accepted by `writeCitation()` when attaching a citation to an
+ * already-written assertion. The caller supplies `assertionId`; `createdAt` is
+ * filled in by the store.
+ */
+export type NewLateCitation = Omit<AssertionCitation, 'createdAt'>
+
+/**
  * Legacy v0.2 input shape. v0.3 introduces NewAssertionInput (nullable fields
  * become optional) and NormalizedNewAssertion (validators receive null-filled
  * shape). NewAssertion is preserved for back-compat; v0.3 writeAssertion accepts
  * NewAssertionInput and normalizes to NormalizedNewAssertion internally.
  */
-export type NewAssertion = Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
-  citations: NewAssertionCitation[]
-}
+/**
+ * @deprecated Use `NewAssertionInput` (the v0.3 write-API shape). `NewAssertion`
+ * is retained as an alias for back-compat and will be removed in a future
+ * major version.
+ */
+export type NewAssertion = NewAssertionInput
 
 /**
  * v0.3 public write-API shape. `validUntil`, `supersedesId`, `entityId`, and
@@ -181,6 +191,8 @@ export interface RetrievalQuery {
   scorer?: RetrievalScorer
   middleware?: RetrievalMiddleware[]
   debug?: RetrievalDebug
+  /** Optional cancellation signal for provider-derived query embeddings. */
+  signal?: AbortSignal
 }
 
 export interface RetrievedAssertion extends Assertion {
@@ -298,6 +310,10 @@ export interface ContextAssemblyOptions {
   middleware?: RetrievalMiddleware[]
   /** Per-call formatter override. */
   formatter?: ContextFormatter
+  /** Per-step retrieval debug hook (propagated to retrieve()). */
+  debug?: RetrievalDebug
+  /** Optional cancellation signal (propagated to retrieve()). */
+  signal?: AbortSignal
 }
 
 export interface AssembledContext {
@@ -318,6 +334,10 @@ export interface FormattedContext {
   text: string
   tokenEstimate: number
   truncated: boolean
+  /** How many of the supplied assertions the formatter actually included
+   *  (≤ the input count when truncated by token budget). An explicit field
+   *  so context assembly never has to read a formatter-private metadata key. */
+  includedCount: number
   metadata: Record<string, unknown>
 }
 

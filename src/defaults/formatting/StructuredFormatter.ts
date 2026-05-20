@@ -70,6 +70,7 @@ export class StructuredFormatter implements ContextFormatter {
       text: sections.join('\n\n'),
       tokenEstimate,
       truncated,
+      includedCount: included,
       metadata: { formatter: 'structured', includedAssertions: included },
     }
   }

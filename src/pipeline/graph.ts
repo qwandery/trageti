@@ -20,9 +20,9 @@ export function getConnected(
     ...(options.linkTypes !== undefined && { linkTypes: options.linkTypes }),
   })
 
-  const ids = [...new Set(links.flatMap((l) => [l.fromId, l.toId]))].filter(
-    (id) => id !== options.fromAssertionId,
-  )
+  // Collect the distinct destination assertions reached by traversal — the
+  // `toId` of each link — excluding the origin itself (spec §677).
+  const ids = [...new Set(links.map((l) => l.toId))].filter((id) => id !== options.fromAssertionId)
 
   return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null)
 }

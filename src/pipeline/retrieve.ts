@@ -15,6 +15,7 @@ import type {
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
 import { buildCandidateJson } from '../db/candidates.js'
+import { quoteIdent } from '../internal/sql-ident.js'
 import { applyMiddleware } from './middleware.js'
 import { ErrorCode, RetrievalInputError, ValidationError } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js'
@@ -431,7 +432,7 @@ function runStep2(
   const sql = `
     SELECT ae.assertion_id,
            vec_distance_cosine(ae.embedding, ?) AS semantic_distance
-    FROM ${embeddingTable} ae
+    FROM ${quoteIdent(embeddingTable)} ae
     WHERE ae.assertion_id IN (SELECT value FROM json_each(?))
     ORDER BY semantic_distance ASC
     LIMIT ?
