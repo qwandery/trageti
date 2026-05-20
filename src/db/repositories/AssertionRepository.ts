@@ -93,9 +93,10 @@ export class AssertionRepository {
     if (ids.length === 0) return []
     const json = buildCandidateJson(ids)
     const rows = this.db
-      .prepare<[string], AssertionRow>(
-        'SELECT * FROM trl_assertions WHERE id IN (SELECT value FROM json_each(?))',
-      )
+      .prepare<
+        [string],
+        AssertionRow
+      >('SELECT * FROM trl_assertions WHERE id IN (SELECT value FROM json_each(?))')
       .all(json)
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
@@ -134,9 +135,10 @@ export class AssertionRepository {
 
   getEntityHistory(namespace: string, entityId: string): Assertion[] {
     const rows = this.db
-      .prepare<[string, string], AssertionRow>(
-        'SELECT * FROM trl_assertions WHERE namespace = ? AND entity_id = ? ORDER BY valid_from ASC',
-      )
+      .prepare<
+        [string, string],
+        AssertionRow
+      >('SELECT * FROM trl_assertions WHERE namespace = ? AND entity_id = ? ORDER BY valid_from ASC')
       .all(namespace, entityId)
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))

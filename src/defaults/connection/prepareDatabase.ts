@@ -12,9 +12,7 @@ export function prepareDatabase(
   source: string | DatabaseType,
   options: PrepareDatabaseOptions = {},
 ): DatabaseType {
-  const db = typeof source === 'string'
-    ? new Database(source, options.betterSqlite3)
-    : source
+  const db = typeof source === 'string' ? new Database(source, options.betterSqlite3) : source
 
   db.pragma(`journal_mode = ${options.journalMode ?? 'WAL'}`)
   db.pragma(`busy_timeout = ${String(options.busyTimeoutMs ?? 5000)}`)

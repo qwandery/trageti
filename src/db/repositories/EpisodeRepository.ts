@@ -25,9 +25,10 @@ export class EpisodeRepository {
   insert(episode: Omit<Episode, 'createdAt'>): Episode {
     return this.db.transaction(() => {
       const max = this.db
-        .prepare<[string], { max_pos: number | null }>(
-          'SELECT MAX(position) AS max_pos FROM trl_episodes WHERE namespace = ?',
-        )
+        .prepare<
+          [string],
+          { max_pos: number | null }
+        >('SELECT MAX(position) AS max_pos FROM trl_episodes WHERE namespace = ?')
         .get(episode.namespace)
       const maxPos = max?.max_pos ?? null
       if (maxPos !== null && episode.position <= maxPos) {

@@ -22,7 +22,14 @@ describe('TemporalStore — init and namespace lifecycle', () => {
   it('throws NamespaceNotInitializedError before init()', async () => {
     const store = makeStore(db)
     await expect(
-      store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '2024-01-01T00:00:00Z', type: 't', content: 'c' }),
+      store.writeEpisode({
+        id: 'ep-1',
+        namespace: NS,
+        position: 1,
+        occurredAt: '2024-01-01T00:00:00Z',
+        type: 't',
+        content: 'c',
+      }),
     ).rejects.toThrow(NamespaceNotInitializedError)
   })
 
@@ -41,7 +48,14 @@ describe('TemporalStore — init and namespace lifecycle', () => {
     const store = makeStore(db)
     await store.init()
     await expect(
-      store.writeEpisode({ id: 'ep-1', namespace: 'unknown-ns', position: 1, occurredAt: '', type: 't', content: 'c' }),
+      store.writeEpisode({
+        id: 'ep-1',
+        namespace: 'unknown-ns',
+        position: 1,
+        occurredAt: '',
+        type: 't',
+        content: 'c',
+      }),
     ).rejects.toThrow(NamespaceNotInitializedError)
   })
 })
@@ -54,7 +68,14 @@ describe('TemporalStore — write and read', () => {
     db = openTestDb()
     store = makeStore(db)
     await store.init()
-    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '2024-01-01T00:00:00Z', type: 'doc', content: 'Episode content' })
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '2024-01-01T00:00:00Z',
+      type: 'doc',
+      content: 'Episode content',
+    })
   })
 
   it('writes and reads an episode', async () => {
@@ -65,7 +86,20 @@ describe('TemporalStore — write and read', () => {
   })
 
   it('writes and reads an assertion', async () => {
-    await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Test claim.', validFrom: 1, validUntil: null, confidence: 0.9, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: NS,
+      type: 'fact',
+      content: 'Test claim.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 0.9,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
     const assertions = await store.getAssertions(NS)
     expect(assertions.length).toBe(1)
     expect(assertions[0]?.content).toBe('Test claim.')
@@ -73,20 +107,79 @@ describe('TemporalStore — write and read', () => {
 
   it('rejects assertion with validUntil <= validFrom', async () => {
     await expect(
-      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 5, validUntil: 3, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-bad', 'ep-1')] }),
+      store.writeAssertion({
+        id: 'a-bad',
+        namespace: NS,
+        type: 'fact',
+        content: 'Bad.',
+        validFrom: 5,
+        validUntil: 3,
+        confidence: 1,
+        sourceEpisodeId: 'ep-1',
+        supersedesId: null,
+        entityId: null,
+        entityType: null,
+        citations: [citationFor('a-bad', 'ep-1')],
+      }),
     ).rejects.toThrow(ValidationError)
   })
 
   it('rejects assertion referencing non-existent episode', async () => {
     await expect(
-      store.writeAssertion({ id: 'a-bad', namespace: NS, type: 'fact', content: 'Bad.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'no-such-ep', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-bad', 'ep-1')] }),
+      store.writeAssertion({
+        id: 'a-bad',
+        namespace: NS,
+        type: 'fact',
+        content: 'Bad.',
+        validFrom: 1,
+        validUntil: null,
+        confidence: 1,
+        sourceEpisodeId: 'no-such-ep',
+        supersedesId: null,
+        entityId: null,
+        entityType: null,
+        citations: [citationFor('a-bad', 'ep-1')],
+      }),
     ).rejects.toThrow(ValidationError)
   })
 
   it('getAssertions with validAt only returns assertions valid at that position', async () => {
-    await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Valid at pos 1.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
-    await store.writeEpisode({ id: 'ep-10', namespace: NS, position: 10, occurredAt: '2024-01-10T00:00:00Z', type: 'doc', content: 'ep10' })
-    await store.writeAssertion({ id: 'a-10', namespace: NS, type: 'fact', content: 'Valid from pos 10.', validFrom: 10, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-10', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-10', 'ep-10')] })
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: NS,
+      type: 'fact',
+      content: 'Valid at pos 1.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
+    await store.writeEpisode({
+      id: 'ep-10',
+      namespace: NS,
+      position: 10,
+      occurredAt: '2024-01-10T00:00:00Z',
+      type: 'doc',
+      content: 'ep10',
+    })
+    await store.writeAssertion({
+      id: 'a-10',
+      namespace: NS,
+      type: 'fact',
+      content: 'Valid from pos 10.',
+      validFrom: 10,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-10',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-10', 'ep-10')],
+    })
 
     const atPos5 = await store.getAssertions(NS, { validAt: 5 })
     expect(atPos5.map((a) => a.id)).toContain('a-1')
@@ -96,16 +189,34 @@ describe('TemporalStore — write and read', () => {
   it('emits warning for large episode content (does not throw)', async () => {
     const bigContent = 'x'.repeat(9000)
     await expect(
-      store.writeEpisode({ id: 'ep-big', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: bigContent }),
+      store.writeEpisode({
+        id: 'ep-big',
+        namespace: NS,
+        position: 2,
+        occurredAt: '',
+        type: 'doc',
+        content: bigContent,
+      }),
     ).resolves.toBeDefined()
   })
 
   it('no warning when maxEpisodeContentBytes = 0', async () => {
-    const storeNoWarn = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, maxEpisodeContentBytes: 0 })
+    const storeNoWarn = new TemporalStore(db, {
+      namespace: NS,
+      embeddingDimension: DIM,
+      maxEpisodeContentBytes: 0,
+    })
     await storeNoWarn.init()
     const bigContent = 'x'.repeat(9000)
     await expect(
-      storeNoWarn.writeEpisode({ id: 'ep-big2', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: bigContent }),
+      storeNoWarn.writeEpisode({
+        id: 'ep-big2',
+        namespace: NS,
+        position: 3,
+        occurredAt: '',
+        type: 'doc',
+        content: bigContent,
+      }),
     ).resolves.toBeDefined()
   })
 })
@@ -118,8 +229,28 @@ describe('TemporalStore — stats', () => {
     db = openTestDb()
     store = makeStore(db)
     await store.init()
-    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'c1', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: NS,
+      type: 'fact',
+      content: 'c1',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
   })
 
   it('getStats returns correct counts', async () => {

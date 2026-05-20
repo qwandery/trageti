@@ -16,7 +16,10 @@ export class EmbeddingRepository {
 
   tableExists(tableName: string): boolean {
     const row = this.db
-      .prepare<[string], { name: string }>("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table'")
+      .prepare<
+        [string],
+        { name: string }
+      >("SELECT name FROM sqlite_master WHERE name = ? AND type = 'table'")
       .get(tableName)
     return row !== undefined
   }
@@ -33,7 +36,9 @@ export class EmbeddingRepository {
   insert(tableName: string, assertionId: string, embedding: Float32Array | number[]): void {
     const vec = embedding instanceof Float32Array ? embedding : new Float32Array(embedding)
     this.db
-      .prepare(`INSERT OR REPLACE INTO ${quoteIdent(tableName)} (assertion_id, embedding) VALUES (?, ?)`)
+      .prepare(
+        `INSERT OR REPLACE INTO ${quoteIdent(tableName)} (assertion_id, embedding) VALUES (?, ?)`,
+      )
       .run(assertionId, vec)
   }
 
@@ -46,17 +51,15 @@ export class EmbeddingRepository {
     )
     const tx = this.db.transaction(() => {
       for (const item of items) {
-        const vec = item.embedding instanceof Float32Array ? item.embedding : new Float32Array(item.embedding)
+        const vec =
+          item.embedding instanceof Float32Array ? item.embedding : new Float32Array(item.embedding)
         stmt.run(item.assertionId, vec)
       }
     })
     tx()
   }
 
-  getPendingIndexing(
-    tableName: string,
-    namespace: string,
-  ): Array<{ id: string; content: string }> {
+  getPendingIndexing(tableName: string, namespace: string): Array<{ id: string; content: string }> {
     // Pending = assertions in this namespace with no corresponding embedding row
     const sql = `
       SELECT a.id, a.content

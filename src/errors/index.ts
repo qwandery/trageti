@@ -89,7 +89,10 @@ export class SchemaExtensionError extends TragetiError {
   readonly violations: string[]
 
   constructor(violations: string[]) {
-    super(ErrorCode.SCHEMA_EXTENSION_ERROR, `Schema extension validation failed:\n${violations.join('\n')}`)
+    super(
+      ErrorCode.SCHEMA_EXTENSION_ERROR,
+      `Schema extension validation failed:\n${violations.join('\n')}`,
+    )
     this.name = 'SchemaExtensionError'
     this.violations = violations
   }
@@ -247,12 +250,7 @@ export class EmbeddingProviderError extends TragetiError {
   readonly providerName: string
   readonly indexed: number
 
-  constructor(
-    providerName: string,
-    indexed: number,
-    cause: unknown,
-    extraMessage?: string,
-  ) {
+  constructor(providerName: string, indexed: number, cause: unknown, extraMessage?: string) {
     const tail = extraMessage ? ` ${extraMessage}` : ''
     super(
       ErrorCode.EMBEDDING_PROVIDER_ERROR,

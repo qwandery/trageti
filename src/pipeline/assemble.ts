@@ -10,7 +10,10 @@ interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter
 }
 
-export async function assembleContext(store: TemporalStore, options: AssembleOptions): Promise<AssembledContext> {
+export async function assembleContext(
+  store: TemporalStore,
+  options: AssembleOptions,
+): Promise<AssembledContext> {
   const query: RetrievalQuery = {
     namespace: options.namespace,
     temporalAnchor: options.temporalAnchor,
@@ -26,7 +29,8 @@ export async function assembleContext(store: TemporalStore, options: AssembleOpt
   if (options.middleware !== undefined) query.middleware = options.middleware
   if (options.retrievalStrategy !== undefined) query.retrievalStrategy = options.retrievalStrategy
 
-  const assertions = await store.retrieve(query)
+  const retrieval = await store.retrieve(query)
+  const assertions = retrieval.results
 
   const formatter = options.formatter ?? options.globalFormatter
   const formatted = formatter.format(assertions, options)
@@ -37,13 +41,16 @@ export async function assembleContext(store: TemporalStore, options: AssembleOpt
 
   return {
     text: formatted.text,
-    assertions: formatted.truncated ? assertions.slice(0, formatted.metadata['includedAssertions'] as number) : assertions,
+    assertions: formatted.truncated
+      ? assertions.slice(0, formatted.metadata['includedAssertions'] as number)
+      : assertions,
     tokenEstimate: formatted.tokenEstimate,
     truncated: formatted.truncated,
     metadata: formatted.metadata,
     coverage: {
       totalAssertions: assertions.length,
-      includedAssertions: (formatted.metadata['includedAssertions'] as number | undefined) ?? assertions.length,
+      includedAssertions:
+        (formatted.metadata['includedAssertions'] as number | undefined) ?? assertions.length,
       positionRange: { from, to },
     },
   }

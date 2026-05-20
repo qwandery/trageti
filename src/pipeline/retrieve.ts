@@ -1,12 +1,16 @@
 import type { Database } from 'better-sqlite3'
 import type {
   RetrievalQuery,
+  RetrievalResult,
+  RetrievalMeta,
   RetrievedAssertion,
   Assertion,
   RetrievalScorer,
   RetrievalMiddleware,
   GraphQueryAdapter,
   ScoredCandidate,
+  QueryTextMode,
+  RetrievalStrategy,
 } from '../domain/types.js'
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
@@ -47,10 +51,13 @@ export function retrieve(
   db: Database,
   ctx: RetrieveContext,
   query: RetrievalQuery,
-): RetrievedAssertion[] {
+): RetrievalResult {
+  const started = Date.now()
   const callMiddleware = query.middleware ?? []
-  const core = (q: RetrievalQuery): RetrievedAssertion[] => retrieveCore(db, ctx, q)
-  return applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core)
+  const core = (q: RetrievalQuery): RetrievalResult => retrieveCore(db, ctx, q)
+  const result = applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core)
+  result.meta.tookMs = Date.now() - started
+  return result
 }
 
 /**
@@ -62,18 +69,44 @@ function escapeFts5Phrase(text: string): string {
   return `"${text.replace(/"/g, '""')}"`
 }
 
-function retrieveCore(
-  db: Database,
-  ctx: RetrieveContext,
+function buildMeta(
   query: RetrievalQuery,
-): RetrievedAssertion[] {
+  limit: number,
+  strategy: RetrievalStrategy,
+  queryTextMode: QueryTextMode,
+  opts: { candidateCount: number; vectorApplied: boolean; bm25Applied: boolean },
+): RetrievalMeta {
+  return {
+    namespace: query.namespace,
+    temporalAnchor: query.temporalAnchor,
+    limit,
+    candidateCount: opts.candidateCount,
+    retrievalStrategy: strategy,
+    vectorApplied: opts.vectorApplied,
+    bm25Applied: opts.bm25Applied,
+    queryTextMode,
+    warnings: [],
+  }
+}
+
+function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
   const limit = query.limit ?? 10
-  if (limit < 1) {
-    throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, `limit must be >= 1, got ${String(limit)}`)
+  if (limit < 1 || !Number.isInteger(limit)) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INVALID_LIMIT,
+      `limit must be a positive integer, got ${String(limit)}`,
+    )
   }
   const oversample = limit * 3
   const mode = query.mode ?? 'snapshot'
   const strategy = query.retrievalStrategy ?? 'hybrid'
+  const queryTextMode = query.queryTextMode ?? 'phrase'
+  const emptyMeta = (vectorApplied: boolean, bm25Applied: boolean): RetrievalMeta =>
+    buildMeta(query, limit, strategy, queryTextMode, {
+      candidateCount: 0,
+      vectorApplied,
+      bm25Applied,
+    })
 
   // Strategy-specific input validation.
   if (strategy === 'vector' && !query.queryEmbedding) {
@@ -97,7 +130,15 @@ function retrieveCore(
 
   // Step 1: Temporal filter (applies in all strategies).
   const step1 = runStep1(db, query)
-  if (step1.length === 0) return []
+  if (step1.length === 0) {
+    return {
+      results: [],
+      meta: emptyMeta(
+        strategy !== 'bm25' && Boolean(query.queryEmbedding),
+        strategy !== 'vector' && Boolean(query.queryText),
+      ),
+    }
+  }
 
   const candidateJson = buildCandidateJson(step1.map((r) => r.id))
   const step1Map = new Map(step1.map((r) => [r.id, r]))
@@ -115,7 +156,6 @@ function retrieveCore(
   const bm25Map = new Map<string, number>()
   const applyBm25 = strategy !== 'vector' && Boolean(query.queryText)
   if (applyBm25 && query.queryText) {
-    const queryTextMode = query.queryTextMode ?? 'phrase'
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText
     try {
       const step3 = runStep3(db, candidateJson, ftsText)
@@ -137,14 +177,21 @@ function retrieveCore(
   const candidateIds = new Set<string>()
   for (const r of step2Rows) candidateIds.add(r.assertion_id)
   for (const id of bm25Map.keys()) candidateIds.add(id)
-  if (candidateIds.size === 0) return []
+  if (candidateIds.size === 0) {
+    return { results: [], meta: emptyMeta(applyVector, applyBm25) }
+  }
 
   const oversampledIds = [...candidateIds].filter((id) => step1Map.has(id))
   const hydrated = ctx.assertionRepo.getByIds(oversampledIds)
   const hydratedById = new Map(hydrated.map((a) => [a.id, a]))
   const semanticById = new Map(step2Rows.map((r) => [r.assertion_id, r.semantic_distance]))
 
-  const candidates: Array<{ id: string; candidate: ScoredCandidate; s1: Step1Row; assertion: Assertion }> = []
+  const candidates: Array<{
+    id: string
+    candidate: ScoredCandidate
+    s1: Step1Row
+    assertion: Assertion
+  }> = []
   for (const id of oversampledIds) {
     const s1row = step1Map.get(id)
     const assertion = hydratedById.get(id)
@@ -165,11 +212,18 @@ function retrieveCore(
   // Step 4: Score.
   const scorer = query.scorer ?? ctx.globalScorer
   const positionRange = ctx.getPositionRange(query.namespace)
-  const scoringContext = { temporalAnchor: query.temporalAnchor, namespacePositionRange: positionRange, query }
+  const scoringContext = {
+    temporalAnchor: query.temporalAnchor,
+    namespacePositionRange: positionRange,
+    query,
+  }
 
   let scores: number[]
   if (scorer.scoreBatch) {
-    scores = scorer.scoreBatch(candidates.map((c) => c.candidate), scoringContext)
+    scores = scorer.scoreBatch(
+      candidates.map((c) => c.candidate),
+      scoringContext,
+    )
     if (scores.length !== candidates.length) {
       throw new ValidationError([
         `RetrievalScorer.scoreBatch returned ${String(scores.length)} scores for ${String(candidates.length)} candidates`,
@@ -239,7 +293,14 @@ function retrieveCore(
     }
   }
 
-  return results
+  return {
+    results,
+    meta: buildMeta(query, limit, strategy, queryTextMode, {
+      candidateCount: candidates.length,
+      vectorApplied: applyVector && step2Rows.length > 0,
+      bm25Applied: applyBm25 && bm25Map.size > 0,
+    }),
+  }
 }
 
 function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
@@ -288,7 +349,8 @@ function runStep2(
   queryEmbedding: Float32Array | number[],
   limit: number,
 ): Step2Row[] {
-  const vec = queryEmbedding instanceof Float32Array ? queryEmbedding : new Float32Array(queryEmbedding)
+  const vec =
+    queryEmbedding instanceof Float32Array ? queryEmbedding : new Float32Array(queryEmbedding)
   const sql = `
     SELECT ae.assertion_id,
            vec_distance_cosine(ae.embedding, ?) AS semantic_distance

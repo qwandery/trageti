@@ -44,7 +44,9 @@ describe('MigrationRunner', () => {
     runner.applyMigrations(db)
     expect(runner.getCurrentVersion(db)).toBe(3)
 
-    const versionRows = db.prepare('SELECT COUNT(*) AS cnt FROM trl_schema_version').get() as { cnt: number }
+    const versionRows = db.prepare('SELECT COUNT(*) AS cnt FROM trl_schema_version').get() as {
+      cnt: number
+    }
     expect(versionRows.cnt).toBe(3)
   })
 
@@ -82,16 +84,25 @@ describe('MigrationRunner', () => {
   it('upgrades a v001-only DB to v003 cleanly with legacy citation-less assertions', async () => {
     const { createV001Migration } = await import('../../src/db/migrations/v001_initial.js')
     const v001 = createV001Migration()
-    db.exec(`CREATE TABLE IF NOT EXISTS trl_schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')), description TEXT NOT NULL)`)
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS trl_schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')), description TEXT NOT NULL)`,
+    )
     v001.up(db)
-    db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(1, v001.description)
+    db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
+      1,
+      v001.description,
+    )
 
     // Insert a legacy citation-less assertion via direct SQL (bypassing the validator)
-    db.prepare('INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)').run('legacy', 4, 'trl_embeddings_legacy')
-    db.prepare(`INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run('ep-old', 'legacy', 1, '2024-01-01', 'doc', 'old')
-    db.prepare(`INSERT INTO trl_assertions (id, namespace, type, content, valid_from, valid_until, confidence, source_episode_id, supersedes_id, entity_id, entity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run('a-legacy', 'legacy', 'fact', 'pre-v002 row', 1, null, 1.0, 'ep-old', null, null, null)
+    db.prepare(
+      'INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)',
+    ).run('legacy', 4, 'trl_embeddings_legacy')
+    db.prepare(
+      `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('ep-old', 'legacy', 1, '2024-01-01', 'doc', 'old')
+    db.prepare(
+      `INSERT INTO trl_assertions (id, namespace, type, content, valid_from, valid_until, confidence, source_episode_id, supersedes_id, entity_id, entity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('a-legacy', 'legacy', 'fact', 'pre-v002 row', 1, null, 1.0, 'ep-old', null, null, null)
 
     expect(new MigrationRunner().getCurrentVersion(db)).toBe(1)
 
@@ -108,12 +119,17 @@ describe('MigrationRunner', () => {
     // The legacy row is still readable; we don't go through TemporalStore here
     // because instantiating one would trigger its own init/migrations,
     // but the row's existence at this schema version proves the upgrade is non-destructive.
-    const a = db.prepare('SELECT id FROM trl_assertions WHERE id = ?').get('a-legacy') as { id: string } | undefined
+    const a = db.prepare('SELECT id FROM trl_assertions WHERE id = ?').get('a-legacy') as
+      | { id: string }
+      | undefined
     expect(a?.id).toBe('a-legacy')
   })
 
   it('records tokenizer args in FTS5 table DDL', async () => {
-    const runner = new MigrationRunner({ tokenizer: 'unicode61', tokenizerArgs: ['remove_diacritics', '1'] })
+    const runner = new MigrationRunner({
+      tokenizer: 'unicode61',
+      tokenizerArgs: ['remove_diacritics', '1'],
+    })
     runner.applyMigrations(db)
     const ftsObj = getObjects(db, 'table').find((r) => r.name === 'trl_fts')
     expect(ftsObj?.sql).toContain('unicode61')
@@ -123,9 +139,7 @@ describe('MigrationRunner', () => {
   it('trl_namespaces has embedding_table column', async () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
-    const cols = db
-      .prepare(`PRAGMA table_info(trl_namespaces)`)
-      .all() as Array<{ name: string }>
+    const cols = db.prepare(`PRAGMA table_info(trl_namespaces)`).all() as Array<{ name: string }>
     const names = cols.map((c) => c.name)
     expect(names).toContain('embedding_table')
   })
@@ -134,8 +148,12 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
-    db.prepare('INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)').run('vectorless', null, null)
-    const row = db.prepare('SELECT tokenizer, tokenizer_args FROM trl_fts_meta WHERE id = 1').get() as {
+    db.prepare(
+      'INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)',
+    ).run('vectorless', null, null)
+    const row = db
+      .prepare('SELECT tokenizer, tokenizer_args FROM trl_fts_meta WHERE id = 1')
+      .get() as {
       tokenizer: string
       tokenizer_args: string
     }

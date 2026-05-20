@@ -20,12 +20,11 @@ export function getConnected(
     ...(options.linkTypes !== undefined && { linkTypes: options.linkTypes }),
   })
 
-  const ids = [...new Set(links.flatMap((l) => [l.fromId, l.toId]))]
-    .filter((id) => id !== options.fromAssertionId)
+  const ids = [...new Set(links.flatMap((l) => [l.fromId, l.toId]))].filter(
+    (id) => id !== options.fromAssertionId,
+  )
 
-  return ids
-    .map((id) => assertionRepo.getById(id))
-    .filter((a): a is Assertion => a !== null)
+  return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null)
 }
 
 export function findPath(

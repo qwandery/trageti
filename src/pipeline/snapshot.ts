@@ -15,7 +15,9 @@ export function getTemporalSnapshot(
 ): Assertion[] {
   let results = assertionRepo.query(options.namespace, {
     validAt: options.atPosition,
-    ...(options.includeSuperseded !== undefined && { includeSuperseded: options.includeSuperseded }),
+    ...(options.includeSuperseded !== undefined && {
+      includeSuperseded: options.includeSuperseded,
+    }),
   })
 
   if (options.entityTypes && options.entityTypes.length > 0) {

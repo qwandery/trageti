@@ -24,16 +24,18 @@ export class MockEmbeddingProvider implements EmbeddingProvider {
       })
     }
 
-    return Promise.resolve(texts.map((text) => {
-      const out = new Float32Array(this.dimension)
-      const hash = createHash('sha256').update(text).digest()
-      // Spread the 32-byte digest across `dimension` floats deterministically.
-      for (let i = 0; i < this.dimension; i++) {
-        const byte = hash[i % hash.length] ?? 0
-        // Map [0, 255] → [-1, 1] (centered at zero so cosine-distance behaves well).
-        out[i] = (byte / 127.5) - 1
-      }
-      return out
-    }))
+    return Promise.resolve(
+      texts.map((text) => {
+        const out = new Float32Array(this.dimension)
+        const hash = createHash('sha256').update(text).digest()
+        // Spread the 32-byte digest across `dimension` floats deterministically.
+        for (let i = 0; i < this.dimension; i++) {
+          const byte = hash[i % hash.length] ?? 0
+          // Map [0, 255] → [-1, 1] (centered at zero so cosine-distance behaves well).
+          out[i] = byte / 127.5 - 1
+        }
+        return out
+      }),
+    )
   }
 }

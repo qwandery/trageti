@@ -1,5 +1,9 @@
 import type { Database } from 'better-sqlite3'
-import type { AssertionValidator, NormalizedNewAssertion, ValidationResult } from '../../domain/types.js'
+import type {
+  AssertionValidator,
+  NormalizedNewAssertion,
+  ValidationResult,
+} from '../../domain/types.js'
 import { structuredWarn } from '../../internal/logger.js'
 
 export interface DefaultAssertionValidatorOptions {
@@ -47,9 +51,10 @@ export class DefaultAssertionValidator implements AssertionValidator {
     // FK check on sourceEpisodeId only if basic fields are valid
     if (errors.length === 0) {
       const episode = this.db
-        .prepare<[string, string], { id: string }>(
-          'SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?',
-        )
+        .prepare<
+          [string, string],
+          { id: string }
+        >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
         .get(assertion.sourceEpisodeId, assertion.namespace)
       if (!episode) {
         errors.push(

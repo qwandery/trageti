@@ -30,9 +30,10 @@ export class DefaultScorer implements RetrievalScorer {
    * meaningfully normalised; this fallback uses tanh-style compression.
    */
   score(candidate: ScoredCandidate, context: ScoringContext): number {
-    const semanticSimilarity = candidate.semanticDistance === null
-      ? null
-      : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
+    const semanticSimilarity =
+      candidate.semanticDistance === null
+        ? null
+        : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
     const { min, max } = context.namespacePositionRange
     const recency = max > min ? (candidate.position - min) / (max - min) : 1
 
@@ -43,11 +44,7 @@ export class DefaultScorer implements RetrievalScorer {
         const w = WEIGHT_BM25 + WEIGHT_RECENCY
         return (WEIGHT_BM25 / w) * bm25 + (WEIGHT_RECENCY / w) * recency
       }
-      return (
-        WEIGHT_SEMANTIC * semanticSimilarity +
-        WEIGHT_BM25 * bm25 +
-        WEIGHT_RECENCY * recency
-      )
+      return WEIGHT_SEMANTIC * semanticSimilarity + WEIGHT_BM25 * bm25 + WEIGHT_RECENCY * recency
     }
     if (semanticSimilarity === null) {
       throw new TragetiError(ErrorCode.SCORER_NO_USABLE_SIGNAL, 'candidate has no usable signal')
@@ -85,9 +82,10 @@ export class DefaultScorer implements RetrievalScorer {
 
     const { min, max } = context.namespacePositionRange
     return candidates.map((candidate, i) => {
-      const semanticSimilarity = candidate.semanticDistance === null
-        ? null
-        : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
+      const semanticSimilarity =
+        candidate.semanticDistance === null
+          ? null
+          : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
       const recency = max > min ? (candidate.position - min) / (max - min) : 1
 
       if (candidate.bm25Score !== null) {
@@ -96,11 +94,7 @@ export class DefaultScorer implements RetrievalScorer {
           const w = WEIGHT_BM25 + WEIGHT_RECENCY
           return (WEIGHT_BM25 / w) * bm25 + (WEIGHT_RECENCY / w) * recency
         }
-        return (
-          WEIGHT_SEMANTIC * semanticSimilarity +
-          WEIGHT_BM25 * bm25 +
-          WEIGHT_RECENCY * recency
-        )
+        return WEIGHT_SEMANTIC * semanticSimilarity + WEIGHT_BM25 * bm25 + WEIGHT_RECENCY * recency
       }
       if (semanticSimilarity === null) {
         throw new TragetiError(ErrorCode.SCORER_NO_USABLE_SIGNAL, 'candidate has no usable signal')

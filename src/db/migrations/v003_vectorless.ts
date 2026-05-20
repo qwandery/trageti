@@ -25,7 +25,8 @@ export function createV003Migration(tokenizerConfig?: FTS5TokenizerConfig): Migr
   return {
     version: 3,
     name: 'v003_vectorless',
-    description: 'Vectorless namespaces (nullable embedding_dimension/table) + trl_fts_meta metadata',
+    description:
+      'Vectorless namespaces (nullable embedding_dimension/table) + trl_fts_meta metadata',
     requiresForeignKeyToggle: true,
     up(db: Database): void {
       // Rebuild trl_namespaces with nullable embedding columns and the
@@ -64,9 +65,12 @@ export function createV003Migration(tokenizerConfig?: FTS5TokenizerConfig): Migr
         );
       `)
 
-      const existing = db.prepare<[], { tokenizer: string; tokenizer_args: string }>(
-        'SELECT tokenizer, tokenizer_args FROM trl_fts_meta WHERE id = 1',
-      ).get()
+      const existing = db
+        .prepare<
+          [],
+          { tokenizer: string; tokenizer_args: string }
+        >('SELECT tokenizer, tokenizer_args FROM trl_fts_meta WHERE id = 1')
+        .get()
       if (existing) {
         const actual = JSON.stringify({
           tokenizer: existing.tokenizer,
@@ -77,10 +81,14 @@ export function createV003Migration(tokenizerConfig?: FTS5TokenizerConfig): Migr
           tokenizerArgs: cfg.tokenizerArgs ?? [],
         })
         if (actual !== expected) {
-          throw new MigrationCompatibilityError('fts-tokenizer', 'Existing FTS tokenizer configuration is incompatible with the requested tokenizer.', {
-            actual,
-            expected,
-          })
+          throw new MigrationCompatibilityError(
+            'fts-tokenizer',
+            'Existing FTS tokenizer configuration is incompatible with the requested tokenizer.',
+            {
+              actual,
+              expected,
+            },
+          )
         }
         return
       }

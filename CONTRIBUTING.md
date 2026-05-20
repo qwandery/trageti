@@ -41,4 +41,4 @@ Choose `patch`, `minor`, or `major` and write a one-line description.
 - `prettier` for formatting (enforced in CI)
 - `eslint` with `@typescript-eslint/strict` for linting
 - No default exports — named exports only
-- No comments explaining *what* code does — only *why* when non-obvious
+- No comments explaining _what_ code does — only _why_ when non-obvious

@@ -39,7 +39,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect((await store.getStats(NS)).indexedCount).toBe(5)
 
     // ── 4. Hybrid retrieve ───────────────────────────────────────────────────
-    const results = await store.retrieve({
+    const { results } = await store.retrieve({
       namespace: NS,
       queryEmbedding: VEC_A,
       queryText: 'Alpha',
@@ -98,7 +98,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(path).not.toBeNull()
 
     // ── 9. Supersede and verify history ──────────────────────────────────────
-    await store.supersedeAssertion('a-1', { validUntil: 5, replacedById: 'a-3' })
+    await store.advanced.closeAssertion('a-1', { validUntil: 5 })
     const history = await store.getEntityHistory(NS, 'entity-alpha')
     const ids = history.map((a) => a.id)
     expect(ids).toContain('a-1')
@@ -114,7 +114,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     await store.deleteNamespace(NS)
     // Namespace is gone — assertions no longer accessible
     const nsAssertions = db
-      .prepare<[string], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trl_assertions WHERE namespace = ?')
+      .prepare<
+        [string],
+        { cnt: number }
+      >('SELECT COUNT(*) AS cnt FROM trl_assertions WHERE namespace = ?')
       .get(NS)
     expect(nsAssertions?.cnt).toBe(0)
   })
@@ -128,10 +131,50 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     await store1.init()
     await store1.initNamespace(ns2)
 
-    await store1.writeEpisode({ id: 'ep-ns1', namespace: ns1, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store1.writeEpisode({ id: 'ep-ns2', namespace: ns2, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store1.writeAssertion({ id: 'a-ns1', namespace: ns1, type: 'fact', content: 'NS1 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns1', 'ep-ns1')] })
-    await store1.writeAssertion({ id: 'a-ns2', namespace: ns2, type: 'fact', content: 'NS2 claim.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-ns2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-ns2', 'ep-ns2')] })
+    await store1.writeEpisode({
+      id: 'ep-ns1',
+      namespace: ns1,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store1.writeEpisode({
+      id: 'ep-ns2',
+      namespace: ns2,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store1.writeAssertion({
+      id: 'a-ns1',
+      namespace: ns1,
+      type: 'fact',
+      content: 'NS1 claim.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-ns1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-ns1', 'ep-ns1')],
+    })
+    await store1.writeAssertion({
+      id: 'a-ns2',
+      namespace: ns2,
+      type: 'fact',
+      content: 'NS2 claim.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-ns2',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-ns2', 'ep-ns2')],
+    })
 
     const ns1Assertions = await store1.getAssertions(ns1)
     const ns2Assertions = await store1.getAssertions(ns2)

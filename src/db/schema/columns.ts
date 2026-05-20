@@ -20,15 +20,7 @@ export const LIBRARY_COLUMNS: Readonly<Record<LibraryTable, readonly string[]>> 
     'entity_type',
     'created_at',
   ],
-  trl_episodes: [
-    'id',
-    'namespace',
-    'position',
-    'occurred_at',
-    'type',
-    'content',
-    'created_at',
-  ],
+  trl_episodes: ['id', 'namespace', 'position', 'occurred_at', 'type', 'content', 'created_at'],
   trl_links: [
     'id',
     'namespace',

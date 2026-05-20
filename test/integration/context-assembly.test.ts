@@ -14,13 +14,73 @@ const VEC = new Float32Array([1, 0, 0, 0])
 async function setupStore(db: Database): Promise<TemporalStore> {
   const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
   await store.init()
-  await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-  await store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
-  await store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
+  await store.writeEpisode({
+    id: 'ep-1',
+    namespace: NS,
+    position: 1,
+    occurredAt: '',
+    type: 'doc',
+    content: 'c',
+  })
+  await store.writeEpisode({
+    id: 'ep-2',
+    namespace: NS,
+    position: 2,
+    occurredAt: '',
+    type: 'doc',
+    content: 'c',
+  })
+  await store.writeEpisode({
+    id: 'ep-3',
+    namespace: NS,
+    position: 3,
+    occurredAt: '',
+    type: 'doc',
+    content: 'c',
+  })
   // Three assertions, slightly different embeddings so all are ranked
-  await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'Alpha is first.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: 'e-a', entityType: 'concept', citations: [citationFor('a-1', 'ep-1')] })
-  await store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Beta is second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: 'e-b', entityType: 'concept', citations: [citationFor('a-2', 'ep-2')] })
-  await store.writeAssertion({ id: 'a-3', namespace: NS, type: 'update', content: 'Gamma is third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: 'e-g', entityType: 'relationship', citations: [citationFor('a-3', 'ep-3')] })
+  await store.writeAssertion({
+    id: 'a-1',
+    namespace: NS,
+    type: 'fact',
+    content: 'Alpha is first.',
+    validFrom: 1,
+    validUntil: null,
+    confidence: 1,
+    sourceEpisodeId: 'ep-1',
+    supersedesId: null,
+    entityId: 'e-a',
+    entityType: 'concept',
+    citations: [citationFor('a-1', 'ep-1')],
+  })
+  await store.writeAssertion({
+    id: 'a-2',
+    namespace: NS,
+    type: 'fact',
+    content: 'Beta is second.',
+    validFrom: 2,
+    validUntil: null,
+    confidence: 1,
+    sourceEpisodeId: 'ep-2',
+    supersedesId: null,
+    entityId: 'e-b',
+    entityType: 'concept',
+    citations: [citationFor('a-2', 'ep-2')],
+  })
+  await store.writeAssertion({
+    id: 'a-3',
+    namespace: NS,
+    type: 'update',
+    content: 'Gamma is third.',
+    validFrom: 3,
+    validUntil: null,
+    confidence: 1,
+    sourceEpisodeId: 'ep-3',
+    supersedesId: null,
+    entityId: 'e-g',
+    entityType: 'relationship',
+    citations: [citationFor('a-3', 'ep-3')],
+  })
   await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
   await store.indexAssertion('a-2', new Float32Array([0.9, 0.44, 0, 0]))
   await store.indexAssertion('a-3', new Float32Array([0.8, 0.6, 0, 0]))

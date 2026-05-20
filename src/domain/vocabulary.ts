@@ -43,5 +43,4 @@ export const RecommendedLinkTypes = Object.freeze({
   MEASURES: 'measures',
 } as const)
 
-export type RecommendedLinkType =
-  (typeof RecommendedLinkTypes)[keyof typeof RecommendedLinkTypes]
+export type RecommendedLinkType = (typeof RecommendedLinkTypes)[keyof typeof RecommendedLinkTypes]

@@ -36,9 +36,10 @@ function formatFields(fields?: LogFields): string {
   const parts: string[] = []
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined) continue
-    const s = typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-      ? String(v)
-      : JSON.stringify(v)
+    const s =
+      typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+        ? String(v)
+        : JSON.stringify(v)
     parts.push(`${k}=${s}`)
   }
   return parts.length > 0 ? ' ' + parts.join(' ') : ''
@@ -101,7 +102,10 @@ export function getDefaultLogger(): Logger {
 }
 
 /** Phase-1 shim. Routes to the process-default logger as a warn. */
-export function structuredWarn(code: string, meta: Record<string, string | number | boolean>): void {
+export function structuredWarn(
+  code: string,
+  meta: Record<string, string | number | boolean>,
+): void {
   defaultLogger.warn(`TRGT_${code}`, meta)
 }
 
@@ -112,7 +116,11 @@ export function structuredWarn(code: string, meta: Record<string, string | numbe
  * unset (spec §1111-1121: "no default implementation; emission is a no-op
  * that must not allocate fallback collectors or write to the logger").
  */
-export function incr(metrics: Metrics | undefined, name: string, fields?: Record<string, string | number>): void {
+export function incr(
+  metrics: Metrics | undefined,
+  name: string,
+  fields?: Record<string, string | number>,
+): void {
   if (metrics) metrics.incr(name, fields)
 }
 

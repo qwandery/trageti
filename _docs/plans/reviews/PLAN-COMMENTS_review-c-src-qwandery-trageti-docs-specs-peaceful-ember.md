@@ -1,6 +1,6 @@
 # Claude.ai Discussion Regarding Supercession (Trageti + Cairn)
 
-You said: I suppose I'm somewhat concerned that we're creating a sense of binary assertions. It could work perhaps if handled well, but in terms of our immediate use case -- Cairn -- humans are rarely so straightforward about *anything*. Factual assertions about a person may be binary -- "married" vs. "divorced" -- but they can also be nuanced. Mental health information may be even more so. But again it depends on how information is broken down, I guess.
+You said: I suppose I'm somewhat concerned that we're creating a sense of binary assertions. It could work perhaps if handled well, but in terms of our immediate use case -- Cairn -- humans are rarely so straightforward about _anything_. Factual assertions about a person may be binary -- "married" vs. "divorced" -- but they can also be nuanced. Mental health information may be even more so. But again it depends on how information is broken down, I guess.
 
 11:33 AM
 Claude responded: You're right to flag this, and it's worth thinking through carefully before it becomes a design assumption baked into the data model.
@@ -52,36 +52,36 @@ Session 3 — initial observation
 typescript
 // Register the episode
 store.writeEpisode({
-  id: 'ep-003',
-  namespace: 'patient-0047',
-  position: 3,
-  occurredAt: '2024-01-18T10:00:00Z',
-  type: 'session',
-  content: 'Session 3 summary...'
+id: 'ep-003',
+namespace: 'patient-0047',
+position: 3,
+occurredAt: '2024-01-18T10:00:00Z',
+type: 'session',
+content: 'Session 3 summary...'
 })
 
 // Write the initial assertion
 store.writeAssertion({
-  id: 'a-003-001',
-  namespace: 'patient-0047',
-  type: 'fact',
-  content: 'Patient describes relationship with mother as complicated and painful; avoids discussing specifics',
-  validFrom: 3,
-  validUntil: null,
-  confidence: 0.85,
-  sourceEpisodeId: 'ep-003',
-  supersedesId: null,
-  entityId: 'theme-mother-relationship',
-  entityType: 'theme',
-  citations: [{
-    id: 'cit-003-001',
-    assertionId: 'a-003-001',
-    episodeId: 'ep-003',
-    sourceRef: 'chunk:2',
-    excerpt: 'I don\'t really want to talk about my mom. It\'s just... complicated.',
-    excerptStart: '0:08:42',
-    excerptEnd: '0:08:51'
-  }]
+id: 'a-003-001',
+namespace: 'patient-0047',
+type: 'fact',
+content: 'Patient describes relationship with mother as complicated and painful; avoids discussing specifics',
+validFrom: 3,
+validUntil: null,
+confidence: 0.85,
+sourceEpisodeId: 'ep-003',
+supersedesId: null,
+entityId: 'theme-mother-relationship',
+entityType: 'theme',
+citations: [{
+id: 'cit-003-001',
+assertionId: 'a-003-001',
+episodeId: 'ep-003',
+sourceRef: 'chunk:2',
+excerpt: 'I don\'t really want to talk about my mom. It\'s just... complicated.',
+excerptStart: '0:08:42',
+excerptEnd: '0:08:51'
+}]
 })
 Nothing superseded. One assertion, currently valid, anchored to position 3.
 
@@ -91,48 +91,48 @@ This doesn't replace session 3's observation. It deepens it — we now understan
 
 typescript
 store.writeEpisode({
-  id: 'ep-011',
-  namespace: 'patient-0047',
-  position: 11,
-  occurredAt: '2024-03-14T10:00:00Z',
-  type: 'session',
-  content: 'Session 11 summary...'
+id: 'ep-011',
+namespace: 'patient-0047',
+position: 11,
+occurredAt: '2024-03-14T10:00:00Z',
+type: 'session',
+content: 'Session 11 summary...'
 })
 
 // New assertion — does NOT supersede a-003-001
 store.writeAssertion({
-  id: 'a-011-001',
-  namespace: 'patient-0047',
-  type: 'recontextualization',
-  content: 'Patient disclosed emotional abuse by mother throughout childhood; prior avoidance of topic now understood as protective rather than incidental',
-  validFrom: 11,
-  validUntil: null,
-  confidence: 0.95,
-  sourceEpisodeId: 'ep-011',
-  supersedesId: null,        // not a replacement — both assertions remain valid
-  entityId: 'theme-mother-relationship',
-  entityType: 'theme',
-  citations: [{
-    id: 'cit-011-001',
-    assertionId: 'a-011-001',
-    episodeId: 'ep-011',
-    sourceRef: 'chunk:4',
-    excerpt: 'She used to tell me I was too sensitive, that nothing I felt was real. Every day.',
-    excerptStart: '0:31:14',
-    excerptEnd: '0:31:24'
-  }]
+id: 'a-011-001',
+namespace: 'patient-0047',
+type: 'recontextualization',
+content: 'Patient disclosed emotional abuse by mother throughout childhood; prior avoidance of topic now understood as protective rather than incidental',
+validFrom: 11,
+validUntil: null,
+confidence: 0.95,
+sourceEpisodeId: 'ep-011',
+supersedesId: null, // not a replacement — both assertions remain valid
+entityId: 'theme-mother-relationship',
+entityType: 'theme',
+citations: [{
+id: 'cit-011-001',
+assertionId: 'a-011-001',
+episodeId: 'ep-011',
+sourceRef: 'chunk:4',
+excerpt: 'She used to tell me I was too sensitive, that nothing I felt was real. Every day.',
+excerptStart: '0:31:14',
+excerptEnd: '0:31:24'
+}]
 })
 
 // Link the two assertions — deepens, not supersedes
 store.writeLink({
-  id: 'link-011-001',
-  namespace: 'patient-0047',
-  fromId: 'a-011-001',
-  toId: 'a-003-001',
-  linkType: 'deepens',
-  validFrom: 11,
-  validUntil: null,
-  sourceEpisodeId: 'ep-011'
+id: 'link-011-001',
+namespace: 'patient-0047',
+fromId: 'a-011-001',
+toId: 'a-003-001',
+linkType: 'deepens',
+validFrom: 11,
+validUntil: null,
+sourceEpisodeId: 'ep-011'
 })
 Now both assertions are active. The link says: the session 11 assertion deepens — but does not replace — the session 3 one.
 
@@ -142,49 +142,49 @@ A third layer. She loves her mother and she was hurt by her. Neither the pain no
 
 typescript
 store.writeAssertion({
-  id: 'a-015-001',
-  namespace: 'patient-0047',
-  type: 'fact',
-  content: 'Patient expressed grief and love for mother alongside pain from abuse; describes missing who her mother "could have been"',
-  validFrom: 15,
-  validUntil: null,
-  confidence: 0.90,
-  sourceEpisodeId: 'ep-015',
-  supersedesId: null,
-  entityId: 'theme-mother-relationship',
-  entityType: 'theme',
-  citations: [{
-    id: 'cit-015-001',
-    assertionId: 'a-015-001',
-    episodeId: 'ep-015',
-    sourceRef: 'chunk:3',
-    excerpt: 'I still love her. I hate that I love her. She\'s my mom.',
-    excerptStart: '0:19:08',
-    excerptEnd: '0:19:15'
-  }]
+id: 'a-015-001',
+namespace: 'patient-0047',
+type: 'fact',
+content: 'Patient expressed grief and love for mother alongside pain from abuse; describes missing who her mother "could have been"',
+validFrom: 15,
+validUntil: null,
+confidence: 0.90,
+sourceEpisodeId: 'ep-015',
+supersedesId: null,
+entityId: 'theme-mother-relationship',
+entityType: 'theme',
+citations: [{
+id: 'cit-015-001',
+assertionId: 'a-015-001',
+episodeId: 'ep-015',
+sourceRef: 'chunk:3',
+excerpt: 'I still love her. I hate that I love her. She\'s my mom.',
+excerptStart: '0:19:08',
+excerptEnd: '0:19:15'
+}]
 })
 
 // Links to both prior assertions
 store.writeLink({
-  id: 'link-015-001',
-  namespace: 'patient-0047',
-  fromId: 'a-015-001',
-  toId: 'a-011-001',
-  linkType: 'contradicts',   // love and abuse coexist in tension
-  validFrom: 15,
-  validUntil: null,
-  sourceEpisodeId: 'ep-015'
+id: 'link-015-001',
+namespace: 'patient-0047',
+fromId: 'a-015-001',
+toId: 'a-011-001',
+linkType: 'contradicts', // love and abuse coexist in tension
+validFrom: 15,
+validUntil: null,
+sourceEpisodeId: 'ep-015'
 })
 
 store.writeLink({
-  id: 'link-015-002',
-  namespace: 'patient-0047',
-  fromId: 'a-015-001',
-  toId: 'a-003-001',
-  linkType: 'deepens',
-  validFrom: 15,
-  validUntil: null,
-  sourceEpisodeId: 'ep-015'
+id: 'link-015-002',
+namespace: 'patient-0047',
+fromId: 'a-015-001',
+toId: 'a-003-001',
+linkType: 'deepens',
+validFrom: 15,
+validUntil: null,
+sourceEpisodeId: 'ep-015'
 })
 Now a genuinely binary event — session 20
 
@@ -195,26 +195,26 @@ typescript
 // a-intake-contact: "Patient is in regular contact with mother"
 
 store.writeAssertion({
-  id: 'a-020-001',
-  namespace: 'patient-0047',
-  type: 'update',
-  content: 'Patient has decided to cease contact with mother; decision described as deliberate and considered',
-  validFrom: 20,
-  validUntil: null,
-  confidence: 0.95,
-  sourceEpisodeId: 'ep-020',
-  supersedesId: 'a-intake-contact',   // THIS one supersedes — genuine state change
-  entityId: 'theme-mother-contact-status',
-  entityType: 'status',
-  citations: [{
-    id: 'cit-020-001',
-    assertionId: 'a-020-001',
-    episodeId: 'ep-020',
-    sourceRef: 'chunk:5',
-    excerpt: 'I\'ve decided I\'m not going to call her anymore. I need some space to heal.',
-    excerptStart: '0:44:20',
-    excerptEnd: '0:44:31'
-  }]
+id: 'a-020-001',
+namespace: 'patient-0047',
+type: 'update',
+content: 'Patient has decided to cease contact with mother; decision described as deliberate and considered',
+validFrom: 20,
+validUntil: null,
+confidence: 0.95,
+sourceEpisodeId: 'ep-020',
+supersedesId: 'a-intake-contact', // THIS one supersedes — genuine state change
+entityId: 'theme-mother-contact-status',
+entityType: 'status',
+citations: [{
+id: 'cit-020-001',
+assertionId: 'a-020-001',
+episodeId: 'ep-020',
+sourceRef: 'chunk:5',
+excerpt: 'I\'ve decided I\'m not going to call her anymore. I need some space to heal.',
+excerptStart: '0:44:20',
+excerptEnd: '0:44:31'
+}]
 })
 writeAssertion() automatically closes a-intake-contact by setting its valid_until = 20 in the same transaction.
 
@@ -222,13 +222,13 @@ What retrieval looks like at session 22
 
 typescript
 const context = store.assembleContext({
-  namespace: 'patient-0047',
-  queryEmbedding: await embed('mother relationship'),
-  queryText: 'mother',
-  temporalAnchor: 22,
-  tokenBudget: 1500,
-  mode: 'trajectory',
-  expandLinks: true
+namespace: 'patient-0047',
+queryEmbedding: await embed('mother relationship'),
+queryText: 'mother',
+temporalAnchor: 22,
+tokenBudget: 1500,
+mode: 'trajectory',
+expandLinks: true
 })
 What comes back:
 

@@ -15,7 +15,11 @@ describe('SchemaExtensionApplier.validate', () => {
     expect(() =>
       applier.validate({
         columns: [
-          { table: 'trl_assertions', column: 'approval_status', definition: "TEXT NOT NULL DEFAULT 'pending'" },
+          {
+            table: 'trl_assertions',
+            column: 'approval_status',
+            definition: "TEXT NOT NULL DEFAULT 'pending'",
+          },
         ],
       }),
     ).not.toThrow()
@@ -24,21 +28,27 @@ describe('SchemaExtensionApplier.validate', () => {
   it('rejects column names starting with trl_', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
-      applier.validate({ columns: [{ table: 'trl_assertions', column: 'trl_foo', definition: 'TEXT' }] }),
+      applier.validate({
+        columns: [{ table: 'trl_assertions', column: 'trl_foo', definition: 'TEXT' }],
+      }),
     ).toThrow(SchemaExtensionError)
   })
 
   it('rejects SQLite reserved keywords as column names', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
-      applier.validate({ columns: [{ table: 'trl_assertions', column: 'select', definition: 'TEXT' }] }),
+      applier.validate({
+        columns: [{ table: 'trl_assertions', column: 'select', definition: 'TEXT' }],
+      }),
     ).toThrow(SchemaExtensionError)
   })
 
   it('rejects columns that shadow library columns', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
-      applier.validate({ columns: [{ table: 'trl_assertions', column: 'content', definition: 'TEXT' }] }),
+      applier.validate({
+        columns: [{ table: 'trl_assertions', column: 'content', definition: 'TEXT' }],
+      }),
     ).toThrow(SchemaExtensionError)
   })
 
@@ -46,7 +56,13 @@ describe('SchemaExtensionApplier.validate', () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
-        tables: [{ tableName: 'trl_my_table', createSQL: 'CREATE TABLE IF NOT EXISTS trl_my_table (id TEXT)', referencesNamespace: false }],
+        tables: [
+          {
+            tableName: 'trl_my_table',
+            createSQL: 'CREATE TABLE IF NOT EXISTS trl_my_table (id TEXT)',
+            referencesNamespace: false,
+          },
+        ],
       }),
     ).toThrow(SchemaExtensionError)
   })
@@ -80,7 +96,13 @@ describe('SchemaExtensionApplier.apply', () => {
   it('adds a new column to trl_assertions', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
-      columns: [{ table: 'trl_assertions', column: 'approval_status', definition: "TEXT NOT NULL DEFAULT 'pending'" }],
+      columns: [
+        {
+          table: 'trl_assertions',
+          column: 'approval_status',
+          definition: "TEXT NOT NULL DEFAULT 'pending'",
+        },
+      ],
     })
     const cols = db.prepare(`PRAGMA table_info(trl_assertions)`).all() as Array<{ name: string }>
     expect(cols.map((c) => c.name)).toContain('approval_status')
@@ -89,7 +111,9 @@ describe('SchemaExtensionApplier.apply', () => {
   it('is idempotent — second apply does not error or duplicate', async () => {
     const applier = new SchemaExtensionApplier()
     const ext = {
-      columns: [{ table: 'trl_assertions' as const, column: 'my_flag', definition: 'INTEGER DEFAULT 0' }],
+      columns: [
+        { table: 'trl_assertions' as const, column: 'my_flag', definition: 'INTEGER DEFAULT 0' },
+      ],
     }
     applier.apply(db, ext)
     applier.apply(db, ext)
@@ -118,11 +142,13 @@ describe('SchemaExtensionApplier.apply', () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
-        tables: [{
-          tableName: 'app_bad_refs',
-          createSQL: 'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY)',
-          referencesNamespace: true,
-        }],
+        tables: [
+          {
+            tableName: 'app_bad_refs',
+            createSQL: 'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY)',
+            referencesNamespace: true,
+          },
+        ],
       }),
     ).toThrow(SchemaExtensionError)
   })
@@ -131,12 +157,15 @@ describe('SchemaExtensionApplier.apply', () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.apply(db, {
-        tables: [{
-          tableName: 'app_bad_refs',
-          createSQL: 'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY, namespace TEXT)',
-          referencesNamespace: true,
-          namespaceColumn: 'ns',
-        }],
+        tables: [
+          {
+            tableName: 'app_bad_refs',
+            createSQL:
+              'CREATE TABLE IF NOT EXISTS app_bad_refs (id TEXT PRIMARY KEY, namespace TEXT)',
+            referencesNamespace: true,
+            namespaceColumn: 'ns',
+          },
+        ],
       }),
     ).toThrow(SchemaExtensionError)
   })

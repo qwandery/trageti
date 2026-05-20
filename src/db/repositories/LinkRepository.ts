@@ -59,9 +59,10 @@ export class LinkRepository {
 
   getCount(namespace: string): number {
     const row = this.db
-      .prepare<[string], { cnt: number }>(
-        'SELECT COUNT(*) AS cnt FROM trl_links WHERE namespace = ?',
-      )
+      .prepare<
+        [string],
+        { cnt: number }
+      >('SELECT COUNT(*) AS cnt FROM trl_links WHERE namespace = ?')
       .get(namespace)
     return row?.cnt ?? 0
   }

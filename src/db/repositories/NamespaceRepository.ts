@@ -29,18 +29,20 @@ export class NamespaceRepository {
 
   get(namespace: string): NamespaceConfig | null {
     const row = this.db
-      .prepare<[string], NamespaceRow>(
-        'SELECT namespace, embedding_dimension, embedding_table, created_at, config FROM trl_namespaces WHERE namespace = ?',
-      )
+      .prepare<
+        [string],
+        NamespaceRow
+      >('SELECT namespace, embedding_dimension, embedding_table, created_at, config FROM trl_namespaces WHERE namespace = ?')
       .get(namespace)
     return row ? rowToConfig(row) : null
   }
 
   getEmbeddingTable(namespace: string): string | null {
     const row = this.db
-      .prepare<[string], { embedding_table: string | null }>(
-        'SELECT embedding_table FROM trl_namespaces WHERE namespace = ?',
-      )
+      .prepare<
+        [string],
+        { embedding_table: string | null }
+      >('SELECT embedding_table FROM trl_namespaces WHERE namespace = ?')
       .get(namespace)
     return row?.embedding_table ?? null
   }
@@ -80,9 +82,10 @@ export class NamespaceRepository {
 
     if (embeddingTable !== null) {
       const collision = this.db
-        .prepare<[string, string], { namespace: string }>(
-          'SELECT namespace FROM trl_namespaces WHERE embedding_table = ? AND namespace != ?',
-        )
+        .prepare<
+          [string, string],
+          { namespace: string }
+        >('SELECT namespace FROM trl_namespaces WHERE embedding_table = ? AND namespace != ?')
         .get(embeddingTable, namespace)
       if (collision) {
         throw new NamespaceHashCollisionError(namespace, collision.namespace, embeddingTable)
@@ -111,9 +114,10 @@ export class NamespaceRepository {
 
   getPositionRange(namespace: string): { min: number; max: number } {
     const row = this.db
-      .prepare<[string], { min: number | null; max: number | null }>(
-        'SELECT MIN(position) AS min, MAX(position) AS max FROM trl_episodes WHERE namespace = ?',
-      )
+      .prepare<
+        [string],
+        { min: number | null; max: number | null }
+      >('SELECT MIN(position) AS min, MAX(position) AS max FROM trl_episodes WHERE namespace = ?')
       .get(namespace)
     return { min: row?.min ?? 0, max: row?.max ?? 0 }
   }

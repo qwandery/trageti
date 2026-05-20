@@ -36,6 +36,7 @@ npm run build
 ```
 
 Requirements:
+
 - **Node.js >= 18** (the package targets Node 18, the CI matrix runs 18 / 20 / 22)
 - **npm** (used for lockfile + scripts; pnpm/yarn untested)
 - A C++ toolchain for `better-sqlite3` native compilation (already on most dev machines; on Windows install Visual Studio Build Tools, on Linux install `build-essential`, on macOS the Xcode CLI tools)
@@ -168,7 +169,7 @@ Citations are surfaced on every returned `Assertion` and `RetrievedAssertion`. T
 
 ### Replacement vs accumulation
 
-`supersedes_id` represents *replacement only* (strictly new → old). When a new assertion arrives that *layers on* an earlier one without replacing it, the caller should use `writeLink` with one of the accumulation link types (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trl_links`. Multi-leaf trajectories are merged + de-duplicated + sorted by `(valid_from, created_at, id)`; branch grouping is *not* preserved (return type is flat `Assertion[]`).
+`supersedes_id` represents _replacement only_ (strictly new → old). When a new assertion arrives that _layers on_ an earlier one without replacing it, the caller should use `writeLink` with one of the accumulation link types (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trl_links`. Multi-leaf trajectories are merged + de-duplicated + sorted by `(valid_from, created_at, id)`; branch grouping is _not_ preserved (return type is flat `Assertion[]`).
 
 There is no `replaced_by_id` column in v0.2. The `replacedById` parameter on `supersedeAssertion()` is validated for namespace compatibility but not persisted. Use the `trl_idx_assertions_supersedes` index (added in v002) to answer "what replaced X?" via `SELECT id FROM trl_assertions WHERE namespace = ? AND supersedes_id = ?`. A future-design discussion of a forward pointer is deferred — it would either invert the supersession direction or require a separate column / typed link.
 
@@ -181,6 +182,7 @@ Each namespace gets its own `vec0` virtual table named `trl_embeddings_{16hex}`,
 - **Hash collision is detected** at `initNamespace()` time and throws `NamespaceHashCollisionError`.
 
 Table name resolution:
+
 - In-memory `embeddingTableCache: Map<string, string>` on the store
 - Authoritative source: `trl_namespaces.embedding_table` column
 - On cache miss, computed from `namespaceToEmbeddingTable(ns)` (deterministic)
@@ -207,6 +209,7 @@ new TemporalStore(db, {
 ```
 
 Validation (in `SchemaExtensionApplier.validate`):
+
 - Column names must not match library columns (shadow check)
 - Column names must not be SQLite reserved words
 - User table names must not start with `trl_`
@@ -232,6 +235,7 @@ These rules are load-bearing. Breaking them breaks the security/correctness stor
 ### 1. Candidate funneling: `json_each` only
 
 `buildCandidateJson(ids: readonly string[]) → string` is the **only** way candidate ID sets reach SQL. Never:
+
 - Use `IN (?, ?, ?, …)` with parameter unrolling (slow + bind-limit risk)
 - Create TEMP tables for funneling (TEMP tables can spill to disk)
 - Inline ids into the SQL string (injection risk)
@@ -252,7 +256,7 @@ A numbered migration must NEVER drop a column or table. Adding `v003_*` is alway
 
 ### 4a. Citations are always populated on read (with one caveat)
 
-Every read path returns assertions with `citations` populated. The only exception is rows that pre-date the v002 migration — those return `citations: []` until backfilled. The validator only enforces citation presence on *new* writes; it does not retroactively invalidate legacy data.
+Every read path returns assertions with `citations` populated. The only exception is rows that pre-date the v002 migration — those return `citations: []` until backfilled. The validator only enforces citation presence on _new_ writes; it does not retroactively invalidate legacy data.
 
 ### 4b. `supersedes_id` is strictly new → old
 
@@ -282,15 +286,15 @@ Nothing in `src/internal/` is re-exported from `src/index.ts`. Public consumers 
 
 ## Tooling
 
-| Concern | Tool | Why |
-|---|---|---|
-| Build | `tsup` (esbuild) | Zero-config dual ESM+CJS, dts generation, fast |
-| Test runner | `vitest` v2 | Native ESM, TS support, single-fork mode for SQLite determinism |
-| Lint | `eslint` 9 flat config + `typescript-eslint` strict-type-checked | Catches type-unsafe patterns at static analysis time |
-| Format | `prettier` | Non-negotiable formatting; integrated via `eslint-config-prettier` |
-| Versioning | `@changesets/cli` | Per-PR semver intent + changelog generation |
-| Coverage | `@vitest/coverage-v8` | Native v8 coverage; thresholds enforced |
-| Native dep | `better-sqlite3` (peer) + `sqlite-vec` (dev only) | Better-sqlite3 is synchronous (matches our transactional model); sqlite-vec ships pre-built binaries |
+| Concern     | Tool                                                             | Why                                                                                                  |
+| ----------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Build       | `tsup` (esbuild)                                                 | Zero-config dual ESM+CJS, dts generation, fast                                                       |
+| Test runner | `vitest` v2                                                      | Native ESM, TS support, single-fork mode for SQLite determinism                                      |
+| Lint        | `eslint` 9 flat config + `typescript-eslint` strict-type-checked | Catches type-unsafe patterns at static analysis time                                                 |
+| Format      | `prettier`                                                       | Non-negotiable formatting; integrated via `eslint-config-prettier`                                   |
+| Versioning  | `@changesets/cli`                                                | Per-PR semver intent + changelog generation                                                          |
+| Coverage    | `@vitest/coverage-v8`                                            | Native v8 coverage; thresholds enforced                                                              |
+| Native dep  | `better-sqlite3` (peer) + `sqlite-vec` (dev only)                | Better-sqlite3 is synchronous (matches our transactional model); sqlite-vec ships pre-built binaries |
 
 ### TypeScript configuration
 
@@ -301,9 +305,10 @@ Three tsconfig files:
 - **`tsconfig.eslint.json`** — extends the above. Same includes plus root-level `*.ts` / `*.js`. Used by ESLint's type-aware rules.
 
 Why three?
+
 - The build needs `rootDir: "src"` so `dist/` mirrors `src/` cleanly.
 - Test typechecking needs `test/` in scope so we catch type errors in tests too.
-- ESLint needs every linted file in *some* tsconfig — having a dedicated file lets us shape includes without disturbing the build.
+- ESLint needs every linted file in _some_ tsconfig — having a dedicated file lets us shape includes without disturbing the build.
 
 If you add a new top-level directory that should be linted, add it to `tsconfig.eslint.json`'s `include`.
 
@@ -346,11 +351,11 @@ The `prepublishOnly` hook in `package.json` runs `build` + `typecheck`, so an ac
 
 ### Test taxonomy
 
-| Tier | Location | Marker | DB | Speed | When |
-|---|---|---|---|---|---|
-| Unit | `test/unit/` | run via `npm run test:unit` | none | <1s | Every save |
-| Integration | `test/integration/` | run via `npm run test:integration` | `:memory:` + sqlite-vec | ~1s | Pre-commit |
-| E2E | `test/integration/e2e.test.ts` | part of integration | `:memory:` | included | Pre-commit |
+| Tier        | Location                       | Marker                             | DB                      | Speed    | When       |
+| ----------- | ------------------------------ | ---------------------------------- | ----------------------- | -------- | ---------- |
+| Unit        | `test/unit/`                   | run via `npm run test:unit`        | none                    | <1s      | Every save |
+| Integration | `test/integration/`            | run via `npm run test:integration` | `:memory:` + sqlite-vec | ~1s      | Pre-commit |
+| E2E         | `test/integration/e2e.test.ts` | part of integration                | `:memory:`              | included | Pre-commit |
 
 There is no separate "regression" tier — every bug fix gets a regression test alongside the integration suite. The reasoning: a regression test is just an integration test that exercises a previously-broken path. Co-locating them keeps coverage discoverable.
 
@@ -367,6 +372,7 @@ There is no separate "regression" tier — every bug fix gets a regression test 
 ### Coverage thresholds
 
 `vitest.config.ts` enforces:
+
 - Lines / Functions / Statements ≥ 90%
 - Branches ≥ 75% (the optional-spread idiom in `assemble.ts` skews branch coverage downward without indicating real gaps)
 
@@ -396,7 +402,7 @@ If you need to disable a rule for a specific line:
 
 ```ts
 // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-const x = arr[0]!  // safe because arr.length === 1 was just asserted
+const x = arr[0]! // safe because arr.length === 1 was just asserted
 ```
 
 Always pair the `eslint-disable` with a why-comment. Reviewers will reject blanket disables.
@@ -410,11 +416,13 @@ npm run build
 ```
 
 Outputs to `dist/`:
+
 - `dist/index.js` (ESM) + `dist/index.js.map`
 - `dist/index.cjs` (CJS) + `dist/index.cjs.map`
 - `dist/index.d.ts` (ESM types) + `dist/index.d.cts` (CJS types)
 
 Configuration in `tsup.config.ts`:
+
 - Targets Node 18
 - `external: ['better-sqlite3']` — peer dependency, never bundled
 - `dts: true` — generates declaration files
@@ -523,6 +531,7 @@ export const LIBRARY_COLUMNS = {
 ```
 
 Then add an integration test in `test/integration/migrations.test.ts` that:
+
 - Verifies a fresh DB ends at the new schema version
 - Verifies running migrations on a v001 DB upgrades it to v002 cleanly
 - Verifies idempotent re-runs
@@ -547,6 +556,7 @@ npx changeset
 ```
 
 Choose:
+
 - **patch** — bug fixes, internal refactors, doc-only
 - **minor** — new features, new public API
 - **major** — breaking changes (renamed/removed APIs, behavioural changes that break existing callers)
@@ -560,6 +570,7 @@ Until we hit `1.0.0`, **breaking changes can ship as minor bumps** (per semver p
 ### Releasing
 
 The `publish.yml` workflow runs on every push to `main`:
+
 1. Builds the package
 2. Runs `changesets/action@v1`
 3. If `.changeset/*.md` files exist, opens (or updates) a "Version Packages" PR that bumps `package.json` and rolls up the changesets into `CHANGELOG.md`
@@ -577,14 +588,15 @@ PR with code + changeset  →  merge to develop  →  promote to main  →  Vers
 
 ### Required GitHub secrets
 
-| Secret | Used by | Notes |
-|---|---|---|
-| `GITHUB_TOKEN` | `changesets/action` | Auto-provided by GitHub Actions |
-| `NPM_TOKEN` | `npm publish` | Set in repo settings → Secrets and variables → Actions. Use an npm "Automation" token (does not require 2FA OTP) |
+| Secret         | Used by             | Notes                                                                                                            |
+| -------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN` | `changesets/action` | Auto-provided by GitHub Actions                                                                                  |
+| `NPM_TOKEN`    | `npm publish`       | Set in repo settings → Secrets and variables → Actions. Use an npm "Automation" token (does not require 2FA OTP) |
 
 ### Publishing to npmjs.org (automated)
 
 The standard path. After merging a Version Packages PR to `main`, the publish workflow:
+
 1. Installs and builds
 2. Calls `changeset publish`
 3. Publishes the new version to npm with `--provenance` (via `NPM_CONFIG_PROVENANCE: true`)
@@ -607,6 +619,7 @@ You'll need write access to the `trageti` package on npm and an authenticated np
 ### Publishing to GitHub Packages
 
 Not currently configured. If we add it:
+
 1. Add a second registry to the publish workflow
 2. Add `publishConfig.registry` overrides per registry
 3. Generate a separate `GITHUB_PACKAGES_TOKEN` with `packages:write`

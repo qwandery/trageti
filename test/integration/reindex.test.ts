@@ -24,12 +24,72 @@ describe('TemporalStore — reindexNamespace', () => {
     db = openTestDb()
     store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM_INIT })
     await store.init()
-    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeEpisode({ id: 'ep-2', namespace: NS, position: 2, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeEpisode({ id: 'ep-3', namespace: NS, position: 3, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeAssertion({ id: 'a-1', namespace: NS, type: 'fact', content: 'First.', validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-1', 'ep-1')] })
-    await store.writeAssertion({ id: 'a-2', namespace: NS, type: 'fact', content: 'Second.', validFrom: 2, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-2', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-2', 'ep-2')] })
-    await store.writeAssertion({ id: 'a-3', namespace: NS, type: 'fact', content: 'Third.', validFrom: 3, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-3', supersedesId: null, entityId: null, entityType: null, citations: [citationFor('a-3', 'ep-3')] })
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeEpisode({
+      id: 'ep-2',
+      namespace: NS,
+      position: 2,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeEpisode({
+      id: 'ep-3',
+      namespace: NS,
+      position: 3,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: NS,
+      type: 'fact',
+      content: 'First.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
+    await store.writeAssertion({
+      id: 'a-2',
+      namespace: NS,
+      type: 'fact',
+      content: 'Second.',
+      validFrom: 2,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-2',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-2', 'ep-2')],
+    })
+    await store.writeAssertion({
+      id: 'a-3',
+      namespace: NS,
+      type: 'fact',
+      content: 'Third.',
+      validFrom: 3,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-3',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-3', 'ep-3')],
+    })
     // Index all three at dim=4
     await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
     await store.indexAssertion('a-2', new Float32Array([0, 1, 0, 0]))

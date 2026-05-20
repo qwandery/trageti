@@ -23,8 +23,19 @@ async function makeStoreWithScenario(): Promise<TemporalStore> {
 describe('TemporalStore — trajectory mode', () => {
   it('snapshot mode (default) and explicit snapshot produce identical output', async () => {
     const store = await makeStoreWithScenario()
-    const a = await store.retrieve({ namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 5 })
-    const b = await store.retrieve({ namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 5, mode: 'snapshot' })
+    const { results: a } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 5,
+    })
+    const { results: b } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 5,
+      mode: 'snapshot',
+    })
     expect(a.map((x) => x.id)).toEqual(b.map((x) => x.id))
     // supersessionChain absent in snapshot mode
     for (const r of a) {
@@ -35,7 +46,7 @@ describe('TemporalStore — trajectory mode', () => {
   it('trajectory mode populates supersessionChain (excluding the result itself)', async () => {
     const store = await makeStoreWithScenario()
     // a-7 is the leaf of chain a-6 → a-7
-    const results = await store.retrieve({
+    const { results } = await store.retrieve({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 10,
@@ -52,8 +63,12 @@ describe('TemporalStore — trajectory mode', () => {
 
   it('trajectory mode supersessionChain entries each carry citations', async () => {
     const store = await makeStoreWithScenario()
-    const results = await store.retrieve({
-      namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 10, mode: 'trajectory',
+    const { results } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 10,
+      mode: 'trajectory',
     })
     const a7 = results.find((r) => r.id === 'a-7')
     expect(a7?.supersessionChain?.[0]?.citations.length).toBeGreaterThan(0)
@@ -61,8 +76,12 @@ describe('TemporalStore — trajectory mode', () => {
 
   it('trajectory mode result with no predecessors gets supersessionChain: []', async () => {
     const store = await makeStoreWithScenario()
-    const results = await store.retrieve({
-      namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 10, mode: 'trajectory',
+    const { results } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 10,
+      mode: 'trajectory',
     })
     const a1 = results.find((r) => r.id === 'a-1')
     if (a1) {
@@ -102,28 +121,66 @@ describe('TemporalStore — getEntityTrajectory', () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     await store.init()
-    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeEpisode({ id: 'ep-5', namespace: NS, position: 5, occurredAt: '', type: 'doc', content: 'c' })
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeEpisode({
+      id: 'ep-5',
+      namespace: NS,
+      position: 5,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
 
     // Chain: a-old → a-new (replacement)
     await store.writeAssertion({
-      id: 'a-old', namespace: NS, type: 'fact', content: 'old',
-      validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1',
-      supersedesId: null, entityId: 'e-mixed', entityType: 'concept',
+      id: 'a-old',
+      namespace: NS,
+      type: 'fact',
+      content: 'old',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: 'e-mixed',
+      entityType: 'concept',
       citations: [citationFor('a-old', 'ep-1')],
     })
     await store.writeAssertion({
-      id: 'a-new', namespace: NS, type: 'update', content: 'new',
-      validFrom: 5, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-5',
-      supersedesId: 'a-old', entityId: 'e-mixed', entityType: 'concept',
+      id: 'a-new',
+      namespace: NS,
+      type: 'update',
+      content: 'new',
+      validFrom: 5,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-5',
+      supersedesId: 'a-old',
+      entityId: 'e-mixed',
+      entityType: 'concept',
       citations: [citationFor('a-new', 'ep-5')],
     })
 
     // Parallel un-related assertion for the same entity, NOT in the chain
     await store.writeAssertion({
-      id: 'a-parallel', namespace: NS, type: 'fact', content: 'parallel layered',
-      validFrom: 5, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-5',
-      supersedesId: null, entityId: 'e-mixed', entityType: 'concept',
+      id: 'a-parallel',
+      namespace: NS,
+      type: 'fact',
+      content: 'parallel layered',
+      validFrom: 5,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-5',
+      supersedesId: null,
+      entityId: 'e-mixed',
+      entityType: 'concept',
       citations: [citationFor('a-parallel', 'ep-5')],
     })
 
@@ -145,20 +202,50 @@ describe('TemporalStore — non-superseding layered assertions (decision §19)',
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     await store.init()
-    await store.writeEpisode({ id: 'ep-1', namespace: NS, position: 1, occurredAt: '', type: 'doc', content: 'c' })
-    await store.writeEpisode({ id: 'ep-5', namespace: NS, position: 5, occurredAt: '', type: 'doc', content: 'c' })
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
+    await store.writeEpisode({
+      id: 'ep-5',
+      namespace: NS,
+      position: 5,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    })
 
     // Two layered assertions — both currently valid, neither supersedes the other.
     await store.writeAssertion({
-      id: 'a-base', namespace: NS, type: 'fact', content: 'initial observation',
-      validFrom: 1, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-1',
-      supersedesId: null, entityId: 'e-theme', entityType: 'theme',
+      id: 'a-base',
+      namespace: NS,
+      type: 'fact',
+      content: 'initial observation',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: 'e-theme',
+      entityType: 'theme',
       citations: [citationFor('a-base', 'ep-1')],
     })
     await store.writeAssertion({
-      id: 'a-deeper', namespace: NS, type: 'recontextualization', content: 'deeper layer',
-      validFrom: 5, validUntil: null, confidence: 1, sourceEpisodeId: 'ep-5',
-      supersedesId: null, entityId: 'e-theme', entityType: 'theme',
+      id: 'a-deeper',
+      namespace: NS,
+      type: 'recontextualization',
+      content: 'deeper layer',
+      validFrom: 5,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-5',
+      supersedesId: null,
+      entityId: 'e-theme',
+      entityType: 'theme',
       citations: [citationFor('a-deeper', 'ep-5')],
     })
     await store.writeLink({
@@ -180,16 +267,24 @@ describe('TemporalStore — non-superseding layered assertions (decision §19)',
 
     // Trajectory mode retrieve: each assertion has supersessionChain: []
     // (the deepens link is NOT traversed by trajectory).
-    const results = await store.retrieve({
-      namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 10, mode: 'trajectory',
+    const { results } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 10,
+      mode: 'trajectory',
     })
     for (const r of results) {
       expect(r.supersessionChain).toEqual([])
     }
 
     // expandLinks: the deepens link surfaces as linkedAssertions
-    const expanded = await store.retrieve({
-      namespace: NS, queryEmbedding: VEC, temporalAnchor: 10, limit: 10, expandLinks: true,
+    const { results: expanded } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 10,
+      limit: 10,
+      expandLinks: true,
     })
     const aDeeper = expanded.find((r) => r.id === 'a-deeper')
     expect(aDeeper?.linkedAssertions?.map((a) => a.id)).toContain('a-base')

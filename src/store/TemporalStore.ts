@@ -14,7 +14,7 @@ import type {
   NamespaceStats,
   MigrationDescriptor,
   RetrievalQuery,
-  RetrievedAssertion,
+  RetrievalResult,
   ContextAssemblyOptions,
   AssembledContext,
   IndexBatchItem,
@@ -51,7 +51,7 @@ import {
   EmbeddingProviderError,
   ErrorCode,
 } from '../errors/index.js'
-import { ConsoleLogger, setDefaultLogger, structuredWarn } from '../internal/logger.js'
+import { ConsoleLogger, setDefaultLogger, structuredWarn, emitOnce } from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
 import { quoteIdent } from '../internal/sql-ident.js'
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js'
@@ -99,7 +99,8 @@ export class TemporalStore {
   static async create(options: CreateStoreOptions): Promise<TemporalStore> {
     const db = prepareDatabase(options.database, options.prepare)
     const store = new TemporalStore(db, options, {
-      closeDatabaseOnStoreClose: options.closeDatabaseOnStoreClose ?? typeof options.database === 'string',
+      closeDatabaseOnStoreClose:
+        options.closeDatabaseOnStoreClose ?? typeof options.database === 'string',
     })
     await store.init()
     return store
@@ -118,7 +119,10 @@ export class TemporalStore {
       validators: options.validators ?? [],
       connectionVerifier: options.connectionVerifier ?? new DefaultConnectionVerifier(),
       middleware: options.middleware ?? [],
-      fts5Tokenizer: options.fts5Tokenizer ?? { tokenizer: 'unicode61', tokenizerArgs: ['remove_diacritics', '1'] },
+      fts5Tokenizer: options.fts5Tokenizer ?? {
+        tokenizer: 'unicode61',
+        tokenizerArgs: ['remove_diacritics', '1'],
+      },
       schemaExtensions: options.schemaExtensions ?? {},
       maxEpisodeContentBytes: options.maxEpisodeContentBytes ?? DEFAULT_MAX_EPISODE_CONTENT_BYTES,
       namespace: options.namespace,
@@ -148,14 +152,18 @@ export class TemporalStore {
 
     // (d) namespace registration
     this.namespaceRepo = new NamespaceRepository(this.db)
-    const dimension = this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
+    const dimension =
+      this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
     this.namespaceRepo.upsert(this.options.namespace, dimension)
 
     // (e) warm extension column cache
     this.warmExtensionCache()
 
     // Create repositories with extension column awareness
-    this.episodeRepo = new EpisodeRepository(this.db, this.extensionColumnCache.get('trl_episodes') ?? [])
+    this.episodeRepo = new EpisodeRepository(
+      this.db,
+      this.extensionColumnCache.get('trl_episodes') ?? [],
+    )
     this.citationRepo = new CitationRepository(this.db)
     this.assertionRepo = new AssertionRepository(
       this.db,
@@ -173,9 +181,16 @@ export class TemporalStore {
     this.initialized = true
   }
 
-  async initNamespace(namespace: string, config: Partial<NamespaceConfig> = {}): Promise<NamespaceConfig> {
+  async initNamespace(
+    namespace: string,
+    config: Partial<NamespaceConfig> = {},
+  ): Promise<NamespaceConfig> {
     this.requireInit()
-    const dimension = config.embeddingDimension ?? this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
+    const dimension =
+      config.embeddingDimension ??
+      this.options.embeddingDimension ??
+      this.options.embeddingProvider?.dimension ??
+      null
     this.namespaceRepo.upsert(namespace, dimension, config.config ?? {})
     const stored = this.namespaceRepo.get(namespace)
     if (!stored) throw new NamespaceNotInitializedError(namespace)
@@ -233,16 +248,20 @@ export class TemporalStore {
     this.requireInit()
     const errors: string[] = []
     if (!citation.id || !citation.id.trim()) errors.push('citation.id is required')
-    if (!citation.sourceRef || !citation.sourceRef.trim()) errors.push('citation.sourceRef is required')
+    if (!citation.sourceRef || !citation.sourceRef.trim())
+      errors.push('citation.sourceRef is required')
 
     const parent = this.assertionRepo.getById(citation.assertionId)
     if (!parent) {
-      errors.push(`citation.assertionId "${citation.assertionId}" does not reference an existing assertion`)
+      errors.push(
+        `citation.assertionId "${citation.assertionId}" does not reference an existing assertion`,
+      )
     } else {
       const ep = this.db
-        .prepare<[string, string], { id: string }>(
-          'SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?',
-        )
+        .prepare<
+          [string, string],
+          { id: string }
+        >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
         .get(citation.episodeId, parent.namespace)
       if (!ep) {
         errors.push(
@@ -253,35 +272,53 @@ export class TemporalStore {
     if (errors.length > 0) throw new ValidationError(errors)
 
     if (citation.excerpt === null) {
-      structuredWarn('CITATION_EXCERPT_MISSING', { assertionId: citation.assertionId, citationId: citation.id })
+      structuredWarn('CITATION_EXCERPT_MISSING', {
+        assertionId: citation.assertionId,
+        citationId: citation.id,
+      })
     }
     return this.citationRepo.insertOne(citation)
   }
 
-  async supersedeAssertion(
-    assertionId: string,
-    options: { validUntil: number; replacedById?: string },
-  ): Promise<void> {
+  /**
+   * Advanced / escape-hatch operations. Not part of the primary v0.3 API —
+   * use `writeAssertion({ supersedesId })` for the normal replace-an-assertion
+   * flow. `closeAssertion()` exists only for the no-replacement case (e.g. a
+   * data correction where the predecessor is simply wrong and nothing
+   * supersedes it).
+   */
+  readonly advanced = {
+    /**
+     * Close an assertion's validity window with no replacement.
+     * Emits `TRGT_DEPRECATED_USAGE` (once per process) — this is a narrow
+     * escape hatch, not the standard supersession path.
+     */
+    closeAssertion: async (assertionId: string, options: { validUntil: number }): Promise<void> => {
+      if (emitOnce('TRGT_DEPRECATED_USAGE:advanced.closeAssertion')) {
+        this.options.logger.warn('TRGT_DEPRECATED_USAGE', {
+          symbol: 'store.advanced.closeAssertion',
+          guidance: 'For the normal replace flow use writeAssertion({ supersedesId }).',
+        })
+      }
+      this.closeAssertionInternal(assertionId, options.validUntil)
+    },
+  }
+
+  private closeAssertionInternal(assertionId: string, validUntil: number): void {
     this.requireInit()
     const existing = this.assertionRepo.getById(assertionId)
     if (!existing) throw new ValidationError([`Assertion "${assertionId}" not found`])
     if (existing.validUntil !== null) {
       throw new ValidationError([
-        `Assertion "${assertionId}" is already closed (valid_until=${existing.validUntil}); cannot re-supersede. Mutating an established replacement chain is rejected (decision §2).`,
+        `Assertion "${assertionId}" is already closed (valid_until=${existing.validUntil}); cannot re-close. Mutating an established replacement chain is rejected (decision §2).`,
       ])
     }
-    if (options.validUntil <= existing.validFrom) {
-      throw new ValidationError([`validUntil must be strictly greater than validFrom (${existing.validFrom})`])
+    if (validUntil <= existing.validFrom) {
+      throw new ValidationError([
+        `validUntil must be strictly greater than validFrom (${existing.validFrom})`,
+      ])
     }
-    if (options.replacedById !== undefined) {
-      const replacement = this.assertionRepo.getById(options.replacedById)
-      if (replacement && replacement.namespace !== existing.namespace) {
-        throw new ValidationError([
-          `replacedById "${options.replacedById}" is in namespace "${replacement.namespace}", not "${existing.namespace}". Cross-namespace supersession is not supported.`,
-        ])
-      }
-    }
-    this.assertionRepo.supersedeAssertion(assertionId, options.validUntil)
+    this.assertionRepo.supersedeAssertion(assertionId, validUntil)
   }
 
   async writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
@@ -319,7 +356,9 @@ export class TemporalStore {
         { assertionId },
       )
     }
-    const [computed] = await this.options.embeddingProvider.embed([assertion.content], { purpose: 'assertion' })
+    const [computed] = await this.options.embeddingProvider.embed([assertion.content], {
+      purpose: 'assertion',
+    })
     if (!computed) {
       throw new IndexingError(
         ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
@@ -330,7 +369,10 @@ export class TemporalStore {
     this.embeddingRepo.insert(table, assertionId, computed)
   }
 
-  async indexBatch(items: IndexBatchItem[], options: IndexBatchOptions = {}): Promise<IndexBatchResult> {
+  async indexBatch(
+    items: IndexBatchItem[],
+    options: IndexBatchOptions = {},
+  ): Promise<IndexBatchResult> {
     this.requireInit()
     const mode = options.onProviderError ?? 'fail-fast'
     const provider = this.options.embeddingProvider
@@ -339,14 +381,23 @@ export class TemporalStore {
     // Resolve each item: confirm the assertion exists, determine the embedding
     // (caller-supplied or from the provider), and group by target vec0 table.
     type Resolved = { table: string; assertionId: string; embedding: Float32Array | number[] }
-    const pending: Array<{ index: number; assertion: Assertion; needsProvider: boolean; supplied?: Float32Array | number[] }> = []
+    const pending: Array<{
+      index: number
+      assertion: Assertion
+      needsProvider: boolean
+      supplied?: Float32Array | number[]
+    }> = []
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       if (!item) continue
       const assertion = this.assertionRepo.getById(item.assertionId)
       if (!assertion) {
-        skipped.push({ assertionId: item.assertionId, reason: 'assertion not found', errorCode: ErrorCode.INDEXING_ASSERTION_NOT_FOUND })
+        skipped.push({
+          assertionId: item.assertionId,
+          reason: 'assertion not found',
+          errorCode: ErrorCode.INDEXING_ASSERTION_NOT_FOUND,
+        })
         continue
       }
       // Validate that the namespace is vector-configured / sqlite-vec loaded.
@@ -386,7 +437,11 @@ export class TemporalStore {
               const vec = vecs[k]
               const c = chunk[k]
               if (!vec || !c) {
-                throw new EmbeddingProviderError(provider.name, indexedCount, `provider returned no vector for batch item ${String(k)}`)
+                throw new EmbeddingProviderError(
+                  provider.name,
+                  indexedCount,
+                  `provider returned no vector for batch item ${String(k)}`,
+                )
               }
               computedByIndex.set(c.index, vec)
               indexedCount++
@@ -400,7 +455,11 @@ export class TemporalStore {
         // skip mode: embed one at a time, recording failures in skipped[].
         for (const p of needsProvider) {
           if (options.signal?.aborted) {
-            skipped.push({ assertionId: p.assertion.id, reason: 'aborted by signal', errorCode: 'ABORTED' })
+            skipped.push({
+              assertionId: p.assertion.id,
+              reason: 'aborted by signal',
+              errorCode: 'ABORTED',
+            })
             continue
           }
           try {
@@ -408,7 +467,11 @@ export class TemporalStore {
             if (options.signal) opts.signal = options.signal
             const [vec] = await provider.embed([p.assertion.content], opts)
             if (!vec) {
-              skipped.push({ assertionId: p.assertion.id, reason: 'provider returned no embedding', errorCode: 'EMBEDDING_PROVIDER_EMPTY' })
+              skipped.push({
+                assertionId: p.assertion.id,
+                reason: 'provider returned no embedding',
+                errorCode: 'EMBEDDING_PROVIDER_EMPTY',
+              })
               continue
             }
             computedByIndex.set(p.index, vec)
@@ -453,17 +516,21 @@ export class TemporalStore {
 
   // ─── Retrieval ─────────────────────────────────────────────────────────────
 
-  async retrieve(query: RetrievalQuery): Promise<RetrievedAssertion[]> {
+  async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     this.requireNamespaceInit(query.namespace)
-    return retrieve(this.db, {
-      assertionRepo: this.assertionRepo,
-      embeddingRepo: this.embeddingRepo,
-      getEmbeddingTable: (ns) => this.ensureVectorReady(ns, 'retrieval'),
-      getPositionRange: (ns) => this.namespaceRepo.getPositionRange(ns),
-      globalScorer: this.options.scorer,
-      globalMiddleware: this.options.middleware,
-      graphAdapter: this.options.graphAdapter,
-    }, query)
+    return retrieve(
+      this.db,
+      {
+        assertionRepo: this.assertionRepo,
+        embeddingRepo: this.embeddingRepo,
+        getEmbeddingTable: (ns) => this.ensureVectorReady(ns, 'retrieval'),
+        getPositionRange: (ns) => this.namespaceRepo.getPositionRange(ns),
+        globalScorer: this.options.scorer,
+        globalMiddleware: this.options.middleware,
+        graphAdapter: this.options.graphAdapter,
+      },
+      query,
+    )
   }
 
   async assembleContext(options: ContextAssemblyOptions): Promise<AssembledContext> {
@@ -513,13 +580,16 @@ export class TemporalStore {
 
   // ─── Utility ───────────────────────────────────────────────────────────────
 
-  async getAssertions(namespace: string, options?: {
-    entityId?: string
-    entityType?: string
-    type?: string
-    validAt?: number
-    includeSuperseded?: boolean
-  }): Promise<Assertion[]> {
+  async getAssertions(
+    namespace: string,
+    options?: {
+      entityId?: string
+      entityType?: string
+      type?: string
+      validAt?: number
+      includeSuperseded?: boolean
+    },
+  ): Promise<Assertion[]> {
     this.requireNamespaceInit(namespace)
     return this.assertionRepo.query(namespace, options)
   }
@@ -547,16 +617,25 @@ export class TemporalStore {
 
   async deleteNamespace(namespace: string, options: DeleteNamespaceOptions = {}): Promise<void> {
     this.requireInit()
-    const refTables = (this.options.schemaExtensions.tables ?? []).filter((t) => t.referencesNamespace)
+    const refTables = (this.options.schemaExtensions.tables ?? []).filter(
+      (t) => t.referencesNamespace,
+    )
     if (refTables.length > 0) {
       if (!options.cascade) {
-        throw new ReferencedExtensionTableError(namespace, refTables.map((table) => table.tableName))
+        throw new ReferencedExtensionTableError(
+          namespace,
+          refTables.map((table) => table.tableName),
+        )
       }
     }
     this.db.transaction(() => {
       for (const table of refTables) {
         if (!table.namespaceColumn) continue
-        this.db.prepare(`DELETE FROM ${quoteIdent(table.tableName)} WHERE ${quoteIdent(table.namespaceColumn)} = ?`).run(namespace)
+        this.db
+          .prepare(
+            `DELETE FROM ${quoteIdent(table.tableName)} WHERE ${quoteIdent(table.namespaceColumn)} = ?`,
+          )
+          .run(namespace)
       }
       const table = this.namespaceRepo.getEmbeddingTable(namespace)
       if (table) this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(table)}`)
@@ -578,25 +657,41 @@ export class TemporalStore {
     },
   ): Promise<ReindexResult> {
     this.requireNamespaceInit(namespace)
-    await doReindex(this.db, this.namespaceRepo, this.embeddingRepo, this.assertionRepo, namespace, options)
+    await doReindex(
+      this.db,
+      this.namespaceRepo,
+      this.embeddingRepo,
+      this.assertionRepo,
+      namespace,
+      options,
+    )
     // Re-warm embedding table cache
     const newTable = this.namespaceRepo.getEmbeddingTable(namespace)
     if (newTable) this.embeddingTableCache.set(namespace, newTable)
-    return { reindexed: this.assertionRepo.getStats(namespace).assertionCount, skipped: [], durationMs: 0 }
+    return {
+      reindexed: this.assertionRepo.getStats(namespace).assertionCount,
+      skipped: [],
+      durationMs: 0,
+    }
   }
 
   async getStats(namespace: string): Promise<NamespaceStats> {
     this.requireNamespaceInit(namespace)
     const assertionStats = this.assertionRepo.getStats(namespace)
-    const episodeCount = (
+    const episodeCount =
       this.db
-        .prepare<[string], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trl_episodes WHERE namespace = ?')
-        .get(namespace)
-    )?.cnt ?? 0
+        .prepare<
+          [string],
+          { cnt: number }
+        >('SELECT COUNT(*) AS cnt FROM trl_episodes WHERE namespace = ?')
+        .get(namespace)?.cnt ?? 0
     const ns = this.namespaceRepo.get(namespace)
     const table = this.namespaceRepo.getEmbeddingTable(namespace)
-    const vectorReady = Boolean(table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table))
-    const indexedCount = vectorReady && table ? this.embeddingRepo.getIndexedCount(table, namespace) : 0
+    const vectorReady = Boolean(
+      table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table),
+    )
+    const indexedCount =
+      vectorReady && table ? this.embeddingRepo.getIndexedCount(table, namespace) : 0
     const linkCount = this.linkRepo.getCount(namespace)
     const positionRange = this.namespaceRepo.getPositionRange(namespace)
     return {
@@ -655,7 +750,9 @@ export class TemporalStore {
       const insert = this.db.prepare(
         'INSERT INTO trl_fts(rowid, assertion_id, content) SELECT rowid, id, content FROM trl_assertions WHERE rowid > ? AND rowid <= ?',
       )
-      const maxRow = this.db.prepare<[], { m: number | null }>('SELECT MAX(rowid) AS m FROM trl_assertions').get()
+      const maxRow = this.db
+        .prepare<[], { m: number | null }>('SELECT MAX(rowid) AS m FROM trl_assertions')
+        .get()
       const max = maxRow?.m ?? 0
       for (let start = 0; start < max; start += batchSize) {
         if (options.signal?.aborted) throw new ValidationError(['rebuildFts aborted by signal'])
@@ -678,7 +775,10 @@ export class TemporalStore {
     return { reindexedRows: reindexed, newTokenizer: tokenizer, durationMs: Date.now() - started }
   }
 
-  async upgradeNamespaceToVector(namespace: string, options: { embeddingDimension: number }): Promise<void> {
+  async upgradeNamespaceToVector(
+    namespace: string,
+    options: { embeddingDimension: number },
+  ): Promise<void> {
     this.requireNamespaceInit(namespace)
     const table = namespaceToEmbeddingTable(namespace)
     this.db.transaction(() => {
@@ -730,14 +830,16 @@ export class TemporalStore {
     } else {
       for (const cit of assertion.citations) {
         if (!cit.id || !cit.id.trim()) errors.push('citation.id is required')
-        if (!cit.sourceRef || !cit.sourceRef.trim()) errors.push(`citation "${cit.id}" sourceRef is required`)
+        if (!cit.sourceRef || !cit.sourceRef.trim())
+          errors.push(`citation "${cit.id}" sourceRef is required`)
         if (!cit.episodeId || !cit.episodeId.trim()) {
           errors.push(`citation "${cit.id}" episodeId is required`)
         } else {
           const ep = this.db
-            .prepare<[string, string], { id: string }>(
-              'SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?',
-            )
+            .prepare<
+              [string, string],
+              { id: string }
+            >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
             .get(cit.episodeId, assertion.namespace)
           if (!ep) {
             errors.push(
@@ -752,7 +854,9 @@ export class TemporalStore {
     if (assertion.supersedesId !== null) {
       const pred = this.assertionRepo.getById(assertion.supersedesId)
       if (!pred) {
-        errors.push(`supersedesId "${assertion.supersedesId}" does not reference an existing assertion`)
+        errors.push(
+          `supersedesId "${assertion.supersedesId}" does not reference an existing assertion`,
+        )
       } else {
         if (pred.namespace !== assertion.namespace) {
           errors.push(
@@ -863,7 +967,9 @@ export class TemporalStore {
       throw new MissingPeerDependencyError(
         'sqlite-vec',
         'npm install sqlite-vec',
-        kind === 'retrieval' ? "use retrievalStrategy: 'bm25'" : 'load sqlite-vec or use vectorless namespaces',
+        kind === 'retrieval'
+          ? "use retrievalStrategy: 'bm25'"
+          : 'load sqlite-vec or use vectorless namespaces',
       )
     }
     if (!this.embeddingRepo.tableExists(table)) {

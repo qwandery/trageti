@@ -1,16 +1,19 @@
-import type { RetrievalQuery, RetrievedAssertion, RetrievalMiddleware } from '../domain/types.js'
+import type { RetrievalQuery, RetrievalResult, RetrievalMiddleware } from '../domain/types.js'
 
 /**
  * Applies middleware chains around a retrieval function.
  * Before: global (registration order) → per-call (registration order)
  * After: per-call (reverse) → global (reverse)
+ *
+ * `before` hooks transform the query; `after` hooks transform the result
+ * `results` array. The `meta` envelope is preserved across `after` hooks.
  */
 export function applyMiddleware(
   globalMiddleware: readonly RetrievalMiddleware[],
   callMiddleware: readonly RetrievalMiddleware[],
   query: RetrievalQuery,
-  fn: (q: RetrievalQuery) => RetrievedAssertion[],
-): RetrievedAssertion[] {
+  fn: (q: RetrievalQuery) => RetrievalResult,
+): RetrievalResult {
   const all = [...globalMiddleware, ...callMiddleware]
 
   let q = query
@@ -18,11 +21,12 @@ export function applyMiddleware(
     if (mw.before) q = mw.before(q)
   }
 
-  let results = fn(q)
+  const result = fn(q)
+  let results = result.results
 
   for (const mw of [...all].reverse()) {
     if (mw.after) results = mw.after(results, q)
   }
 
-  return results
+  return { results, meta: result.meta }
 }

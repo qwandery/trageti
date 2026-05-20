@@ -31,12 +31,14 @@ export class RawVectorProvider implements EmbeddingProvider {
   }
 
   embed(texts: readonly string[], _options?: EmbedOptions): Promise<Float32Array[]> {
-    return Promise.resolve(texts.map((text) => {
-      const vec = this.vectors.get(text)
-      if (!vec) {
-        throw new EmbeddingProviderError(this.name, 0, `no pre-registered embedding for text`)
-      }
-      return vec
-    }))
+    return Promise.resolve(
+      texts.map((text) => {
+        const vec = this.vectors.get(text)
+        if (!vec) {
+          throw new EmbeddingProviderError(this.name, 0, `no pre-registered embedding for text`)
+        }
+        return vec
+      }),
+    )
   }
 }

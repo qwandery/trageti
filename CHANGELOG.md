@@ -28,7 +28,7 @@ unaffected.
 - **Lifecycle:** `TemporalStore.create(options)` factory, `close()`,
   `requireOpen()`, `prepareDatabase()`, `StoreClosedError`. Ownership rule:
   `create({ database: string })` opens and owns the handle; `create({
-  database: Database })` leaves the handle to the caller.
+database: Database })` leaves the handle to the caller.
 - **Logger/Metrics:** `Logger` interface (`debug`/`info`/`warn`/`error`),
   default `ConsoleLogger` (warn+error to stderr) and `NoopLogger`. Optional
   `Metrics` interface — no default implementation; emission is a guarded
@@ -42,7 +42,7 @@ unaffected.
   per process outside `NODE_ENV=test`) and `RawVectorProvider`.
 - **Indexing:** `indexBatch(items, options)` returns
   `IndexBatchResult = { indexed: number, skipped: Array<{ assertionId,
-  reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
+reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
   `indexAssertion` still throws `IndexingError(ASSERTION_NOT_FOUND)`.
 - **Maintenance:** `rebuildFts(options)` drops and recreates `trl_fts`
   with a new tokenizer, preserves the rowid invariant, and updates
@@ -77,7 +77,7 @@ unaffected.
   and renormalizes weights when one signal is absent. Throws
   `TragetiError(SCORER_NO_USABLE_SIGNAL)` when both signals are null.
 - **Deterministic tie-breaks:** results are ordered by `(score DESC,
-  validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
+validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
   with consistent precision so lexicographic order matches temporal order;
   library-managed IDs use SQLite BINARY collation.
 

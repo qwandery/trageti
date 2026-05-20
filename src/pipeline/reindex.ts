@@ -29,9 +29,10 @@ export async function reindexNamespace(
   let offset = 0
   for (;;) {
     const batch = db
-      .prepare<[string, number, number], { id: string; content: string }>(
-        'SELECT id, content FROM trl_assertions WHERE namespace = ? LIMIT ? OFFSET ?',
-      )
+      .prepare<
+        [string, number, number],
+        { id: string; content: string }
+      >('SELECT id, content FROM trl_assertions WHERE namespace = ? LIMIT ? OFFSET ?')
       .all(namespace, BATCH_SIZE, offset)
 
     if (batch.length === 0) break

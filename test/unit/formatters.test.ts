@@ -2,10 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { ProseFormatter } from '../../src/defaults/formatting/ProseFormatter.js'
 import { StructuredFormatter } from '../../src/defaults/formatting/StructuredFormatter.js'
 import { JsonFormatter } from '../../src/defaults/formatting/JsonFormatter.js'
-import type { RetrievedAssertion, ContextAssemblyOptions, AssertionCitation } from '../../src/domain/types.js'
+import type {
+  RetrievedAssertion,
+  ContextAssemblyOptions,
+  AssertionCitation,
+} from '../../src/domain/types.js'
 
 function makeCitation(id: string, episodeId = 'ep-1', sourceRef = 'chunk:1'): AssertionCitation {
-  return { id, assertionId: id.split(':')[0] ?? id, episodeId, sourceRef, excerpt: null, createdAt: '2024-01-01T00:00:00Z' }
+  return {
+    id,
+    assertionId: id.split(':')[0] ?? id,
+    episodeId,
+    sourceRef,
+    excerpt: null,
+    createdAt: '2024-01-01T00:00:00Z',
+  }
 }
 
 function makeAssertion(
@@ -67,10 +78,12 @@ describe('ProseFormatter', () => {
   it('appends a compact citation marker', async () => {
     const f = new ProseFormatter()
     const result = f.format(
-      [makeAssertion('a-1', 'Cited claim.', null, [
-        makeCitation('a-1:c0', 'ep-1', 'chunk:3'),
-        makeCitation('a-1:c1', 'ep-2', '0:08:14-0:12:30'),
-      ])],
+      [
+        makeAssertion('a-1', 'Cited claim.', null, [
+          makeCitation('a-1:c0', 'ep-1', 'chunk:3'),
+          makeCitation('a-1:c1', 'ep-2', '0:08:14-0:12:30'),
+        ]),
+      ],
       baseOptions,
     )
     expect(result.text).toContain('[ep-1#chunk:3, ep-2#0:08:14-0:12:30]')
@@ -78,12 +91,13 @@ describe('ProseFormatter', () => {
 
   it('citation marker length is counted toward tokenEstimate', async () => {
     const f = new ProseFormatter()
-    const noCit = f.format(
-      [makeAssertion('a-1', 'Same content.', null, [])],
-      baseOptions,
-    )
+    const noCit = f.format([makeAssertion('a-1', 'Same content.', null, [])], baseOptions)
     const withCit = f.format(
-      [makeAssertion('a-1', 'Same content.', null, [makeCitation('a-1:c0', 'ep-long', 'a-very-long-source-reference-string')])],
+      [
+        makeAssertion('a-1', 'Same content.', null, [
+          makeCitation('a-1:c0', 'ep-long', 'a-very-long-source-reference-string'),
+        ]),
+      ],
       baseOptions,
     )
     expect(withCit.tokenEstimate).toBeGreaterThan(noCit.tokenEstimate)
@@ -120,7 +134,11 @@ describe('StructuredFormatter', () => {
   it('appends a compact citation marker per bullet', async () => {
     const f = new StructuredFormatter()
     const result = f.format(
-      [makeAssertion('a-1', 'Cited claim.', 'concept', [makeCitation('a-1:c0', 'ep-1', 'chunk:3')])],
+      [
+        makeAssertion('a-1', 'Cited claim.', 'concept', [
+          makeCitation('a-1:c0', 'ep-1', 'chunk:3'),
+        ]),
+      ],
       baseOptions,
     )
     expect(result.text).toContain('[ep-1#chunk:3]')

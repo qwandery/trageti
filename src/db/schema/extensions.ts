@@ -36,9 +36,7 @@ export class SchemaExtensionApplier {
       }
       const libraryColumns = LIBRARY_COLUMNS[col.table]
       if (libraryColumns.includes(col.column.toLowerCase())) {
-        violations.push(
-          `Column "${col.column}" on ${col.table}: shadows a library-managed column`,
-        )
+        violations.push(`Column "${col.column}" on ${col.table}: shadows a library-managed column`)
       }
     }
 
@@ -72,7 +70,9 @@ export class SchemaExtensionApplier {
       for (const tbl of extensions.tables ?? []) {
         db.exec(tbl.createSQL)
         if (tbl.referencesNamespace && tbl.namespaceColumn) {
-          const columns = db.prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(tbl.tableName)})`).all()
+          const columns = db
+            .prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(tbl.tableName)})`)
+            .all()
           if (!columns.some((column) => column.name === tbl.namespaceColumn)) {
             throw new SchemaExtensionError([
               `namespaceColumn "${tbl.namespaceColumn}" does not exist on table "${tbl.tableName}" after createSQL ran.`,
@@ -96,7 +96,9 @@ export class SchemaExtensionApplier {
   private addColumnIfAbsent(db: Database, col: ColumnExtension): void {
     const existing = getExistingColumns(db, col.table)
     if (!existing.has(col.column.toLowerCase())) {
-      db.exec(`ALTER TABLE ${quoteIdent(col.table)} ADD COLUMN ${quoteIdent(col.column)} ${col.definition}`)
+      db.exec(
+        `ALTER TABLE ${quoteIdent(col.table)} ADD COLUMN ${quoteIdent(col.column)} ${col.definition}`,
+      )
     }
   }
 }

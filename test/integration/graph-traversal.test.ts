@@ -98,11 +98,21 @@ describe('TemporalStore — graph traversal', () => {
     })
 
     // At anchor=7: link is still valid (validUntil=8 > 7)
-    const before = await store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 7 })
+    const before = await store.getConnected({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      maxDepth: 1,
+      temporalAnchor: 7,
+    })
     expect(before.map((a) => a.id)).toContain('a-5')
 
     // At anchor=8: link has expired (validUntil=8, condition is valid_until > anchor fails for equal)
-    const after = await store.getConnected({ namespace: NS, fromAssertionId: 'a-1', maxDepth: 1, temporalAnchor: 8 })
+    const after = await store.getConnected({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      maxDepth: 1,
+      temporalAnchor: 8,
+    })
     expect(after.map((a) => a.id)).not.toContain('a-5')
   })
 
@@ -234,23 +244,33 @@ describe('TemporalStore — graph traversal', () => {
     })
     // Pin distinct created_at values so the tie-break has a stable signal.
     // Path A (a-1 → a-2 → a-4 via l-1, l-3): force l-1 to earlier timestamp.
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.001Z' WHERE id = ?").run('l-1')
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.002Z' WHERE id = ?").run('l-3')
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.001Z' WHERE id = ?").run(
+      'l-1',
+    )
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.002Z' WHERE id = ?").run(
+      'l-3',
+    )
     // Path B (a-1 → a-5 → a-4 via l-alt1, l-alt2): later timestamps.
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:00.000Z' WHERE id = ?").run('l-alt1')
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:01.000Z' WHERE id = ?").run('l-alt2')
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:00.000Z' WHERE id = ?").run(
+      'l-alt1',
+    )
+    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:01.000Z' WHERE id = ?").run(
+      'l-alt2',
+    )
 
     // Run ten times; assert the same path is returned each time, and that it is Path A
     // (smaller first-hop created_at wins the lex comparison).
-    const winners = await Promise.all(Array.from({ length: 10 }, () =>
-      store.findPath({
-        namespace: NS,
-        fromAssertionId: 'a-1',
-        toAssertionId: 'a-4',
-        maxDepth: 5,
-        temporalAnchor: 10,
-      }),
-    ))
+    const winners = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        store.findPath({
+          namespace: NS,
+          fromAssertionId: 'a-1',
+          toAssertionId: 'a-4',
+          maxDepth: 5,
+          temporalAnchor: 10,
+        }),
+      ),
+    )
     for (const path of winners) {
       expect(path).not.toBeNull()
       expect(path.length).toBe(2)

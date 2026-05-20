@@ -237,7 +237,7 @@ Readonly<Record<LibraryTable, readonly string[]>>
 And `LibraryTable` is:
 
 ```ts
-'trl_assertions' | 'trl_episodes' | 'trl_links'
+;'trl_assertions' | 'trl_episodes' | 'trl_links'
 ```
 
 So adding `trl_citations` to `LIBRARY_COLUMNS` while leaving `LibraryTable` unchanged will not typecheck.
@@ -300,22 +300,19 @@ This needs a single coherent choice.
 Recommended public/internal type design:
 
 ```ts
-export type NewAssertionCitation =
-  Omit<AssertionCitation, 'assertionId' | 'createdAt'>
+export type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>
 
-export type NewAssertion =
-  Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
-    citations: NewAssertionCitation[]
-  }
+export type NewAssertion = Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
+  citations: NewAssertionCitation[]
+}
 ```
 
 or, if inline citation IDs should be generated:
 
 ```ts
-export type NewAssertionCitation =
-  Omit<AssertionCitation, 'id' | 'assertionId' | 'createdAt'> & {
-    id?: string
-  }
+export type NewAssertionCitation = Omit<AssertionCitation, 'id' | 'assertionId' | 'createdAt'> & {
+  id?: string
+}
 ```
 
 Then:

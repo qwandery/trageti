@@ -21,7 +21,10 @@ export class MigrationRunner {
   getCurrentVersion(db: Database): number {
     db.exec(BOOTSTRAP_DDL)
     const row = db
-      .prepare<[], { version: number | null }>('SELECT MAX(version) AS version FROM trl_schema_version')
+      .prepare<
+        [],
+        { version: number | null }
+      >('SELECT MAX(version) AS version FROM trl_schema_version')
       .get()
     return row?.version ?? 0
   }
@@ -48,9 +51,10 @@ export class MigrationRunner {
     try {
       db.transaction(() => {
         migration.up(db)
-        db.prepare(
-          'INSERT INTO trl_schema_version (version, description) VALUES (?, ?)',
-        ).run(migration.version, migration.description)
+        db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
+          migration.version,
+          migration.description,
+        )
       })()
     } catch (err) {
       throw new MigrationError(migration.version, err)
@@ -76,13 +80,18 @@ export class MigrationRunner {
       migration.up(db)
       const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>
       if (Array.isArray(violations) && violations.length > 0) {
-        throw new MigrationError(migration.version, 'foreign_key_check found violations after migration body', {
-          violations,
-        })
+        throw new MigrationError(
+          migration.version,
+          'foreign_key_check found violations after migration body',
+          {
+            violations,
+          },
+        )
       }
-      db.prepare(
-        'INSERT INTO trl_schema_version (version, description) VALUES (?, ?)',
-      ).run(migration.version, migration.description)
+      db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
+        migration.version,
+        migration.description,
+      )
       db.exec('COMMIT')
       txOpen = false
     } catch (err) {

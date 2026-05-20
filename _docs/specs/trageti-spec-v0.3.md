@@ -1,4 +1,5 @@
 # trageti
+
 ## Package Specification v0.3
 
 **Status:** Final design specification — implementation begins after sign-off
@@ -65,7 +66,7 @@ actual v0.2 source):
 - **`DefaultScorer` formula corrected** to match the actual v0.2 code
   (position-range-normalized recency; weight renormalization when BM25 or
   vector signals are absent; min-max BM25 normalization with `range === 0
-  → 1` rule). `semanticDistance` becomes nullable.
+→ 1` rule). `semanticDistance` becomes nullable.
 - **`TableExtension`** gains declarative `namespaceColumn`; raw
   `cleanupSQL` deferred to v0.4. Extension tables are NEVER dropped by
   `deleteNamespace()` — only per-namespace rows via the generated DELETE.
@@ -87,9 +88,9 @@ actual v0.2 source):
   Migration note: callers that intentionally disable FK checks must provide a
   custom `ConnectionVerifier` and accept full responsibility for integrity.
 - **Namespace dimension mismatch is rejected.** Reopening an existing
-  vector-configured namespace with a *different* embedding dimension throws
+  vector-configured namespace with a _different_ embedding dimension throws
   `NamespaceDimensionMismatchError` unless the caller runs
-  `reindexNamespace()`. Reopening *without* supplying any dimension or
+  `reindexNamespace()`. Reopening _without_ supplying any dimension or
   provider is allowed: the stored dimension remains authoritative, so
   caller-supplied-vector operations still work when `sqlite-vec` is loaded
   and vector lengths match. Provider-derived vector operations require an
@@ -314,25 +315,38 @@ const store = await TemporalStore.create({
 })
 
 await store.writeEpisode({
-  id: 'ep-1', namespace: 'demo', position: 1,
-  type: 'note', occurredAt: '2026-05-11T09:00:00Z',
+  id: 'ep-1',
+  namespace: 'demo',
+  position: 1,
+  type: 'note',
+  occurredAt: '2026-05-11T09:00:00Z',
   content: 'Initial intake notes.',
 })
 await store.writeAssertion({
-  id: 'a-1', namespace: 'demo', type: 'observation',
+  id: 'a-1',
+  namespace: 'demo',
+  type: 'observation',
   content: 'Patient reports occasional insomnia.',
-  validFrom: 1, confidence: 0.9, sourceEpisodeId: 'ep-1',
-  citations: [{
-    id: 'c-1', episodeId: 'ep-1',
-    sourceRef: 'intake#L4', excerpt: 'occasional insomnia',
-  }],
+  validFrom: 1,
+  confidence: 0.9,
+  sourceEpisodeId: 'ep-1',
+  citations: [
+    {
+      id: 'c-1',
+      episodeId: 'ep-1',
+      sourceRef: 'intake#L4',
+      excerpt: 'occasional insomnia',
+    },
+  ],
 })
 // Provider derives the embedding from assertion.content (no `embedding`
 // field supplied, so MockEmbeddingProvider is consulted).
 await store.indexBatch([{ assertionId: 'a-1' }])
 
 const { results, meta } = await store.retrieve({
-  namespace: 'demo', queryText: 'sleep problems', temporalAnchor: 1,
+  namespace: 'demo',
+  queryText: 'sleep problems',
+  temporalAnchor: 1,
 })
 
 await store.close()
@@ -348,12 +362,12 @@ step inside `writeAssertion()` (see `NewAssertionInput` in Core Concepts).
 #### Example 2 — BM25-only retrieval (no `sqlite-vec` required)
 
 The most under-appreciated capability of v0.3: trageti supports temporally-aware
-RAG over SQLite *without* `sqlite-vec` for use cases where keyword search and
+RAG over SQLite _without_ `sqlite-vec` for use cases where keyword search and
 graph traversal are sufficient (compliance review, structured-document indexing,
 audit-trail querying). Vectorless deployments install no native vector binary
 and run on bare `better-sqlite3`.
 
-Install: `npm install trageti better-sqlite3`  (no `sqlite-vec`)
+Install: `npm install trageti better-sqlite3` (no `sqlite-vec`)
 
 ```typescript
 import { TemporalStore } from 'trageti'
@@ -366,25 +380,36 @@ const store = await TemporalStore.create({
 })
 
 await store.writeEpisode({
-  id: 'ep-1', namespace: 'compliance', position: 1,
-  type: 'document', occurredAt: '2026-05-11T09:00:00Z',
+  id: 'ep-1',
+  namespace: 'compliance',
+  position: 1,
+  type: 'document',
+  occurredAt: '2026-05-11T09:00:00Z',
   content: 'Annual liability waiver, revision 7.',
 })
 await store.writeAssertion({
-  id: 'a-1', namespace: 'compliance', type: 'clause',
+  id: 'a-1',
+  namespace: 'compliance',
+  type: 'clause',
   content: 'Customer waives liability for ordinary negligence.',
-  validFrom: 1, confidence: 1.0, sourceEpisodeId: 'ep-1',
-  citations: [{
-    id: 'c-1', episodeId: 'ep-1',
-    sourceRef: 'waiver#§3.1', excerpt: 'waives liability for ordinary negligence',
-  }],
+  validFrom: 1,
+  confidence: 1.0,
+  sourceEpisodeId: 'ep-1',
+  citations: [
+    {
+      id: 'c-1',
+      episodeId: 'ep-1',
+      sourceRef: 'waiver#§3.1',
+      excerpt: 'waives liability for ordinary negligence',
+    },
+  ],
 })
 // indexBatch is NOT called — vectorless namespaces don't index vectors.
 
 const { results, meta } = await store.retrieve({
   namespace: 'compliance',
   queryText: 'liability waiver',
-  retrievalStrategy: 'bm25',  // explicit; clearer intent than relying on hybrid fallback
+  retrievalStrategy: 'bm25', // explicit; clearer intent than relying on hybrid fallback
   temporalAnchor: 100,
 })
 // meta.vectorApplied === false; meta.bm25Applied === true.
@@ -873,7 +898,7 @@ interface FTS5TokenizerConfig {
   strings require `trustedCustomTokenizer: true`. Failing entries throw
   `SchemaExtensionError` at `init()` time.
 - The validated tokenizer string is interpolated into the FTS5 `CREATE
-  VIRTUAL TABLE ... USING fts5(..., tokenize='<config>')` DDL exactly once,
+VIRTUAL TABLE ... USING fts5(..., tokenize='<config>')` DDL exactly once,
   at the moment a brand-new `trl_fts` table is created — never against a
   populated database. The latter case is rejected by the migration system
   with `MigrationCompatibilityError(kind: 'rebuild-fts')`; callers must
@@ -936,7 +961,7 @@ interface TableExtension {
   `PRAGMA table_info(<quoted tableName>)` and verifies a column matching
   `namespaceColumn` (case-sensitive) exists. If not, `SchemaExtensionError`
   with violation `'namespaceColumn "<col>" does not exist on table "<table>"
-  after createSQL ran.'`
+after createSQL ran.'`
 
 Tables registered via `TableExtension` are NEVER dropped by
 `deleteNamespace()`, regardless of options — only per-namespace rows are
@@ -966,7 +991,7 @@ interface EmbedOptions {
 
 `purpose` exists because many modern embedding models (BGE, E5, Nomic, GTE,
 Instructor) prepend instruction prefixes that depend on whether the text is a
-*document* being indexed or a *query* being matched. Adapters that target such
+_document_ being indexed or a _query_ being matched. Adapters that target such
 models must honor `purpose`. Adapters for models without prefix discipline may
 ignore it. `'reindex'` is treated as `'assertion'` unless the adapter wants to
 distinguish (for example, to emit different telemetry).
@@ -975,7 +1000,7 @@ Provider adapters are optional and tree-shakable. The core package must not make
 large or networked providers hard dependencies. The only providers shipped in
 core are `RawVectorProvider` (no embedding; caller passes vectors, useful as the
 zero-dependency default) and `MockEmbeddingProvider` (deterministic hashed
-output, intended for tests and quickstarts only — explicitly *not* suitable for
+output, intended for tests and quickstarts only — explicitly _not_ suitable for
 real semantic retrieval). `MockEmbeddingProvider` remains a core export in
 v0.3 for zero-dependency examples, but it MUST emit a single
 `TRGT_MOCK_PROVIDER_NON_PRODUCTION` warning per process when used outside
@@ -983,7 +1008,7 @@ v0.3 for zero-dependency examples, but it MUST emit a single
 
 #### Provider Adapters
 
-The `EmbeddingProvider` interface is the v0.3 contract; the *packaging* of
+The `EmbeddingProvider` interface is the v0.3 contract; the _packaging_ of
 external reference adapters (Ollama, Transformers.js, OpenAI) is
 **explicitly out of v0.3's public contract**. The 0.3.0 implementation may
 ship them as subpath exports (`trageti/providers/ollama`), as companion
@@ -1058,8 +1083,8 @@ each mode:
   - If `skipped.length > 0` AND `allowPartialSwap !== true`, the staging
     table is discarded and `reindexNamespace()` throws `ReindexError` with
     `{ skipped, code: 'REINDEX_PARTIAL_REJECTED', advice: 'pass
-    allowPartialSwap: true to accept the partial result, or rerun with
-    onProviderError: \'fail-fast\' to surface the cause' }`. The previous
+allowPartialSwap: true to accept the partial result, or rerun with
+onProviderError: \'fail-fast\' to surface the cause' }`. The previous
     live index is preserved unchanged. This is the safe default — a
     complete live index is never silently replaced by a partial one.
   - With `strategy: 'in-place'`, `'skip'` builds best-effort and reports
@@ -1220,6 +1245,7 @@ by the supplied options. The relevant cases:
   manual-vector callers reopen vector-configured stores without having to
   persist or supply the original `embeddingProvider`. The stored dimension
   is sufficient for safe runtime validation.
+
 - Stored namespace is vectorless AND the caller supplies neither → bind
   and proceed (vectorless reopen).
 - Stored namespace is vectorless AND the caller supplies dimension or
@@ -1350,7 +1376,7 @@ atomic, FK enforcement is restored to its captured value regardless of failure
 path, and a failed FK-toggle migration leaves the database at the prior
 schema version. Child-table FK references (`trl_episodes.namespace`,
 `trl_assertions.namespace`, `trl_links.namespace`) survive the v003 rebuild
-because SQLite stores FK definitions in the *referencing* table's schema
+because SQLite stores FK definitions in the _referencing_ table's schema
 string; the post-migration `foreign_key_check` confirms this.
 
 **Operational note:** FK-toggle migrations require the database to be
@@ -1397,7 +1423,7 @@ v0.3 distinguishes three namespace states:
 `init()` and `initNamespace()` create the vec0 virtual table only **lazily**.
 They never require `sqlite-vec`, regardless of provider configuration. The
 `embedding_table` metadata is set at registration whether or not the virtual
-table itself has been created — it is the *planned* table name, not proof of
+table itself has been created — it is the _planned_ table name, not proof of
 existence (see Maintenance → `getStats`/`getPendingIndexing`). This is what
 makes the optional-peer story work: `npm install trageti better-sqlite3`
 (no `sqlite-vec`) suffices for stores that operate vectorlessly or in
@@ -1502,10 +1528,7 @@ interface PrepareDatabaseOptions {
   betterSqlite3?: BetterSqlite3Options
 }
 
-function prepareDatabase(
-  source: string | Database,
-  options?: PrepareDatabaseOptions,
-): Database
+function prepareDatabase(source: string | Database, options?: PrepareDatabaseOptions): Database
 ```
 
 If `source` is a string, a new `better-sqlite3` database is opened. If it is
@@ -1788,8 +1811,8 @@ store.retrieve(query: RetrievalQuery): Promise<RetrievalResult>
   and silently degrades the optional vector step when capabilities are
   missing — see the degradation rules under Retrieval Implementation below.
 - **`'vector'`.** `queryEmbedding` MUST be supplied directly OR (`queryText`
-  + an `EmbeddingProvider` configured for the namespace). `sqlite-vec` MUST
-  be loaded; otherwise throws `MissingPeerDependencyError`.
+  - an `EmbeddingProvider` configured for the namespace). `sqlite-vec` MUST
+    be loaded; otherwise throws `MissingPeerDependencyError`.
 - **`'bm25'`.** Non-empty `queryText` MUST be supplied. `queryEmbedding` is
   ignored if supplied. No provider needed. No `sqlite-vec` needed. This is
   the path that supports the BM25-only / vectorless deployment shape from
@@ -2086,8 +2109,14 @@ store.explain(query: RetrievalQuery): Promise<RetrievalExplainResult>
 
 ```typescript
 type RetrievalStep =
-  | 'validate' | 'temporal-filter' | 'semantic' | 'keyword'
-  | 'score' | 'rank' | 'graph-expand' | 'trajectory-expand'
+  | 'validate'
+  | 'temporal-filter'
+  | 'semantic'
+  | 'keyword'
+  | 'score'
+  | 'rank'
+  | 'graph-expand'
+  | 'trajectory-expand'
 
 interface RetrievalExplainStep {
   step: RetrievalStep
@@ -2166,6 +2195,7 @@ Idempotence is therefore defined entirely on stored state:
   different providers against the same vector-configured namespace,
   provided dimensions agree; one process may use a provider while another
   supplies vectors manually.
+
 - For an **existing vectorless namespace**: re-calling `initNamespace()`
   with no `embeddingDimension` and no `embeddingProvider` is a no-op.
   Re-calling with either set throws `NamespaceDimensionMismatchError` with
@@ -2258,13 +2288,13 @@ Recall: `vectorReady ⇔ (sqlite-vec loaded) AND (vec0 exists for this
 namespace)`. The four observable states for a vector-configured namespace
 plus the vectorless case:
 
-| sqlite-vec | vec0 table | vectorReady |
-|---|---|---|
-| loaded     | exists  | `true`  |
-| loaded     | missing | `false` (lazy-create has not run) |
-| not loaded | exists  | `false` (vec0 was created in a prior session) |
-| not loaded | missing | `false` |
-| vectorless namespace | n/a | `false` |
+| sqlite-vec           | vec0 table | vectorReady                                   |
+| -------------------- | ---------- | --------------------------------------------- |
+| loaded               | exists     | `true`                                        |
+| loaded               | missing    | `false` (lazy-create has not run)             |
+| not loaded           | exists     | `false` (vec0 was created in a prior session) |
+| not loaded           | missing    | `false`                                       |
+| vectorless namespace | n/a        | `false`                                       |
 
 ```text
 getStats(namespace): Promise<NamespaceStats>  — never calls ensureVectorReady().
@@ -2406,9 +2436,10 @@ it. Concretely:
   in either direction.
 
 This means the common path — `await TemporalStore.create({ database: 'rag.db' })`
-+ `await store.close()` — does not leak the connection. The low-level
-`prepareDatabase()` + `new TemporalStore(db, opts)` path is unchanged:
-caller owns `db`, caller closes `db`.
+
+- `await store.close()` — does not leak the connection. The low-level
+  `prepareDatabase()` + `new TemporalStore(db, opts)` path is unchanged:
+  caller owns `db`, caller closes `db`.
 
 `close()` is idempotent.
 
@@ -2597,23 +2628,23 @@ All warnings and operational events pass through `Logger`.
 
 Required log codes:
 
-| Code | Severity | Emitted by |
-|---|---|---|
-| `TRGT_NON_WAL_MODE` | warn | `DefaultConnectionVerifier` |
-| `TRGT_FOREIGN_KEYS_ENABLED` | debug | `DefaultConnectionVerifier` — emitted once on successful enablement. The failure path is a thrown `ConnectionVerificationError`, NOT a log. |
-| `TRGT_CITATION_EXCERPT_MISSING` | warn | `writeAssertion`/`writeCitation` (only when `validation.requireCitationExcerpt` is false) |
-| `TRGT_EPISODE_CONTENT_LARGE` | warn | `writeEpisode` |
-| `TRGT_INDEX_BATCH_SKIPPED` | warn | `indexBatch` (one record per call, with skipped count) |
-| `TRGT_REINDEX_STAGING_LEFTOVER` | warn | `reindexNamespace` recovery |
-| `TRGT_CROSS_NAMESPACE_LINK` | warn | `writeLink` |
-| `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE` | error | migration runner (paired with `MigrationCompatibilityError`) |
-| `TRGT_RETRIEVE_VECTOR_SKIPPED` | info | `retrieve` (hybrid graceful degradation; `reason: 'NO_PROVIDER' \| 'NO_SQLITE_VEC' \| 'NAMESPACE_VECTORLESS'`) |
-| `TRGT_STATS_VEC_NOT_INTROSPECTED` | debug | `getStats` (sqlite-vec not loaded but vec0 exists; once per call) |
-| `TRGT_PENDING_INDEXING_VECTORLESS` | debug | `getPendingIndexing` (vectorless namespace; once per call) |
-| `TRGT_NAMESPACE_VECTOR_UPGRADED` | info | `upgradeNamespaceToVector` successful metadata transition |
-| `TRGT_MOCK_PROVIDER_NON_PRODUCTION` | warn | `MockEmbeddingProvider` used outside `NODE_ENV === 'test'`; once per process |
-| `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` | warn | `retrieve` (and `assembleContext` indirectly) when a `RetrievalDebug.onStep()` handler throws. The library wraps and swallows the throw so retrieval still completes; the log carries the step name and the thrown error's stable `code` (or `'UNKNOWN'`) but never the raw `Error` instance or stack trace per the field-sensitivity rules. |
-| `TRGT_DEPRECATED_USAGE` | warn | any deprecated symbol; once per process per symbol (suppressible via `Logger`) |
+| Code                                    | Severity | Emitted by                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRGT_NON_WAL_MODE`                     | warn     | `DefaultConnectionVerifier`                                                                                                                                                                                                                                                                                                                  |
+| `TRGT_FOREIGN_KEYS_ENABLED`             | debug    | `DefaultConnectionVerifier` — emitted once on successful enablement. The failure path is a thrown `ConnectionVerificationError`, NOT a log.                                                                                                                                                                                                  |
+| `TRGT_CITATION_EXCERPT_MISSING`         | warn     | `writeAssertion`/`writeCitation` (only when `validation.requireCitationExcerpt` is false)                                                                                                                                                                                                                                                    |
+| `TRGT_EPISODE_CONTENT_LARGE`            | warn     | `writeEpisode`                                                                                                                                                                                                                                                                                                                               |
+| `TRGT_INDEX_BATCH_SKIPPED`              | warn     | `indexBatch` (one record per call, with skipped count)                                                                                                                                                                                                                                                                                       |
+| `TRGT_REINDEX_STAGING_LEFTOVER`         | warn     | `reindexNamespace` recovery                                                                                                                                                                                                                                                                                                                  |
+| `TRGT_CROSS_NAMESPACE_LINK`             | warn     | `writeLink`                                                                                                                                                                                                                                                                                                                                  |
+| `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE` | error    | migration runner (paired with `MigrationCompatibilityError`)                                                                                                                                                                                                                                                                                 |
+| `TRGT_RETRIEVE_VECTOR_SKIPPED`          | info     | `retrieve` (hybrid graceful degradation; `reason: 'NO_PROVIDER' \| 'NO_SQLITE_VEC' \| 'NAMESPACE_VECTORLESS'`)                                                                                                                                                                                                                               |
+| `TRGT_STATS_VEC_NOT_INTROSPECTED`       | debug    | `getStats` (sqlite-vec not loaded but vec0 exists; once per call)                                                                                                                                                                                                                                                                            |
+| `TRGT_PENDING_INDEXING_VECTORLESS`      | debug    | `getPendingIndexing` (vectorless namespace; once per call)                                                                                                                                                                                                                                                                                   |
+| `TRGT_NAMESPACE_VECTOR_UPGRADED`        | info     | `upgradeNamespaceToVector` successful metadata transition                                                                                                                                                                                                                                                                                    |
+| `TRGT_MOCK_PROVIDER_NON_PRODUCTION`     | warn     | `MockEmbeddingProvider` used outside `NODE_ENV === 'test'`; once per process                                                                                                                                                                                                                                                                 |
+| `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`       | warn     | `retrieve` (and `assembleContext` indirectly) when a `RetrievalDebug.onStep()` handler throws. The library wraps and swallows the throw so retrieval still completes; the log carries the step name and the thrown error's stable `code` (or `'UNKNOWN'`) but never the raw `Error` instance or stack trace per the field-sensitivity rules. |
+| `TRGT_DEPRECATED_USAGE`                 | warn     | any deprecated symbol; once per process per symbol (suppressible via `Logger`)                                                                                                                                                                                                                                                               |
 
 `store.explain(query)` returns a structured description of SQL plans, candidate
 counts, active filters, and whether semantic and keyword scoring are used.
@@ -2629,8 +2660,14 @@ interface RetrievalDebug {
 }
 
 type RetrievalStep =
-  | 'validate' | 'temporal-filter' | 'semantic' | 'keyword'
-  | 'score' | 'rank' | 'graph-expand' | 'trajectory-expand'
+  | 'validate'
+  | 'temporal-filter'
+  | 'semantic'
+  | 'keyword'
+  | 'score'
+  | 'rank'
+  | 'graph-expand'
+  | 'trajectory-expand'
 
 interface RetrievalStepInfo {
   step: RetrievalStep
@@ -2671,24 +2708,24 @@ error type for "sqlite-vec not loaded" — there is no
 
 `RetrievalInputError` codes:
 
-| Code | Raised by |
-|---|---|
-| `RETRIEVAL_INPUT_EMPTY` | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy) |
-| `RETRIEVAL_REQUIRES_QUERY_TEXT` | `retrievalStrategy: 'bm25'` with no `queryText` |
-| `RETRIEVAL_REQUIRES_VECTOR_INPUT` | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)` |
-| `RETRIEVAL_DIMENSION_MISMATCH` | supplied `queryEmbedding.length !== namespace.embeddingDimension` |
-| `RETRIEVAL_INVALID_LIMIT` | `limit < 1` or non-integer |
-| `RETRIEVAL_INVALID_MAX_DEPTH` | `maxDepth < 0` or non-integer |
-| `RETRIEVAL_NAMESPACE_VECTORLESS` | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path |
+| Code                              | Raised by                                                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RETRIEVAL_INPUT_EMPTY`           | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy)                                                          |
+| `RETRIEVAL_REQUIRES_QUERY_TEXT`   | `retrievalStrategy: 'bm25'` with no `queryText`                                                                                                      |
+| `RETRIEVAL_REQUIRES_VECTOR_INPUT` | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)`                                                      |
+| `RETRIEVAL_DIMENSION_MISMATCH`    | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                    |
+| `RETRIEVAL_INVALID_LIMIT`         | `limit < 1` or non-integer                                                                                                                           |
+| `RETRIEVAL_INVALID_MAX_DEPTH`     | `maxDepth < 0` or non-integer                                                                                                                        |
+| `RETRIEVAL_NAMESPACE_VECTORLESS`  | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path |
 
 `IndexingError` codes:
 
-| Code | Raised by |
-|---|---|
-| `INDEXING_NAMESPACE_VECTORLESS` | `indexAssertion`/`indexBatch` against a vectorless namespace |
-| `ASSERTION_NOT_FOUND` | `indexAssertion` (single-target) against an unknown `assertionId`. `indexBatch` records the same condition in `skipped[]` with `reason: 'ASSERTION_NOT_FOUND'` instead of throwing. |
-| `EMBEDDING_DIMENSION_MISMATCH` | `indexAssertion` (single-target) when the supplied `embedding.length` does not match the namespace's stored dimension. `indexBatch` records the same condition in `skipped[]` with `reason: 'EMBEDDING_DIMENSION_MISMATCH'`. |
-| `NO_EMBEDDING_AND_NO_PROVIDER` | `indexAssertion` (single-target) when no `embedding` is supplied and no `EmbeddingProvider` is bound to the namespace. `indexBatch` records the same condition in `skipped[]` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. |
+| Code                            | Raised by                                                                                                                                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INDEXING_NAMESPACE_VECTORLESS` | `indexAssertion`/`indexBatch` against a vectorless namespace                                                                                                                                                                 |
+| `ASSERTION_NOT_FOUND`           | `indexAssertion` (single-target) against an unknown `assertionId`. `indexBatch` records the same condition in `skipped[]` with `reason: 'ASSERTION_NOT_FOUND'` instead of throwing.                                          |
+| `EMBEDDING_DIMENSION_MISMATCH`  | `indexAssertion` (single-target) when the supplied `embedding.length` does not match the namespace's stored dimension. `indexBatch` records the same condition in `skipped[]` with `reason: 'EMBEDDING_DIMENSION_MISMATCH'`. |
+| `NO_EMBEDDING_AND_NO_PROVIDER`  | `indexAssertion` (single-target) when no `embedding` is supplied and no `EmbeddingProvider` is bound to the namespace. `indexBatch` records the same condition in `skipped[]` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. |
 
 All errors include stable `.code` values and structured fields where useful.
 Error messages must be actionable without exposing source content, query
@@ -2701,10 +2738,10 @@ contract (they may appear in caller stack traces and SHOULD be filtered
 on `.code` rather than instance-of), even though they should be
 unreachable in correctly-used library code:
 
-| Code | Raised by |
-|---|---|
-| `SCORER_NO_USABLE_SIGNAL` | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5. |
-| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trl_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt. |
+| Code                                     | Raised by                                                                                                                                                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCORER_NO_USABLE_SIGNAL`                | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5. |
+| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trl_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt.                                   |
 
 ---
 
@@ -2992,19 +3029,31 @@ nothing about hot-path performance changes.
 
 ```typescript
 // v0.2
-const ep  = store.writeEpisode({ /* ... */ })
-const a   = store.writeAssertion({ /* ... */ })
-const hx  = store.getEntityHistory(ns, id)
+const ep = store.writeEpisode({
+  /* ... */
+})
+const a = store.writeAssertion({
+  /* ... */
+})
+const hx = store.getEntityHistory(ns, id)
 const stt = store.getStats(ns)
-const path = store.findPath({ /* ... */ })
-const r   = store.retrieve(q)
+const path = store.findPath({
+  /* ... */
+})
+const r = store.retrieve(q)
 
 // v0.3
-const ep  = await store.writeEpisode({ /* ... */ })
-const a   = await store.writeAssertion({ /* ... */ })
-const hx  = await store.getEntityHistory(ns, id)
+const ep = await store.writeEpisode({
+  /* ... */
+})
+const a = await store.writeAssertion({
+  /* ... */
+})
+const hx = await store.getEntityHistory(ns, id)
 const stt = await store.getStats(ns)
-const path = await store.findPath({ /* ... */ })
+const path = await store.findPath({
+  /* ... */
+})
 const { results, meta } = await store.retrieve(q)
 ```
 
@@ -3012,11 +3061,11 @@ const { results, meta } = await store.retrieve(q)
 
 ```typescript
 // Before (broken in v0.2 README — second call throws)
-store.writeAssertion({ id: 'new', supersedesId: 'old', /* ... */ })
+store.writeAssertion({ id: 'new', supersedesId: 'old' /* ... */ })
 store.supersedeAssertion('old', { validUntil: 5, replacedById: 'new' })
 
 // After (single canonical call)
-await store.writeAssertion({ id: 'new', validFrom: 5, supersedesId: 'old', /* ... */ })
+await store.writeAssertion({ id: 'new', validFrom: 5, supersedesId: 'old' /* ... */ })
 ```
 
 ### Optional nullable assertion fields
@@ -3079,12 +3128,16 @@ type annotation.
 ```typescript
 // Before (v0.2)
 class MyValidator implements AssertionValidator {
-  validate(a: NewAssertion): ValidationResult { /* ... */ }
+  validate(a: NewAssertion): ValidationResult {
+    /* ... */
+  }
 }
 
 // After (v0.3)
 class MyValidator implements AssertionValidator {
-  validate(a: NormalizedNewAssertion): ValidationResult { /* ... */ }
+  validate(a: NormalizedNewAssertion): ValidationResult {
+    /* ... */
+  }
 }
 ```
 
@@ -3131,13 +3184,13 @@ const { results, meta } = await store.retrieve({
 
 ```typescript
 // 0.1.x / 0.2.x default (raw FTS5 syntax interpreted)
-await store.retrieve({ queryText: 'alpha AND beta', /* ... */ })
+await store.retrieve({ queryText: 'alpha AND beta' /* ... */ })
 
 // v0.3 equivalent — preserve raw FTS5 semantics explicitly
-await store.retrieve({ queryText: 'alpha AND beta', queryTextMode: 'fts5', /* ... */ })
+await store.retrieve({ queryText: 'alpha AND beta', queryTextMode: 'fts5' /* ... */ })
 
 // v0.3 default — safe phrase mode (alpha AND beta is a literal three-word phrase)
-await store.retrieve({ queryText: 'alpha AND beta', /* queryTextMode: 'phrase' */ })
+await store.retrieve({ queryText: 'alpha AND beta' /* queryTextMode: 'phrase' */ })
 ```
 
 ### Batch indexing — result envelope
@@ -3183,14 +3236,15 @@ await store.close()
 ```
 
 The common filename path — `TemporalStore.create({ database: 'rag.db' })`
-+ `await store.close()` — now closes the underlying `better-sqlite3`
-handle automatically; the v0.3 ownership-driven default (see
-`CreateOptions.closeDatabaseOnStoreClose`) is "trageti closes what it
-opened." Override only when needed:
 
-- Pass `closeDatabaseOnStoreClose: false` with a filename input when the
+- `await store.close()` — now closes the underlying `better-sqlite3`
+  handle automatically; the v0.3 ownership-driven default (see
+  `CreateOptions.closeDatabaseOnStoreClose`) is "trageti closes what it
+  opened." Override only when needed:
+
+* Pass `closeDatabaseOnStoreClose: false` with a filename input when the
   handle should outlive the store (rare).
-- Pass `closeDatabaseOnStoreClose: true` with a caller-supplied
+* Pass `closeDatabaseOnStoreClose: true` with a caller-supplied
   `Database` when you intentionally want to transfer ownership of the
   handle to trageti.
 
@@ -3262,9 +3316,9 @@ the v0.3 contract.
   storage. v0.3 stays at `FLOAT[N]`. Quantization halves (or 32x for bit)
   memory at modest accuracy cost — meaningful for on-device deployments.
 - **`EmbedOptions.purpose` openness.** Closed enum (`'assertion' | 'query'
-  | 'reindex'`) vs open string for adapter-defined values (e.g.
-  `'similarity'`, `'classification'`). *Working assumption: closed; open is
-  more honest about model heterogeneity but harder to validate.*
+| 'reindex'`) vs open string for adapter-defined values (e.g.
+  `'similarity'`, `'classification'`). _Working assumption: closed; open is
+  more honest about model heterogeneity but harder to validate._
 - **`TRGT_RETRIEVE_PARTIAL` warning.** Whether retrieval should emit this
   when graph expansion is truncated by `maxDepth`, so consumers can detect
   "I would have returned more if you'd asked." Cheap to add; defer until a

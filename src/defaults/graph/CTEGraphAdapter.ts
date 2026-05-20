@@ -173,9 +173,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const allIds = [...new Set(candidates.flat())]
     const placeholders = allIds.map(() => '?').join(',')
     const linkRows = db
-      .prepare<string[], LinkRow>(
-        `SELECT * FROM trl_links WHERE id IN (${placeholders})`,
-      )
+      .prepare<string[], LinkRow>(`SELECT * FROM trl_links WHERE id IN (${placeholders})`)
       .all(...allIds)
     const byId = new Map<string, AssertionLink>()
     for (const r of linkRows) byId.set(r.id, rowToLink(r))
@@ -195,11 +193,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
   }
 }
 
-function comparePaths(
-  a: string[],
-  b: string[],
-  byId: Map<string, AssertionLink>,
-): number {
+function comparePaths(a: string[], b: string[], byId: Map<string, AssertionLink>): number {
   for (let i = 0; i < a.length; i++) {
     const aId = a[i]
     const bId = b[i]

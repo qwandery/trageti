@@ -44,13 +44,19 @@ export class StructuredFormatter implements ContextFormatter {
     for (const [entityType, items] of groups.entries()) {
       const header = `## ${entityType}`
       const headerTokens = Math.ceil(header.length * this.tokensPerChar)
-      if (tokenEstimate + headerTokens > budget) { truncated = true; break }
+      if (tokenEstimate + headerTokens > budget) {
+        truncated = true
+        break
+      }
 
       const bullets: string[] = []
       for (const item of items) {
         const bullet = `- [pos ${String(item.validFrom)}] ${item.content}${citationMarker(item.citations)}`
         const bulletTokens = Math.ceil(bullet.length * this.tokensPerChar)
-        if (tokenEstimate + headerTokens + bulletTokens > budget) { truncated = true; break }
+        if (tokenEstimate + headerTokens + bulletTokens > budget) {
+          truncated = true
+          break
+        }
         bullets.push(bullet)
         tokenEstimate += bulletTokens
         included++

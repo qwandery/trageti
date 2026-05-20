@@ -90,9 +90,10 @@ export class CitationRepository {
 
   getByAssertionId(assertionId: string): AssertionCitation[] {
     const rows = this.db
-      .prepare<[string], CitationRow>(
-        'SELECT * FROM trl_citations WHERE assertion_id = ? ORDER BY created_at, id',
-      )
+      .prepare<
+        [string],
+        CitationRow
+      >('SELECT * FROM trl_citations WHERE assertion_id = ? ORDER BY created_at, id')
       .all(assertionId)
     return rows.map(rowToCitation)
   }

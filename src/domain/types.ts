@@ -82,10 +82,9 @@ export type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'crea
  * shape). NewAssertion is preserved for back-compat; v0.3 writeAssertion accepts
  * NewAssertionInput and normalizes to NormalizedNewAssertion internally.
  */
-export type NewAssertion =
-  Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
-    citations: NewAssertionCitation[]
-  }
+export type NewAssertion = Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
+  citations: NewAssertionCitation[]
+}
 
 /**
  * v0.3 public write-API shape. `validUntil`, `supersedesId`, `entityId`, and
@@ -93,7 +92,13 @@ export type NewAssertion =
  */
 export type NewAssertionInput = Omit<
   Assertion,
-  'createdAt' | 'extensions' | 'citations' | 'validUntil' | 'supersedesId' | 'entityId' | 'entityType'
+  | 'createdAt'
+  | 'extensions'
+  | 'citations'
+  | 'validUntil'
+  | 'supersedesId'
+  | 'entityId'
+  | 'entityType'
 > & {
   validUntil?: number | null
   supersedesId?: string | null
@@ -106,10 +111,9 @@ export type NewAssertionInput = Omit<
  * v0.3 shape passed to AssertionValidator.validate(). Every nullable field is
  * explicit `null` (never `undefined`).
  */
-export type NormalizedNewAssertion =
-  Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
-    citations: NewAssertionCitation[]
-  }
+export type NormalizedNewAssertion = Omit<Assertion, 'createdAt' | 'extensions' | 'citations'> & {
+  citations: NewAssertionCitation[]
+}
 
 export interface AssertionLink {
   id: string
@@ -201,19 +205,35 @@ export interface RetrievedAssertion extends Assertion {
   supersessionChain?: Assertion[]
 }
 
+/** A single non-fatal warning surfaced through a `RetrievalResult`. */
+export interface RetrievalWarning {
+  code: string
+  message: string
+}
+
+/** Metadata envelope returned alongside retrieval results. */
+export interface RetrievalMeta {
+  namespace: string
+  temporalAnchor: number
+  limit: number
+  /** Count of candidates considered before scoring/truncation. */
+  candidateCount: number
+  retrievalStrategy: RetrievalStrategy
+  vectorApplied: boolean
+  bm25Applied: boolean
+  queryTextMode: QueryTextMode
+  /** Wall-clock duration of the retrieval call, in milliseconds. */
+  tookMs?: number
+  warnings: RetrievalWarning[]
+}
+
 /**
  * v0.3 retrieval envelope. `retrieve()` returns this shape; the bare-array
  * v0.2 return type is removed.
  */
 export interface RetrievalResult {
   results: RetrievedAssertion[]
-  meta: {
-    retrievalStrategy: RetrievalStrategy
-    vectorApplied: boolean
-    bm25Applied: boolean
-    tookMs: number
-    warnings: string[]
-  }
+  meta: RetrievalMeta
 }
 
 export interface RetrievalExplainStep {
