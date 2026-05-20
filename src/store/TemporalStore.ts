@@ -26,6 +26,9 @@ import type {
   RebuildFtsOptions,
   RebuildFtsResult,
   RetrievalExplainResult,
+  EmbeddingProvider,
+  InitNamespaceOptions,
+  UpgradeNamespaceToVectorOptions,
 } from '../domain/types.js'
 import { MigrationRunner } from '../db/migrations/runner.js'
 import { SchemaExtensionApplier } from '../db/schema/extensions.js'
@@ -49,9 +52,17 @@ import {
   ReferencedExtensionTableError,
   RetrievalInputError,
   EmbeddingProviderError,
+  ReindexError,
   ErrorCode,
 } from '../errors/index.js'
-import { ConsoleLogger, setDefaultLogger, structuredWarn, emitOnce } from '../internal/logger.js'
+import {
+  ConsoleLogger,
+  setDefaultLogger,
+  structuredWarn,
+  emitOnce,
+  incr,
+  observe,
+} from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
 import { quoteIdent } from '../internal/sql-ident.js'
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js'
@@ -92,6 +103,8 @@ export class TemporalStore {
   private readonly embeddingTableCache = new Map<string, string>()
   /** Cache: table → extension column names (for extensions bag) */
   private extensionColumnCache = new Map<string, string[]>()
+  /** Process-local per-namespace embedding providers (never persisted). */
+  private readonly namespaceProviders = new Map<string, EmbeddingProvider>()
 
   private initialized = false
   private closed = false
@@ -181,20 +194,37 @@ export class TemporalStore {
     this.initialized = true
   }
 
+  /**
+   * Register (or reopen) an additional namespace.
+   *
+   * On reopen of an existing vector-configured namespace, supplying a
+   * mismatching `embeddingDimension` throws `NamespaceDimensionMismatchError`
+   * (enforced in `NamespaceRepository.upsert`). Supplying no dimension is a
+   * no-op — the stored dimension stays authoritative. A per-namespace
+   * `embeddingProvider` is bound process-locally (never persisted).
+   */
   async initNamespace(
     namespace: string,
-    config: Partial<NamespaceConfig> = {},
+    options: InitNamespaceOptions = {},
   ): Promise<NamespaceConfig> {
     this.requireInit()
-    const dimension =
-      config.embeddingDimension ??
-      this.options.embeddingDimension ??
-      this.options.embeddingProvider?.dimension ??
-      null
-    this.namespaceRepo.upsert(namespace, dimension, config.config ?? {})
+    const dimension = options.embeddingDimension ?? options.embeddingProvider?.dimension ?? null
+    this.namespaceRepo.upsert(namespace, dimension, options.config ?? {})
+    if (options.embeddingProvider) {
+      this.namespaceProviders.set(namespace, options.embeddingProvider)
+    }
     const stored = this.namespaceRepo.get(namespace)
     if (!stored) throw new NamespaceNotInitializedError(namespace)
     return stored
+  }
+
+  /**
+   * Resolve the embedding provider for a namespace: the per-namespace binding
+   * if one was supplied to `initNamespace`/`upgradeNamespaceToVector`,
+   * otherwise the store-level default. Providers are process-local.
+   */
+  getNamespaceProvider(namespace: string): EmbeddingProvider | null {
+    return this.namespaceProviders.get(namespace) ?? this.options.embeddingProvider ?? null
   }
 
   // ─── Writing ───────────────────────────────────────────────────────────────
@@ -334,6 +364,11 @@ export class TemporalStore {
 
   // ─── Indexing ──────────────────────────────────────────────────────────────
 
+  /** Length of an embedding, accepting either Float32Array or number[]. */
+  private embeddingLength(e: Float32Array | number[]): number {
+    return e.length
+  }
+
   async indexAssertion(assertionId: string, embedding?: Float32Array | number[]): Promise<void> {
     this.requireInit()
     const assertion = this.assertionRepo.getById(assertionId)
@@ -345,28 +380,40 @@ export class TemporalStore {
       )
     }
     const table = this.ensureVectorReady(assertion.namespace, 'indexing')
+    const dim = this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null
+
+    let vec: Float32Array | number[]
     if (embedding) {
-      this.embeddingRepo.insert(table, assertionId, embedding)
-      return
+      vec = embedding
+    } else {
+      if (!this.options.embeddingProvider) {
+        throw new IndexingError(
+          ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+          `Cannot index "${assertionId}": no embedding supplied and no embedding provider configured`,
+          { assertionId },
+        )
+      }
+      const [computed] = await this.options.embeddingProvider.embed([assertion.content], {
+        purpose: 'assertion',
+      })
+      if (!computed) {
+        throw new IndexingError(
+          ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+          `Embedding provider returned no embedding for assertion "${assertionId}"`,
+          { assertionId },
+        )
+      }
+      vec = computed
     }
-    if (!this.options.embeddingProvider) {
+
+    if (dim !== null && this.embeddingLength(vec) !== dim) {
       throw new IndexingError(
-        ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
-        `Cannot index "${assertionId}": no embedding supplied and no embedding provider configured`,
+        ErrorCode.INDEXING_EMBEDDING_DIMENSION_MISMATCH,
+        `Embedding length ${String(this.embeddingLength(vec))} for "${assertionId}" does not match namespace dimension ${String(dim)}`,
         { assertionId },
       )
     }
-    const [computed] = await this.options.embeddingProvider.embed([assertion.content], {
-      purpose: 'assertion',
-    })
-    if (!computed) {
-      throw new IndexingError(
-        ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
-        `Embedding provider returned no embedding for assertion "${assertionId}"`,
-        { assertionId },
-      )
-    }
-    this.embeddingRepo.insert(table, assertionId, computed)
+    this.embeddingRepo.insert(table, assertionId, vec)
   }
 
   async indexBatch(
@@ -376,89 +423,142 @@ export class TemporalStore {
     this.requireInit()
     const mode = options.onProviderError ?? 'fail-fast'
     const provider = this.options.embeddingProvider
-    const skipped: IndexBatchResult['skipped'] = []
 
-    // Resolve each item: confirm the assertion exists, determine the embedding
-    // (caller-supplied or from the provider), and group by target vec0 table.
-    type Resolved = { table: string; assertionId: string; embedding: Float32Array | number[] }
-    const pending: Array<{
+    // Skips are tracked with their input index so the returned skipped[]
+    // preserves input order regardless of which resolution stage produced them.
+    const skips: Array<{ index: number; entry: IndexBatchResult['skipped'][number] }> = []
+    let indexed = 0
+
+    type Pending = {
       index: number
       assertion: Assertion
+      table: string
+      dim: number | null
       needsProvider: boolean
       supplied?: Float32Array | number[]
-    }> = []
+    }
+    const pending: Pending[] = []
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       if (!item) continue
       const assertion = this.assertionRepo.getById(item.assertionId)
       if (!assertion) {
-        skipped.push({
-          assertionId: item.assertionId,
-          reason: 'assertion not found',
-          errorCode: ErrorCode.INDEXING_ASSERTION_NOT_FOUND,
+        skips.push({
+          index: i,
+          entry: {
+            assertionId: item.assertionId,
+            reason: 'ASSERTION_NOT_FOUND',
+            errorCode: 'ASSERTION_NOT_FOUND',
+          },
         })
         continue
       }
-      // Validate that the namespace is vector-configured / sqlite-vec loaded.
-      this.ensureVectorReady(assertion.namespace, 'indexing')
+      // Validate the namespace is vector-configured / sqlite-vec loaded.
+      const table = this.ensureVectorReady(assertion.namespace, 'indexing')
+      const dim = this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null
 
       if (item.embedding) {
-        pending.push({ index: i, assertion, needsProvider: false, supplied: item.embedding })
+        if (dim !== null && this.embeddingLength(item.embedding) !== dim) {
+          skips.push({
+            index: i,
+            entry: {
+              assertionId: item.assertionId,
+              reason: 'EMBEDDING_DIMENSION_MISMATCH',
+              errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+            },
+          })
+          continue
+        }
+        pending.push({
+          index: i,
+          assertion,
+          table,
+          dim,
+          needsProvider: false,
+          supplied: item.embedding,
+        })
       } else if (provider) {
-        pending.push({ index: i, assertion, needsProvider: true })
+        pending.push({ index: i, assertion, table, dim, needsProvider: true })
       } else {
-        skipped.push({
-          assertionId: item.assertionId,
-          reason: 'no embedding supplied and no provider configured',
-          errorCode: ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
+        skips.push({
+          index: i,
+          entry: {
+            assertionId: item.assertionId,
+            reason: 'NO_EMBEDDING_AND_NO_PROVIDER',
+            errorCode: 'NO_EMBEDDING_AND_NO_PROVIDER',
+          },
         })
       }
     }
 
-    // Compute provider embeddings (batched in fail-fast, single-item in skip).
-    const computedByIndex = new Map<number, Float32Array>()
+    const persist = (p: Pending, vec: Float32Array | number[]): void => {
+      if (p.dim !== null && this.embeddingLength(vec) !== p.dim) {
+        skips.push({
+          index: p.index,
+          entry: {
+            assertionId: p.assertion.id,
+            reason: 'EMBEDDING_DIMENSION_MISMATCH',
+            errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+          },
+        })
+        return
+      }
+      this.embeddingRepo.insert(p.table, p.assertion.id, vec)
+      indexed++
+    }
+
+    // Caller-supplied embeddings persist immediately.
+    for (const p of pending) {
+      if (!p.needsProvider && p.supplied) persist(p, p.supplied)
+    }
+
+    // Provider-derived embeddings.
     const needsProvider = pending.filter((p) => p.needsProvider)
     if (needsProvider.length > 0 && provider) {
       if (mode === 'fail-fast') {
+        // Embed and persist chunk-by-chunk so a mid-run provider failure
+        // leaves EmbeddingProviderError.indexed reflecting rows actually
+        // written to vec0.
         const batchSize = options.batchSize ?? 64
-        let indexedCount = 0
         try {
           for (let off = 0; off < needsProvider.length; off += batchSize) {
             if (options.signal?.aborted) {
-              throw new EmbeddingProviderError(provider.name, indexedCount, 'aborted by signal')
+              throw new EmbeddingProviderError(provider.name, indexed, 'aborted by signal')
             }
             const chunk = needsProvider.slice(off, off + batchSize)
-            const texts = chunk.map((p) => p.assertion.content)
             const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
             if (options.signal) opts.signal = options.signal
-            const vecs = await provider.embed(texts, opts)
+            const vecs = await provider.embed(
+              chunk.map((p) => p.assertion.content),
+              opts,
+            )
             for (let k = 0; k < chunk.length; k++) {
               const vec = vecs[k]
               const c = chunk[k]
               if (!vec || !c) {
                 throw new EmbeddingProviderError(
                   provider.name,
-                  indexedCount,
+                  indexed,
                   `provider returned no vector for batch item ${String(k)}`,
                 )
               }
-              computedByIndex.set(c.index, vec)
-              indexedCount++
+              persist(c, vec)
             }
           }
         } catch (err) {
           if (err instanceof EmbeddingProviderError) throw err
-          throw new EmbeddingProviderError(provider.name, indexedCount, err)
+          throw new EmbeddingProviderError(provider.name, indexed, err)
         }
       } else {
-        // skip mode: embed one at a time, recording failures in skipped[].
+        // skip mode: embed one at a time; record failures in skipped[] with a
+        // stable `reason` token and a sanitized `errorCode` — never the raw
+        // provider message.
         for (const p of needsProvider) {
           if (options.signal?.aborted) {
-            skipped.push({
-              assertionId: p.assertion.id,
-              reason: 'aborted by signal',
-              errorCode: 'ABORTED',
+            skips.push({
+              index: p.index,
+              entry: { assertionId: p.assertion.id, reason: 'ABORTED', errorCode: 'ABORTED' },
             })
             continue
           }
@@ -467,50 +567,76 @@ export class TemporalStore {
             if (options.signal) opts.signal = options.signal
             const [vec] = await provider.embed([p.assertion.content], opts)
             if (!vec) {
-              skipped.push({
-                assertionId: p.assertion.id,
-                reason: 'provider returned no embedding',
-                errorCode: 'EMBEDDING_PROVIDER_EMPTY',
+              skips.push({
+                index: p.index,
+                entry: {
+                  assertionId: p.assertion.id,
+                  reason: 'EMBEDDING_PROVIDER_ERROR',
+                  errorCode: 'EMBEDDING_PROVIDER_EMPTY',
+                },
               })
               continue
             }
-            computedByIndex.set(p.index, vec)
-          } catch (err) {
-            skipped.push({
-              assertionId: p.assertion.id,
-              reason: err instanceof Error ? err.message : String(err),
-              errorCode: 'EMBEDDING_PROVIDER_ERROR',
+            persist(p, vec)
+          } catch {
+            // The raw error is intentionally not surfaced — it may carry
+            // assertion content or provider secrets.
+            skips.push({
+              index: p.index,
+              entry: {
+                assertionId: p.assertion.id,
+                reason: 'EMBEDDING_PROVIDER_ERROR',
+                errorCode: 'EMBEDDING_PROVIDER_ERROR',
+              },
             })
           }
         }
       }
     }
 
-    // Resolve all rows we intend to write and group by table.
-    const byTable = new Map<string, Resolved[]>()
-    for (const p of pending) {
-      const table = this.namespaceRepo.getEmbeddingTable(p.assertion.namespace)
-      if (!table) continue
-      const embedding = p.needsProvider ? computedByIndex.get(p.index) : p.supplied
-      if (!embedding) continue
-      const group = byTable.get(table) ?? []
-      group.push({ table, assertionId: p.assertion.id, embedding })
-      byTable.set(table, group)
-    }
-    for (const [table, batch] of byTable.entries()) {
-      this.embeddingRepo.insertBatch(table, batch)
-    }
-
-    const indexed = Array.from(byTable.values()).reduce((acc, b) => acc + b.length, 0)
+    const skipped = skips.sort((a, b) => a.index - b.index).map((s) => s.entry)
     if (skipped.length > 0) {
       this.options.logger.warn('TRGT_INDEX_BATCH_SKIPPED', { count: skipped.length })
+    }
+    incr(this.options.metrics ?? undefined, 'trageti.indexBatch.indexed', { count: indexed })
+    incr(this.options.metrics ?? undefined, 'trageti.indexBatch.skipped', { count: skipped.length })
+    const providerFailures = skipped.filter(
+      (s) => s.errorCode === 'EMBEDDING_PROVIDER_ERROR',
+    ).length
+    if (providerFailures > 0) {
+      incr(this.options.metrics ?? undefined, 'trageti.embeddingProvider.failures', {
+        count: providerFailures,
+      })
     }
     return { indexed, skipped }
   }
 
   async getPendingIndexing(namespace: string): Promise<Array<{ id: string; content: string }>> {
     this.requireNamespaceInit(namespace)
-    const table = this.ensureVectorReady(namespace, 'indexing')
+    // getPendingIndexing does NOT route through ensureVectorReady: its result
+    // is observable across the full (vectorless × vec0-exists × sqlite-vec)
+    // matrix without throwing for the vectorless / vec0-not-yet-created cases.
+    const config = this.namespaceRepo.get(namespace)
+    const table = this.namespaceRepo.getEmbeddingTable(namespace)
+    if (!config || config.embeddingDimension === null || !table) {
+      // Vectorless namespace — nothing is ever pending vector indexing.
+      this.options.logger.debug('TRGT_PENDING_INDEXING_VECTORLESS', { namespace })
+      return []
+    }
+    if (!this.embeddingRepo.tableExists(table)) {
+      // Vector-configured but the vec0 table has not been lazily created yet —
+      // every active assertion is pending. This case does not touch vec0, so
+      // it works whether or not sqlite-vec is loaded.
+      return this.embeddingRepo.getAllActiveContent(namespace)
+    }
+    if (!this.isSqliteVecLoaded()) {
+      // vec0 exists but the extension is not loaded — cannot introspect it.
+      throw new MissingPeerDependencyError(
+        'sqlite-vec',
+        'npm install sqlite-vec',
+        'load sqlite-vec to introspect indexing state for a vector namespace',
+      )
+    }
     return this.embeddingRepo.getPendingIndexing(table, namespace)
   }
 
@@ -525,9 +651,12 @@ export class TemporalStore {
         embeddingRepo: this.embeddingRepo,
         getEmbeddingTable: (ns) => this.ensureVectorReady(ns, 'retrieval'),
         getPositionRange: (ns) => this.namespaceRepo.getPositionRange(ns),
+        getDimension: (ns) => this.namespaceRepo.get(ns)?.embeddingDimension ?? null,
         globalScorer: this.options.scorer,
         globalMiddleware: this.options.middleware,
         graphAdapter: this.options.graphAdapter,
+        logger: this.options.logger,
+        metrics: this.options.metrics ?? null,
       },
       query,
     )
@@ -651,28 +780,26 @@ export class TemporalStore {
 
   async reindexNamespace(
     namespace: string,
-    options: ReindexOptions & {
-      newDimension: number
-      embeddingProvider: (assertionId: string, content: string) => Promise<Float32Array>
-    },
+    options: ReindexOptions & { embeddingProvider?: EmbeddingProvider } = {},
   ): Promise<ReindexResult> {
     this.requireNamespaceInit(namespace)
-    await doReindex(
-      this.db,
-      this.namespaceRepo,
-      this.embeddingRepo,
-      this.assertionRepo,
-      namespace,
-      options,
-    )
-    // Re-warm embedding table cache
+    const provider = options.embeddingProvider ?? this.options.embeddingProvider
+    if (!provider) {
+      throw new ReindexError(
+        namespace,
+        0,
+        'reindexNamespace requires an embeddingProvider (none supplied and none configured on the store)',
+      )
+    }
+    const result = await doReindex(this.db, this.namespaceRepo, this.embeddingRepo, namespace, {
+      ...options,
+      embeddingProvider: provider,
+    })
+    // The embedding_table was repointed by the staging swap — refresh the cache.
     const newTable = this.namespaceRepo.getEmbeddingTable(namespace)
     if (newTable) this.embeddingTableCache.set(namespace, newTable)
-    return {
-      reindexed: this.assertionRepo.getStats(namespace).assertionCount,
-      skipped: [],
-      durationMs: 0,
-    }
+    observe(this.options.metrics ?? undefined, 'trageti.reindex.tookMs', result.durationMs)
+    return result
   }
 
   async getStats(namespace: string): Promise<NamespaceStats> {
@@ -777,30 +904,81 @@ export class TemporalStore {
 
   async upgradeNamespaceToVector(
     namespace: string,
-    options: { embeddingDimension: number },
+    options: UpgradeNamespaceToVectorOptions,
   ): Promise<void> {
     this.requireNamespaceInit(namespace)
+    const existing = this.namespaceRepo.get(namespace)
+    if (existing && existing.embeddingDimension !== null) {
+      throw new ValidationError([
+        `Namespace "${namespace}" is already vector-configured (dimension ${String(existing.embeddingDimension)}). ` +
+          'Use reindexNamespace() to change the dimension.',
+      ])
+    }
     const table = namespaceToEmbeddingTable(namespace)
     this.db.transaction(() => {
       this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
       this.embeddingTableCache.set(namespace, table)
     })()
+    if (options.embeddingProvider) {
+      this.namespaceProviders.set(namespace, options.embeddingProvider)
+    }
     this.options.logger.info('TRGT_NAMESPACE_VECTOR_UPGRADED', {
       namespace,
       embeddingDimension: options.embeddingDimension,
     })
   }
 
+  /**
+   * Non-executing retrieval planning introspection. Reports the strategy,
+   * the per-step plan, and whether each branch would actually run — without
+   * touching the assertion/embedding data.
+   *
+   * Note: the provider-derived case (queryText + configured provider, no
+   * queryEmbedding) is finalized in R3 (hybrid Step-0 routing). At present
+   * `wouldApplyVector` is accurate for the supplied-`queryEmbedding` and
+   * `bm25`-strategy cases and conservative otherwise.
+   */
   async explain(query: RetrievalQuery): Promise<RetrievalExplainResult> {
     this.requireNamespaceInit(query.namespace)
-    return {
-      query,
-      retrievalStrategy: query.retrievalStrategy ?? 'hybrid',
-      steps: [{ name: 'validate' }],
-      wouldApplyVector: query.retrievalStrategy !== 'bm25',
-      wouldApplyBm25: Boolean(query.queryText),
-      notes: [],
+    const strategy = query.retrievalStrategy ?? 'hybrid'
+    const config = this.namespaceRepo.get(query.namespace)
+    const table = this.namespaceRepo.getEmbeddingTable(query.namespace)
+    const vectorReady = Boolean(
+      table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table),
+    )
+    const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0
+    const hasQueryEmbedding = Boolean(query.queryEmbedding)
+    const notes: string[] = []
+
+    const wouldApplyVector =
+      strategy !== 'bm25' && hasQueryEmbedding && config?.embeddingDimension !== null
+    const wouldApplyBm25 = strategy !== 'vector' && hasQueryText
+
+    if (strategy !== 'bm25' && hasQueryEmbedding && config?.embeddingDimension === null) {
+      notes.push('namespace is vectorless — vector retrieval cannot apply')
     }
+    if (strategy !== 'bm25' && !hasQueryEmbedding) {
+      notes.push(
+        'no queryEmbedding supplied — provider-derived embedding is resolved at retrieve time (R3)',
+      )
+    }
+
+    const steps: RetrievalExplainResult['steps'] = [
+      { step: 'temporal-filter', notes: ['filters trl_assertions by namespace + temporal anchor'] },
+    ]
+    if (wouldApplyVector) {
+      steps.push({
+        step: 'vector',
+        vectorReady,
+        sql: 'vec_distance_cosine over the namespace vec0 table',
+      })
+    }
+    if (wouldApplyBm25) {
+      steps.push({ step: 'bm25', sql: 'bm25(trl_fts) over the FTS5 index' })
+    }
+    steps.push({ step: 'score' }, { step: 'rank' })
+
+    return { query, retrievalStrategy: strategy, steps, wouldApplyVector, wouldApplyBm25, notes }
   }
 
   async close(): Promise<void> {
@@ -905,24 +1083,6 @@ export class TemporalStore {
     if (!this.namespaceRepo.get(namespace)) {
       throw new NamespaceNotInitializedError(namespace)
     }
-  }
-
-  private getOrCacheEmbeddingTable(namespace: string): string | null {
-    const cached = this.embeddingTableCache.get(namespace)
-    if (cached) return cached
-    const fromDb = this.namespaceRepo.getEmbeddingTable(namespace)
-    if (fromDb) {
-      this.embeddingTableCache.set(namespace, fromDb)
-      return fromDb
-    }
-    // Namespace just created in this call — compute from hash
-    return null
-  }
-
-  private requireEmbeddingTable(namespace: string): string {
-    const table = this.getOrCacheEmbeddingTable(namespace)
-    if (!table) throw new NamespaceNotInitializedError(namespace)
-    return table
   }
 
   private warmExtensionCache(): void {

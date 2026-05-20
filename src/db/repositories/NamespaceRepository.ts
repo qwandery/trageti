@@ -112,13 +112,18 @@ export class NamespaceRepository {
     this.db.prepare('DELETE FROM trl_namespaces WHERE namespace = ?').run(namespace)
   }
 
-  getPositionRange(namespace: string): { min: number; max: number } {
+  /**
+   * The validFrom range across the namespace's *active* assertions
+   * (validUntil IS NULL). Empty namespace → { min: null, max: null }.
+   * Drives the recency term in scoring and `NamespaceStats.positionRange`.
+   */
+  getPositionRange(namespace: string): { min: number | null; max: number | null } {
     const row = this.db
       .prepare<
         [string],
         { min: number | null; max: number | null }
-      >('SELECT MIN(position) AS min, MAX(position) AS max FROM trl_episodes WHERE namespace = ?')
+      >('SELECT MIN(valid_from) AS min, MAX(valid_from) AS max FROM trl_assertions WHERE namespace = ? AND valid_until IS NULL')
       .get(namespace)
-    return { min: row?.min ?? 0, max: row?.max ?? 0 }
+    return { min: row?.min ?? null, max: row?.max ?? null }
   }
 }

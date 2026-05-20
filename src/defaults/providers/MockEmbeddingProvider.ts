@@ -9,12 +9,17 @@ import { createHash } from 'node:crypto'
  * Spec §979: emits TRGT_MOCK_PROVIDER_NON_PRODUCTION exactly once per process
  * when used outside `NODE_ENV === 'test'`.
  */
+export interface MockEmbeddingProviderOptions {
+  /** Embedding dimension to produce. Default 384. */
+  dimension?: number
+}
+
 export class MockEmbeddingProvider implements EmbeddingProvider {
   readonly name = 'mock'
   readonly dimension: number
 
-  constructor(dimension = 384) {
-    this.dimension = dimension
+  constructor(options: MockEmbeddingProviderOptions = {}) {
+    this.dimension = options.dimension ?? 384
   }
 
   embed(texts: readonly string[], _options?: EmbedOptions): Promise<Float32Array[]> {

@@ -237,8 +237,15 @@ export interface RetrievalResult {
 }
 
 export interface RetrievalExplainStep {
-  name: string
-  estimatedCandidates?: number
+  /** Step identifier (e.g. 'temporal-filter', 'vector', 'bm25', 'score'). */
+  step: string
+  /** SQL the step would execute, when applicable. */
+  sql?: string
+  /** SQLite query plan for `sql`, when introspected. */
+  queryPlan?: string
+  /** Estimated row count entering/leaving the step. */
+  estimatedRows?: number
+  /** Whether the namespace's vec0 table is ready for this step. */
   vectorReady?: boolean
   notes?: string[]
 }
@@ -264,9 +271,11 @@ export interface ScoredCandidate {
 
 export interface ScoringContext {
   temporalAnchor: number
+  /** validFrom range across the namespace's active assertions; both null
+   *  when the namespace has no active assertions. */
   namespacePositionRange: {
-    min: number
-    max: number
+    min: number | null
+    max: number | null
   }
   query: RetrievalQuery
 }
@@ -427,6 +436,8 @@ export interface ReindexOptions {
   allowPartialSwap?: boolean
   /** Optional new dimension; defaults to the namespace's current dimension. */
   newDimension?: number
+  /** Per-batch row size while re-embedding. Default 200. */
+  batchSize?: number
   /** Optional cancellation signal. */
   signal?: AbortSignal
   /** Embedding provider override for this reindex. */
@@ -572,6 +583,17 @@ export interface PrepareDatabaseOptions {
 export interface UpgradeNamespaceToVectorOptions {
   embeddingDimension: number
   embeddingProvider?: EmbeddingProvider
+}
+
+export interface InitNamespaceOptions {
+  /** Embedding dimension. Omit for a vectorless namespace. On reopen of an
+   *  existing vector-configured namespace, a mismatching value throws
+   *  NamespaceDimensionMismatchError. */
+  embeddingDimension?: number
+  /** Per-namespace embedding provider (process-local; never persisted). */
+  embeddingProvider?: EmbeddingProvider
+  /** Arbitrary caller metadata stored as JSON. */
+  config?: Record<string, unknown>
 }
 
 export interface DeleteNamespaceOptions {

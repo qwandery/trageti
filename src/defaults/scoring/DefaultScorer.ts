@@ -35,7 +35,8 @@ export class DefaultScorer implements RetrievalScorer {
         ? null
         : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
     const { min, max } = context.namespacePositionRange
-    const recency = max > min ? (candidate.position - min) / (max - min) : 1
+    const recency =
+      min !== null && max !== null && max > min ? (candidate.position - min) / (max - min) : 1
 
     if (candidate.bm25Score !== null) {
       // Raw FTS5: negative, more-negative = better. Compress via 1 / (1 + |x|).
@@ -86,7 +87,8 @@ export class DefaultScorer implements RetrievalScorer {
         candidate.semanticDistance === null
           ? null
           : Math.max(0, Math.min(1, 1 - candidate.semanticDistance))
-      const recency = max > min ? (candidate.position - min) / (max - min) : 1
+      const recency =
+        min !== null && max !== null && max > min ? (candidate.position - min) / (max - min) : 1
 
       if (candidate.bm25Score !== null) {
         const bm25 = bm25NormalisedById.get(i) ?? 0

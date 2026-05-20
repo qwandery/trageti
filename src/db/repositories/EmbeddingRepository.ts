@@ -24,6 +24,12 @@ export class EmbeddingRepository {
     return row !== undefined
   }
 
+  /** Drop a vec0 table if it exists. Used to discard reindex staging tables
+   *  and to remove the previous index after a successful staging swap. */
+  dropTable(tableName: string): void {
+    this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`)
+  }
+
   dropAndRecreate(tableName: string, dimension: number): void {
     this.db.transaction(() => {
       this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`)
@@ -59,16 +65,35 @@ export class EmbeddingRepository {
     tx()
   }
 
+  /**
+   * Active assertions in the namespace that have no corresponding embedding
+   * row in the vec0 table. Only active assertions (validUntil IS NULL) are
+   * considered pending.
+   */
   getPendingIndexing(tableName: string, namespace: string): Array<{ id: string; content: string }> {
-    // Pending = assertions in this namespace with no corresponding embedding row
     const sql = `
       SELECT a.id, a.content
       FROM trl_assertions a
       LEFT JOIN ${quoteIdent(tableName)} e ON a.id = e.assertion_id
       WHERE a.namespace = ?
+        AND a.valid_until IS NULL
         AND e.assertion_id IS NULL
     `
     return this.db.prepare<[string], { id: string; content: string }>(sql).all(namespace)
+  }
+
+  /**
+   * All active assertions in the namespace, regardless of indexing state.
+   * Used when the vec0 table does not exist yet — every active assertion is
+   * pending by definition.
+   */
+  getAllActiveContent(namespace: string): Array<{ id: string; content: string }> {
+    return this.db
+      .prepare<
+        [string],
+        { id: string; content: string }
+      >('SELECT id, content FROM trl_assertions WHERE namespace = ? AND valid_until IS NULL')
+      .all(namespace)
   }
 
   getIndexedCount(tableName: string, namespace: string): number {

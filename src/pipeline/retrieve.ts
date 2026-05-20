@@ -17,15 +17,44 @@ import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository
 import { buildCandidateJson } from '../db/candidates.js'
 import { applyMiddleware } from './middleware.js'
 import { ErrorCode, RetrievalInputError, ValidationError } from '../errors/index.js'
+import type { Logger, Metrics } from '../internal/logger.js'
+import { observe } from '../internal/logger.js'
 
 interface RetrieveContext {
   assertionRepo: AssertionRepository
   embeddingRepo: EmbeddingRepository
   getEmbeddingTable: (namespace: string) => string
-  getPositionRange: (namespace: string) => { min: number; max: number }
+  getPositionRange: (namespace: string) => { min: number | null; max: number | null }
+  /** Configured embedding dimension for a namespace, or null if vectorless. */
+  getDimension: (namespace: string) => number | null
   globalScorer: RetrievalScorer
   globalMiddleware: readonly RetrievalMiddleware[]
   graphAdapter: GraphQueryAdapter
+  logger: Logger
+  metrics: Metrics | null
+}
+
+/**
+ * Invoke a `RetrievalDebug.onStep` hook safely. The hook is synchronous and
+ * must not throw; a throwing handler is wrapped, swallowed, and logged once
+ * as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` so a broken hook never breaks retrieval.
+ */
+function debugStep(
+  query: RetrievalQuery,
+  logger: Logger,
+  step: string,
+  info: Record<string, unknown>,
+): void {
+  const hook = query.debug?.onStep
+  if (!hook) return
+  try {
+    hook(step, info)
+  } catch (err) {
+    logger.warn('TRGT_RETRIEVAL_DEBUG_HOOK_ERROR', {
+      step,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 interface Step1Row {
@@ -57,6 +86,8 @@ export function retrieve(
   const core = (q: RetrievalQuery): RetrievalResult => retrieveCore(db, ctx, q)
   const result = applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core)
   result.meta.tookMs = Date.now() - started
+  observe(ctx.metrics ?? undefined, 'trageti.retrieve.tookMs', result.meta.tookMs)
+  observe(ctx.metrics ?? undefined, 'trageti.retrieve.candidateCount', result.meta.candidateCount)
   return result
 }
 
@@ -108,34 +139,75 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       bm25Applied,
     })
 
+  // Treat a whitespace-only queryText as absent.
+  const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0
+  const hasQueryEmbedding = Boolean(query.queryEmbedding)
+
   // Strategy-specific input validation.
-  if (strategy === 'vector' && !query.queryEmbedding) {
+  if (strategy === 'vector' && !hasQueryEmbedding) {
     throw new RetrievalInputError(
       ErrorCode.RETRIEVAL_REQUIRES_VECTOR_INPUT,
       "retrievalStrategy 'vector' requires queryEmbedding or an embedding provider",
     )
   }
-  if (strategy === 'bm25' && !query.queryText) {
+  if (strategy === 'bm25' && !hasQueryText) {
     throw new RetrievalInputError(
       ErrorCode.RETRIEVAL_REQUIRES_QUERY_TEXT,
-      "retrievalStrategy 'bm25' requires queryText",
+      "retrievalStrategy 'bm25' requires a non-empty queryText",
     )
   }
-  if (!query.queryText && !query.queryEmbedding) {
+  if (!hasQueryText && !hasQueryEmbedding) {
     throw new RetrievalInputError(
       ErrorCode.RETRIEVAL_INPUT_EMPTY,
-      'retrieve requires queryText, queryEmbedding, or both',
+      'retrieve requires a non-empty queryText, a queryEmbedding, or both',
+    )
+  }
+
+  // maxDepth (only meaningful with expandLinks, but validate whenever supplied).
+  if (query.maxDepth !== undefined && (!Number.isInteger(query.maxDepth) || query.maxDepth < 1)) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH,
+      `maxDepth must be a positive integer, got ${String(query.maxDepth)}`,
+    )
+  }
+
+  // queryEmbedding length vs the namespace's configured dimension.
+  if (query.queryEmbedding) {
+    const dim = ctx.getDimension(query.namespace)
+    if (dim !== null && query.queryEmbedding.length !== dim) {
+      throw new RetrievalInputError(
+        ErrorCode.RETRIEVAL_DIMENSION_MISMATCH,
+        `queryEmbedding length ${String(query.queryEmbedding.length)} does not match namespace dimension ${String(dim)}`,
+      )
+    }
+  }
+
+  // temporalWindow ordering.
+  const tw = query.temporalWindow
+  if (tw?.from !== undefined && tw.to !== undefined && tw.from > tw.to) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      `temporalWindow.from (${String(tw.from)}) must not exceed temporalWindow.to (${String(tw.to)})`,
+    )
+  }
+
+  // minConfidence bounds.
+  if (query.minConfidence !== undefined && (query.minConfidence < 0 || query.minConfidence > 1)) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      `minConfidence must be within [0, 1], got ${String(query.minConfidence)}`,
     )
   }
 
   // Step 1: Temporal filter (applies in all strategies).
   const step1 = runStep1(db, query)
+  debugStep(query, ctx.logger, 'temporal-filter', { candidates: step1.length })
   if (step1.length === 0) {
     return {
       results: [],
       meta: emptyMeta(
-        strategy !== 'bm25' && Boolean(query.queryEmbedding),
-        strategy !== 'vector' && Boolean(query.queryText),
+        strategy !== 'bm25' && hasQueryEmbedding,
+        strategy !== 'vector' && hasQueryText,
       ),
     }
   }
@@ -145,16 +217,17 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
 
   // Step 2: Vector candidate selection (when applicable).
   const step2Rows: Step2Row[] = []
-  const applyVector = strategy !== 'bm25' && Boolean(query.queryEmbedding)
+  const applyVector = strategy !== 'bm25' && hasQueryEmbedding
   if (applyVector && query.queryEmbedding) {
     const embeddingTable = ctx.getEmbeddingTable(query.namespace)
     const rows = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
     for (const r of rows) step2Rows.push(r)
   }
+  debugStep(query, ctx.logger, 'vector', { applied: applyVector, candidates: step2Rows.length })
 
   // Step 3: BM25 candidate / re-rank (when applicable).
   const bm25Map = new Map<string, number>()
-  const applyBm25 = strategy !== 'vector' && Boolean(query.queryText)
+  const applyBm25 = strategy !== 'vector' && hasQueryText
   if (applyBm25 && query.queryText) {
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText
     try {
@@ -172,6 +245,8 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       throw err
     }
   }
+
+  debugStep(query, ctx.logger, 'bm25', { applied: applyBm25, candidates: bm25Map.size })
 
   // Build candidate set: union of vector and BM25 hits.
   const candidateIds = new Set<string>()
@@ -292,6 +367,8 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       result.supersessionChain = chain.length > 0 ? chain.slice(0, -1) : []
     }
   }
+
+  debugStep(query, ctx.logger, 'rank', { returned: results.length, scored: candidates.length })
 
   return {
     results,

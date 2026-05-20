@@ -2,21 +2,27 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { Database } from 'better-sqlite3'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
+import type { EmbeddingProvider } from '../../src/domain/types.js'
 import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'test-ns'
 const DIM_INIT = 4
 const DIM_NEW = 8
 
-function makeEmbeddingProvider(dim: number) {
-  return async (_id: string, _content: string): Promise<Float32Array> => {
-    const vec = new Float32Array(dim)
-    vec[0] = 1
-    return vec
+function makeProvider(dim: number): EmbeddingProvider {
+  return {
+    name: 'test-fixed',
+    dimension: dim,
+    embed: async (texts) =>
+      texts.map(() => {
+        const vec = new Float32Array(dim)
+        vec[0] = 1
+        return vec
+      }),
   }
 }
 
-describe('TemporalStore — reindexNamespace', () => {
+describe('TemporalStore — reindexNamespace (staging-swap)', () => {
   let db: Database
   let store: TemporalStore
 
@@ -24,73 +30,41 @@ describe('TemporalStore — reindexNamespace', () => {
     db = openTestDb()
     store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM_INIT })
     await store.init()
-    await store.writeEpisode({
-      id: 'ep-1',
-      namespace: NS,
-      position: 1,
-      occurredAt: '',
-      type: 'doc',
-      content: 'c',
-    })
-    await store.writeEpisode({
-      id: 'ep-2',
-      namespace: NS,
-      position: 2,
-      occurredAt: '',
-      type: 'doc',
-      content: 'c',
-    })
-    await store.writeEpisode({
-      id: 'ep-3',
-      namespace: NS,
-      position: 3,
-      occurredAt: '',
-      type: 'doc',
-      content: 'c',
-    })
-    await store.writeAssertion({
-      id: 'a-1',
-      namespace: NS,
-      type: 'fact',
-      content: 'First.',
-      validFrom: 1,
-      validUntil: null,
-      confidence: 1,
-      sourceEpisodeId: 'ep-1',
-      supersedesId: null,
-      entityId: null,
-      entityType: null,
-      citations: [citationFor('a-1', 'ep-1')],
-    })
-    await store.writeAssertion({
-      id: 'a-2',
-      namespace: NS,
-      type: 'fact',
-      content: 'Second.',
-      validFrom: 2,
-      validUntil: null,
-      confidence: 1,
-      sourceEpisodeId: 'ep-2',
-      supersedesId: null,
-      entityId: null,
-      entityType: null,
-      citations: [citationFor('a-2', 'ep-2')],
-    })
-    await store.writeAssertion({
-      id: 'a-3',
-      namespace: NS,
-      type: 'fact',
-      content: 'Third.',
-      validFrom: 3,
-      validUntil: null,
-      confidence: 1,
-      sourceEpisodeId: 'ep-3',
-      supersedesId: null,
-      entityId: null,
-      entityType: null,
-      citations: [citationFor('a-3', 'ep-3')],
-    })
-    // Index all three at dim=4
+    for (const [id, pos] of [
+      ['ep-1', 1],
+      ['ep-2', 2],
+      ['ep-3', 3],
+    ] as const) {
+      await store.writeEpisode({
+        id,
+        namespace: NS,
+        position: pos,
+        occurredAt: '',
+        type: 'doc',
+        content: 'c',
+      })
+    }
+    for (const [id, ep, pos] of [
+      ['a-1', 'ep-1', 1],
+      ['a-2', 'ep-2', 2],
+      ['a-3', 'ep-3', 3],
+    ] as const) {
+      await store.writeAssertion({
+        id,
+        namespace: NS,
+        type: 'fact',
+        content: `Assertion ${id}.`,
+        validFrom: pos,
+        validUntil: null,
+        confidence: 1,
+        sourceEpisodeId: ep,
+        supersedesId: null,
+        entityId: null,
+        entityType: null,
+        citations: [citationFor(id, ep)],
+      })
+    }
+    // Index all three at dim=4.
     await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))
     await store.indexAssertion('a-2', new Float32Array([0, 1, 0, 0]))
     await store.indexAssertion('a-3', new Float32Array([0, 0, 1, 0]))
@@ -101,68 +75,74 @@ describe('TemporalStore — reindexNamespace', () => {
   })
 
   it('reindex dim 4→8: indexedCount is 3 after reindex', async () => {
-    await store.reindexNamespace(NS, {
+    const result = await store.reindexNamespace(NS, {
       newDimension: DIM_NEW,
-      embeddingProvider: makeEmbeddingProvider(DIM_NEW),
+      embeddingProvider: makeProvider(DIM_NEW),
     })
+    expect(result.reindexed).toBe(3)
+    expect(result.swappedAt).toBeDefined()
     expect((await store.getStats(NS)).indexedCount).toBe(3)
+    expect((await store.getStats(NS)).embeddingDimension).toBe(DIM_NEW)
   })
 
-  it('reindex clears old embeddings before inserting new ones', async () => {
-    // After reindex, retrieve with new dim should still work
+  it('reindex leaves no pending assertions', async () => {
     await store.reindexNamespace(NS, {
       newDimension: DIM_NEW,
-      embeddingProvider: makeEmbeddingProvider(DIM_NEW),
+      embeddingProvider: makeProvider(DIM_NEW),
     })
-    const pending = await store.getPendingIndexing(NS)
-    expect(pending).toHaveLength(0)
+    expect(await store.getPendingIndexing(NS)).toHaveLength(0)
   })
 
-  it('failed reindex leaves vec0 table empty (resumable via getPendingIndexing)', async () => {
-    const throwingProvider = async (_id: string, _content: string): Promise<Float32Array> => {
-      throw new Error('Embedding service unavailable')
+  it('failed reindex preserves the previous index (staging-swap is non-destructive)', async () => {
+    const throwing: EmbeddingProvider = {
+      name: 'broken',
+      dimension: DIM_NEW,
+      embed: async () => {
+        throw new Error('Embedding service unavailable')
+      },
     }
 
     await expect(
-      store.reindexNamespace(NS, {
-        newDimension: DIM_NEW,
-        embeddingProvider: throwingProvider,
-      }),
-    ).rejects.toThrow('Embedding service unavailable')
+      store.reindexNamespace(NS, { newDimension: DIM_NEW, embeddingProvider: throwing }),
+    ).rejects.toThrow(/Embedding service unavailable/)
 
-    // Table was recreated empty — all assertions are pending
-    const pending = await store.getPendingIndexing(NS)
-    expect(pending).toHaveLength(3)
-    expect(pending.map((p) => p.id).sort()).toEqual(['a-1', 'a-2', 'a-3'])
+    // The previous index is intact — all three are still indexed at dim 4.
+    expect((await store.getStats(NS)).indexedCount).toBe(3)
+    expect((await store.getStats(NS)).embeddingDimension).toBe(DIM_INIT)
+    expect(await store.getPendingIndexing(NS)).toHaveLength(0)
   })
 
-  it('can resume after failed reindex by calling reindexNamespace again', async () => {
-    const throwingProvider = async (): Promise<Float32Array> => {
-      throw new Error('transient error')
+  it('can resume after a failed reindex by calling reindexNamespace again', async () => {
+    const throwing: EmbeddingProvider = {
+      name: 'broken',
+      dimension: DIM_NEW,
+      embed: async () => {
+        throw new Error('transient error')
+      },
     }
 
     await expect(
-      store.reindexNamespace(NS, { newDimension: DIM_NEW, embeddingProvider: throwingProvider }),
+      store.reindexNamespace(NS, { newDimension: DIM_NEW, embeddingProvider: throwing }),
     ).rejects.toThrow()
 
-    // Resume with working provider
+    // Retry with a working provider.
     await store.reindexNamespace(NS, {
       newDimension: DIM_NEW,
-      embeddingProvider: makeEmbeddingProvider(DIM_NEW),
+      embeddingProvider: makeProvider(DIM_NEW),
     })
 
     expect((await store.getStats(NS)).indexedCount).toBe(3)
     expect(await store.getPendingIndexing(NS)).toHaveLength(0)
   })
 
-  it('getStats().indexedCount reflects indexed count after reindex', async () => {
-    expect((await store.getStats(NS)).indexedCount).toBe(3) // before
-
-    await store.reindexNamespace(NS, {
-      newDimension: DIM_NEW,
-      embeddingProvider: makeEmbeddingProvider(DIM_NEW),
+  it('reindexNamespace uses the store-configured provider when none is passed', async () => {
+    const storeWithProvider = new TemporalStore(db, {
+      namespace: NS,
+      embeddingDimension: DIM_INIT,
+      embeddingProvider: makeProvider(DIM_NEW),
     })
-
-    expect((await store.getStats(NS)).indexedCount).toBe(3) // after
+    await storeWithProvider.init()
+    const result = await storeWithProvider.reindexNamespace(NS, { newDimension: DIM_NEW })
+    expect(result.reindexed).toBe(3)
   })
 })
