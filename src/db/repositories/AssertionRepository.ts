@@ -45,7 +45,7 @@ export class AssertionRepository {
   insert(assertion: Omit<NormalizedNewAssertion, 'citations'>): void {
     this.db
       .prepare(
-        `INSERT INTO trl_assertions
+        `INSERT INTO trageti_assertions
            (id, namespace, type, content, valid_from, valid_until, confidence,
             source_episode_id, supersedes_id, entity_id, entity_type, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -73,13 +73,13 @@ export class AssertionRepository {
    */
   supersedeAssertion(assertionId: string, validUntil: number): void {
     this.db
-      .prepare('UPDATE trl_assertions SET valid_until = ? WHERE id = ?')
+      .prepare('UPDATE trageti_assertions SET valid_until = ? WHERE id = ?')
       .run(validUntil, assertionId)
   }
 
   getById(id: string): Assertion | null {
     const row = this.db
-      .prepare<[string], AssertionRow>('SELECT * FROM trl_assertions WHERE id = ?')
+      .prepare<[string], AssertionRow>('SELECT * FROM trageti_assertions WHERE id = ?')
       .get(id)
     if (!row) return null
     return this.rowToAssertion(row, this.citationRepo.getByAssertionId(id))
@@ -97,7 +97,7 @@ export class AssertionRepository {
       .prepare<
         [string],
         AssertionRow
-      >('SELECT * FROM trl_assertions WHERE id IN (SELECT value FROM json_each(?))')
+      >('SELECT * FROM trageti_assertions WHERE id IN (SELECT value FROM json_each(?))')
       .all(json)
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
@@ -128,7 +128,7 @@ export class AssertionRepository {
       params.push(options.type)
     }
 
-    const sql = `SELECT * FROM trl_assertions WHERE ${conditions.join(' AND ')}`
+    const sql = `SELECT * FROM trageti_assertions WHERE ${conditions.join(' AND ')}`
     const rows = this.db.prepare<unknown[], AssertionRow>(sql).all(...params)
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
@@ -139,7 +139,7 @@ export class AssertionRepository {
       .prepare<
         [string, string],
         AssertionRow
-      >('SELECT * FROM trl_assertions WHERE namespace = ? AND entity_id = ? ORDER BY valid_from ASC')
+      >('SELECT * FROM trageti_assertions WHERE namespace = ? AND entity_id = ? ORDER BY valid_from ASC')
       .all(namespace, entityId)
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id))
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []))
@@ -162,13 +162,13 @@ export class AssertionRepository {
     const sql = `
       WITH RECURSIVE
         entity_rows(id) AS (
-          SELECT id FROM trl_assertions
+          SELECT id FROM trageti_assertions
           WHERE namespace = ? AND entity_id IS NOT NULL AND entity_id = ?
         ),
         leaves(id) AS (
           SELECT id FROM entity_rows
           WHERE id NOT IN (
-            SELECT supersedes_id FROM trl_assertions
+            SELECT supersedes_id FROM trageti_assertions
             WHERE namespace = ? AND entity_id IS NOT NULL AND entity_id = ?
               AND supersedes_id IS NOT NULL
           )
@@ -178,14 +178,14 @@ export class AssertionRepository {
           UNION
           SELECT a.supersedes_id, c.depth + 1
           FROM chain c
-          JOIN trl_assertions a ON a.id = c.id
+          JOIN trageti_assertions a ON a.id = c.id
           WHERE a.supersedes_id IS NOT NULL
             AND a.namespace = ?
             AND a.entity_id IS NOT NULL AND a.entity_id = ?
         )
       SELECT DISTINCT a.*
       FROM chain c
-      JOIN trl_assertions a ON a.id = c.id
+      JOIN trageti_assertions a ON a.id = c.id
       WHERE a.namespace = ? AND a.entity_id IS NOT NULL AND a.entity_id = ?
       ORDER BY a.valid_from ASC, a.created_at ASC, a.id ASC
     `
@@ -204,16 +204,16 @@ export class AssertionRepository {
   getSupersessionChain(assertionId: string): Assertion[] {
     const sql = `
       WITH RECURSIVE chain(id, depth) AS (
-        SELECT id, 0 FROM trl_assertions WHERE id = ?
+        SELECT id, 0 FROM trageti_assertions WHERE id = ?
         UNION ALL
         SELECT a.supersedes_id, c.depth + 1
         FROM chain c
-        JOIN trl_assertions a ON a.id = c.id
+        JOIN trageti_assertions a ON a.id = c.id
         WHERE a.supersedes_id IS NOT NULL
       )
       SELECT a.*, c.depth AS _depth
       FROM chain c
-      JOIN trl_assertions a ON a.id = c.id
+      JOIN trageti_assertions a ON a.id = c.id
       ORDER BY c.depth DESC
     `
     const rows = this.db.prepare<[string], AssertionRow>(sql).all(assertionId)
@@ -232,7 +232,7 @@ export class AssertionRepository {
            COUNT(*) AS total,
            SUM(CASE WHEN valid_until IS NULL THEN 1 ELSE 0 END) AS active,
            SUM(CASE WHEN valid_until IS NOT NULL THEN 1 ELSE 0 END) AS superseded
-         FROM trl_assertions WHERE namespace = ?`,
+         FROM trageti_assertions WHERE namespace = ?`,
       )
       .get(namespace)
     return {

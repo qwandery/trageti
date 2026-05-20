@@ -179,13 +179,13 @@ export class TemporalStore {
     // Create repositories with extension column awareness
     this.episodeRepo = new EpisodeRepository(
       this.db,
-      this.extensionColumnCache.get('trl_episodes') ?? [],
+      this.extensionColumnCache.get('trageti_episodes') ?? [],
     )
     this.citationRepo = new CitationRepository(this.db)
     this.assertionRepo = new AssertionRepository(
       this.db,
       this.citationRepo,
-      this.extensionColumnCache.get('trl_assertions') ?? [],
+      this.extensionColumnCache.get('trageti_assertions') ?? [],
     )
     this.linkRepo = new LinkRepository(this.db)
     this.embeddingRepo = new EmbeddingRepository(this.db)
@@ -304,7 +304,7 @@ export class TemporalStore {
         .prepare<
           [string, string],
           { id: string }
-        >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
+        >('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
         .get(citation.episodeId, parent.namespace)
       if (!ep) {
         errors.push(
@@ -842,7 +842,7 @@ export class TemporalStore {
 
   /**
    * Returns the supersession-chain leaves for an entity (decision §5). Follows
-   * supersedes_id only — does NOT traverse trl_links. For entities where new
+   * supersedes_id only — does NOT traverse trageti_links. For entities where new
    * information layers rather than replaces, use writeLink with one of the
    * accumulation link types and read with getEntityHistory + expandLinks.
    */
@@ -880,12 +880,12 @@ export class TemporalStore {
       }
       const table = this.namespaceRepo.getEmbeddingTable(namespace)
       if (table) this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(table)}`)
-      // Citations must go before assertions (FK from trl_citations.assertion_id).
+      // Citations must go before assertions (FK from trageti_citations.assertion_id).
       this.citationRepo.deleteByAssertionNamespace(namespace)
-      this.db.prepare('DELETE FROM trl_links WHERE namespace = ?').run(namespace)
-      this.db.prepare('DELETE FROM trl_assertions WHERE namespace = ?').run(namespace)
-      this.db.prepare('DELETE FROM trl_episodes WHERE namespace = ?').run(namespace)
-      this.db.prepare('DELETE FROM trl_namespaces WHERE namespace = ?').run(namespace)
+      this.db.prepare('DELETE FROM trageti_links WHERE namespace = ?').run(namespace)
+      this.db.prepare('DELETE FROM trageti_assertions WHERE namespace = ?').run(namespace)
+      this.db.prepare('DELETE FROM trageti_episodes WHERE namespace = ?').run(namespace)
+      this.db.prepare('DELETE FROM trageti_namespaces WHERE namespace = ?').run(namespace)
       this.embeddingTableCache.delete(namespace)
     })()
   }
@@ -922,7 +922,7 @@ export class TemporalStore {
         .prepare<
           [string],
           { cnt: number }
-        >('SELECT COUNT(*) AS cnt FROM trl_episodes WHERE namespace = ?')
+        >('SELECT COUNT(*) AS cnt FROM trageti_episodes WHERE namespace = ?')
         .get(namespace)?.cnt ?? 0
     const ns = this.namespaceRepo.get(namespace)
     const table = this.namespaceRepo.getEmbeddingTable(namespace)
@@ -980,26 +980,26 @@ export class TemporalStore {
     const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
     const batchSize = options.batchSize ?? 1000
 
-    // Drop and recreate trl_fts inside a single write transaction, then
-    // repopulate while preserving the rowid invariant (trl_fts.rowid ===
-    // trl_assertions.rowid) so BM25 joins continue to work.
+    // Drop and recreate trageti_fulltext inside a single write transaction, then
+    // repopulate while preserving the rowid invariant (trageti_fulltext.rowid ===
+    // trageti_assertions.rowid) so BM25 joins continue to work.
     let reindexed = 0
     this.db.transaction(() => {
-      this.db.exec('DROP TABLE IF EXISTS trl_fts')
+      this.db.exec('DROP TABLE IF EXISTS trageti_fulltext')
       this.db.exec(`
-        CREATE VIRTUAL TABLE trl_fts USING fts5(
+        CREATE VIRTUAL TABLE trageti_fulltext USING fts5(
           assertion_id UNINDEXED,
           content,
-          content='trl_assertions',
+          content='trageti_assertions',
           content_rowid='rowid',
           tokenize='${tokenizeArg}'
         );
       `)
       const insert = this.db.prepare(
-        'INSERT INTO trl_fts(rowid, assertion_id, content) SELECT rowid, id, content FROM trl_assertions WHERE rowid > ? AND rowid <= ?',
+        'INSERT INTO trageti_fulltext(rowid, assertion_id, content) SELECT rowid, id, content FROM trageti_assertions WHERE rowid > ? AND rowid <= ?',
       )
       const maxRow = this.db
-        .prepare<[], { m: number | null }>('SELECT MAX(rowid) AS m FROM trl_assertions')
+        .prepare<[], { m: number | null }>('SELECT MAX(rowid) AS m FROM trageti_assertions')
         .get()
       const max = maxRow?.m ?? 0
       for (let start = 0; start < max; start += batchSize) {
@@ -1008,10 +1008,10 @@ export class TemporalStore {
         const info = insert.run(start, end)
         reindexed += info.changes
       }
-      // Update trl_fts_meta with the active tokenizer config.
+      // Update trageti_tokenizer with the active tokenizer config.
       this.db
         .prepare(
-          `INSERT INTO trl_fts_meta (id, tokenizer, tokenizer_args, updated_at)
+          `INSERT INTO trageti_tokenizer (id, tokenizer, tokenizer_args, updated_at)
            VALUES (1, ?, ?, datetime('now'))
            ON CONFLICT(id) DO UPDATE SET tokenizer = excluded.tokenizer,
                                          tokenizer_args = excluded.tokenizer_args,
@@ -1085,7 +1085,10 @@ export class TemporalStore {
     }
 
     const steps: RetrievalExplainResult['steps'] = [
-      { step: 'temporal-filter', notes: ['filters trl_assertions by namespace + temporal anchor'] },
+      {
+        step: 'temporal-filter',
+        notes: ['filters trageti_assertions by namespace + temporal anchor'],
+      },
     ]
     if (wouldApplyVector) {
       steps.push({
@@ -1095,7 +1098,7 @@ export class TemporalStore {
       })
     }
     if (wouldApplyBm25) {
-      steps.push({ step: 'bm25', sql: 'bm25(trl_fts) over the FTS5 index' })
+      steps.push({ step: 'bm25', sql: 'bm25(trageti_fulltext) over the FTS5 index' })
     }
     steps.push({ step: 'score' }, { step: 'rank' })
 
@@ -1138,7 +1141,7 @@ export class TemporalStore {
             .prepare<
               [string, string],
               { id: string }
-            >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
+            >('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
             .get(cit.episodeId, assertion.namespace)
           if (!ep) {
             errors.push(
@@ -1207,10 +1210,10 @@ export class TemporalStore {
   }
 
   private warmExtensionCache(): void {
-    const tables: Array<'trl_assertions' | 'trl_episodes' | 'trl_links'> = [
-      'trl_assertions',
-      'trl_episodes',
-      'trl_links',
+    const tables: Array<'trageti_assertions' | 'trageti_episodes' | 'trageti_links'> = [
+      'trageti_assertions',
+      'trageti_episodes',
+      'trageti_links',
     ]
     for (const table of tables) {
       const cols = this.extensionApplier.getExtensionColumns(this.db, table)

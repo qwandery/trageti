@@ -28,7 +28,7 @@ export class EpisodeRepository {
         .prepare<
           [string],
           { max_pos: number | null }
-        >('SELECT MAX(position) AS max_pos FROM trl_episodes WHERE namespace = ?')
+        >('SELECT MAX(position) AS max_pos FROM trageti_episodes WHERE namespace = ?')
         .get(episode.namespace)
       const maxPos = max?.max_pos ?? null
       if (maxPos !== null && episode.position <= maxPos) {
@@ -38,7 +38,7 @@ export class EpisodeRepository {
       }
       this.db
         .prepare(
-          `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content, created_at)
+          `INSERT INTO trageti_episodes (id, namespace, position, occurred_at, type, content, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
@@ -51,7 +51,7 @@ export class EpisodeRepository {
           new Date().toISOString(),
         )
       const row = this.db
-        .prepare<[string], EpisodeRow>('SELECT * FROM trl_episodes WHERE id = ?')
+        .prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?')
         .get(episode.id)
       if (!row) throw new Error(`Episode "${episode.id}" not found after insert`)
       return this.rowToEpisode(row)
@@ -60,7 +60,7 @@ export class EpisodeRepository {
 
   getById(id: string): Episode | null {
     const row = this.db
-      .prepare<[string], EpisodeRow>('SELECT * FROM trl_episodes WHERE id = ?')
+      .prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?')
       .get(id)
     return row ? this.rowToEpisode(row) : null
   }

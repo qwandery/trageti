@@ -32,7 +32,7 @@ function rowToCitation(row: CitationRow): AssertionCitation {
 }
 
 /**
- * DAO for trl_citations. Transaction-neutral — all writes execute against the shared
+ * DAO for trageti_citations. Transaction-neutral — all writes execute against the shared
  * Database handle without opening inner transactions. Compound-write callers (e.g.,
  * TemporalStore.writeAssertion) own the transaction boundary.
  */
@@ -45,7 +45,7 @@ export class CitationRepository {
 
   insertMany(assertionId: string, citations: NewAssertionCitation[]): AssertionCitation[] {
     const stmt = this.db.prepare(
-      `INSERT INTO trl_citations
+      `INSERT INTO trageti_citations
          (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -68,7 +68,7 @@ export class CitationRepository {
   insertOne(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation {
     this.db
       .prepare(
-        `INSERT INTO trl_citations
+        `INSERT INTO trageti_citations
            (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
@@ -84,7 +84,7 @@ export class CitationRepository {
         new Date().toISOString(),
       )
     const row = this.db
-      .prepare<[string], CitationRow>('SELECT * FROM trl_citations WHERE id = ?')
+      .prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE id = ?')
       .get(citation.id)
     if (!row) throw new Error(`Citation "${citation.id}" not found after insert`)
     return rowToCitation(row)
@@ -95,7 +95,7 @@ export class CitationRepository {
       .prepare<
         [string],
         CitationRow
-      >('SELECT * FROM trl_citations WHERE assertion_id = ? ORDER BY created_at, id')
+      >('SELECT * FROM trageti_citations WHERE assertion_id = ? ORDER BY created_at, id')
       .all(assertionId)
     return rows.map(rowToCitation)
   }
@@ -106,7 +106,7 @@ export class CitationRepository {
     const json = buildCandidateJson(ids)
     const rows = this.db
       .prepare<[string], CitationRow>(
-        `SELECT * FROM trl_citations
+        `SELECT * FROM trageti_citations
          WHERE assertion_id IN (SELECT value FROM json_each(?))
          ORDER BY created_at, id`,
       )
@@ -121,14 +121,14 @@ export class CitationRepository {
 
   /**
    * Deletes all citations whose parent assertion belongs to the given namespace.
-   * Used by deleteNamespace() to break the FK from trl_citations.assertion_id
+   * Used by deleteNamespace() to break the FK from trageti_citations.assertion_id
    * before assertions themselves are deleted.
    */
   deleteByAssertionNamespace(namespace: string): void {
     this.db
       .prepare(
-        `DELETE FROM trl_citations
-         WHERE assertion_id IN (SELECT id FROM trl_assertions WHERE namespace = ?)`,
+        `DELETE FROM trageti_citations
+         WHERE assertion_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)`,
       )
       .run(namespace)
   }
@@ -137,8 +137,8 @@ export class CitationRepository {
     const row = this.db
       .prepare<[string], { cnt: number }>(
         `SELECT COUNT(*) AS cnt
-         FROM trl_citations c
-         JOIN trl_assertions a ON a.id = c.assertion_id
+         FROM trageti_citations c
+         JOIN trageti_assertions a ON a.id = c.assertion_id
          WHERE a.namespace = ?`,
       )
       .get(namespace)

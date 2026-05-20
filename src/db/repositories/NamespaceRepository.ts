@@ -36,7 +36,7 @@ export class NamespaceRepository {
       .prepare<
         [string],
         NamespaceRow
-      >('SELECT namespace, embedding_dimension, embedding_table, created_at, config FROM trl_namespaces WHERE namespace = ?')
+      >('SELECT namespace, embedding_dimension, embedding_table, created_at, config FROM trageti_namespaces WHERE namespace = ?')
       .get(namespace)
     return row ? rowToConfig(row) : null
   }
@@ -46,7 +46,7 @@ export class NamespaceRepository {
       .prepare<
         [string],
         { embedding_table: string | null }
-      >('SELECT embedding_table FROM trl_namespaces WHERE namespace = ?')
+      >('SELECT embedding_table FROM trageti_namespaces WHERE namespace = ?')
       .get(namespace)
     return row?.embedding_table ?? null
   }
@@ -96,7 +96,7 @@ export class NamespaceRepository {
         .prepare<
           [string, string],
           { namespace: string }
-        >('SELECT namespace FROM trl_namespaces WHERE embedding_table = ? AND namespace != ?')
+        >('SELECT namespace FROM trageti_namespaces WHERE embedding_table = ? AND namespace != ?')
         .get(embeddingTable, namespace)
       if (collision) {
         throw new NamespaceHashCollisionError(namespace, collision.namespace, embeddingTable)
@@ -105,7 +105,7 @@ export class NamespaceRepository {
 
     this.db
       .prepare(
-        `INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
+        `INSERT INTO trageti_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(namespace, dim, embeddingTable, JSON.stringify(config), new Date().toISOString())
@@ -114,13 +114,13 @@ export class NamespaceRepository {
   updateEmbeddingDimension(namespace: string, newDimension: number, newTable: string): void {
     this.db
       .prepare(
-        'UPDATE trl_namespaces SET embedding_dimension = ?, embedding_table = ? WHERE namespace = ?',
+        'UPDATE trageti_namespaces SET embedding_dimension = ?, embedding_table = ? WHERE namespace = ?',
       )
       .run(newDimension, newTable, namespace)
   }
 
   delete(namespace: string): void {
-    this.db.prepare('DELETE FROM trl_namespaces WHERE namespace = ?').run(namespace)
+    this.db.prepare('DELETE FROM trageti_namespaces WHERE namespace = ?').run(namespace)
   }
 
   /**
@@ -133,7 +133,7 @@ export class NamespaceRepository {
       .prepare<
         [string],
         { min: number | null; max: number | null }
-      >('SELECT MIN(valid_from) AS min, MAX(valid_from) AS max FROM trl_assertions WHERE namespace = ? AND valid_until IS NULL')
+      >('SELECT MIN(valid_from) AS min, MAX(valid_from) AS max FROM trageti_assertions WHERE namespace = ? AND valid_until IS NULL')
       .get(namespace)
     return { min: row?.min ?? null, max: row?.max ?? null }
   }

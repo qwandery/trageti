@@ -17,7 +17,7 @@ describe('TemporalStore vectorless namespace state', () => {
 
     const ns = db
       .prepare(
-        'SELECT embedding_dimension, embedding_table FROM trl_namespaces WHERE namespace = ?',
+        'SELECT embedding_dimension, embedding_table FROM trageti_namespaces WHERE namespace = ?',
       )
       .get(NS) as {
       embedding_dimension: number | null

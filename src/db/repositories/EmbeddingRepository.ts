@@ -82,7 +82,7 @@ export class EmbeddingRepository {
   getPendingIndexing(tableName: string, namespace: string): Array<{ id: string; content: string }> {
     const sql = `
       SELECT a.id, a.content
-      FROM trl_assertions a
+      FROM trageti_assertions a
       LEFT JOIN ${quoteIdent(tableName)} e ON a.id = e.assertion_id
       WHERE a.namespace = ?
         AND a.valid_until IS NULL
@@ -101,14 +101,14 @@ export class EmbeddingRepository {
       .prepare<
         [string],
         { id: string; content: string }
-      >('SELECT id, content FROM trl_assertions WHERE namespace = ? AND valid_until IS NULL')
+      >('SELECT id, content FROM trageti_assertions WHERE namespace = ? AND valid_until IS NULL')
       .all(namespace)
   }
 
   getIndexedCount(tableName: string, namespace: string): number {
     const sql = `
       SELECT COUNT(*) AS cnt
-      FROM trl_assertions a
+      FROM trageti_assertions a
       JOIN ${quoteIdent(tableName)} e ON a.id = e.assertion_id
       WHERE a.namespace = ?
     `

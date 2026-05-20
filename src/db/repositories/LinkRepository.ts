@@ -37,7 +37,7 @@ export class LinkRepository {
   insert(link: Omit<AssertionLink, 'createdAt'>): AssertionLink {
     this.db
       .prepare(
-        `INSERT INTO trl_links (id, namespace, from_id, to_id, link_type, valid_from, valid_until, source_episode_id, created_at)
+        `INSERT INTO trageti_links (id, namespace, from_id, to_id, link_type, valid_from, valid_until, source_episode_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
@@ -52,7 +52,7 @@ export class LinkRepository {
         new Date().toISOString(),
       )
     const row = this.db
-      .prepare<[string], LinkRow>('SELECT * FROM trl_links WHERE id = ?')
+      .prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id = ?')
       .get(link.id)
     if (!row) throw new Error(`Link "${link.id}" not found after insert`)
     return rowToLink(row)
@@ -63,7 +63,7 @@ export class LinkRepository {
       .prepare<
         [string],
         { cnt: number }
-      >('SELECT COUNT(*) AS cnt FROM trl_links WHERE namespace = ?')
+      >('SELECT COUNT(*) AS cnt FROM trageti_links WHERE namespace = ?')
       .get(namespace)
     return row?.cnt ?? 0
   }

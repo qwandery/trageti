@@ -44,10 +44,11 @@ database: Database })` leaves the handle to the caller.
   `IndexBatchResult = { indexed: number, skipped: Array<{ assertionId,
 reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
   `indexAssertion` still throws `IndexingError(ASSERTION_NOT_FOUND)`.
-- **Maintenance:** `rebuildFts(options)` drops and recreates `trl_fts`
-  with a new tokenizer, preserves the rowid invariant, and updates
-  `trl_fts_meta`. `upgradeNamespaceToVector(namespace, { embeddingDimension })`
-  is the only path from vectorless to vector-configured.
+- **Maintenance:** `rebuildFts(options)` drops and recreates the
+  `trageti_fulltext` FTS5 table with a new tokenizer, preserves the rowid
+  invariant, and updates `trageti_tokenizer`.
+  `upgradeNamespaceToVector(namespace, { embeddingDimension })` is the only
+  path from vectorless to vector-configured.
 - **Errors:** stable codes via `ErrorCode.*` and new classes
   `StoreClosedError`, `NamespaceDimensionMismatchError`,
   `MigrationCompatibilityError`, `IndexingError`, `RetrievalInputError`,
@@ -60,6 +61,20 @@ reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
   and `embedding_table` columns with a both-null-or-both-non-null `CHECK`,
   plus a new `trl_fts_meta` table that records the active tokenizer
   configuration (library-managed; not parsed from `sqlite_master`).
+- **Migration v004** backfills every `created_at` column to canonical
+  ISO-8601 (`strftime('%Y-%m-%dT%H:%M:%fZ', …)`) so the determinism
+  tie-break holds on upgraded databases; v0.3 repositories also generate
+  `new Date().toISOString()` for new rows.
+- **Migration v005 — table rename.** Every library table moves from the
+  `trl_` prefix to `trageti_`: `trageti_namespaces`, `trageti_episodes`,
+  `trageti_assertions`, `trageti_links`, `trageti_citations`, the FTS5 table
+  `trageti_fulltext`, the tokenizer-metadata table `trageti_tokenizer`, the
+  `trageti_idx_*` indexes, and per-namespace `trageti_embeddings_<hash>` vec0
+  tables. The schema-version table (`trageti_schema_version`) is renamed by
+  the migration runner's own self-migration. `LibraryTable` /
+  `SchemaExtensions.table` and the reserved extension prefix become
+  `trageti_` — a deliberate public-API change. See the v0.3 Specification
+  Amendment for the full rename map.
 - **FK-toggle migration choreography** (`requiresForeignKeyToggle: true`):
   the runner captures the current `PRAGMA foreign_keys`, disables it,
   BEGINs an explicit transaction, runs the migration body, runs

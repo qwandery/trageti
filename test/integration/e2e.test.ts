@@ -117,7 +117,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
       .prepare<
         [string],
         { cnt: number }
-      >('SELECT COUNT(*) AS cnt FROM trl_assertions WHERE namespace = ?')
+      >('SELECT COUNT(*) AS cnt FROM trageti_assertions WHERE namespace = ?')
       .get(NS)
     expect(nsAssertions?.cnt).toBe(0)
   })
@@ -185,10 +185,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1')
   })
 
-  it('schema version is 4 after init (v004 = canonical ISO-8601 created_at backfill)', async () => {
+  it('schema version is 5 after init (v005 = trageti_ table rename)', async () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     await store.init()
-    expect(await store.getCurrentSchemaVersion()).toBe(4)
+    expect(await store.getCurrentSchemaVersion()).toBe(5)
   })
 })

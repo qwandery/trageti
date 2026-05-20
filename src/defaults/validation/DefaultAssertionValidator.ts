@@ -60,7 +60,7 @@ export class DefaultAssertionValidator implements AssertionValidator {
         .prepare<
           [string, string],
           { id: string }
-        >('SELECT id FROM trl_episodes WHERE id = ? AND namespace = ?')
+        >('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
         .get(assertion.sourceEpisodeId, assertion.namespace)
       if (!episode) {
         errors.push(

@@ -423,7 +423,7 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
   }
 
   const sql = `SELECT a.id, a.content, a.valid_from, a.confidence, a.entity_type, a.created_at
-               FROM trl_assertions a
+               FROM trageti_assertions a
                WHERE ${conditions.join(' AND ')}`
 
   return db.prepare<unknown[], Step1Row>(sql).all(...params)
@@ -451,10 +451,10 @@ function runStep2(
 
 function runStep3(db: Database, candidateJson: string, queryText: string): Step3Row[] {
   const sql = `
-    SELECT a.id AS assertion_id, bm25(trl_fts) AS bm25_score
-    FROM trl_fts
-    JOIN trl_assertions a ON a.rowid = trl_fts.rowid
-    WHERE trl_fts MATCH ?
+    SELECT a.id AS assertion_id, bm25(trageti_fulltext) AS bm25_score
+    FROM trageti_fulltext
+    JOIN trageti_assertions a ON a.rowid = trageti_fulltext.rowid
+    WHERE trageti_fulltext MATCH ?
       AND a.id IN (SELECT value FROM json_each(?))
   `
   return db.prepare<unknown[], Step3Row>(sql).all(queryText, candidateJson)

@@ -453,13 +453,13 @@ const store = await TemporalStore.create({
   namespace: 'my-namespace',
   embeddingDimension: 1536,
   schemaExtensions: {
-    columns: [{ table: 'trl_assertions', column: 'source_url', definition: 'TEXT' }],
+    columns: [{ table: 'trageti_assertions', column: 'source_url', definition: 'TEXT' }],
     tables: [
       {
         tableName: 'my_custom_metadata',
         createSQL: `
           CREATE TABLE IF NOT EXISTS my_custom_metadata (
-            assertion_id TEXT NOT NULL REFERENCES trl_assertions(id),
+            assertion_id TEXT NOT NULL REFERENCES trageti_assertions(id),
             tag          TEXT
           )
         `,

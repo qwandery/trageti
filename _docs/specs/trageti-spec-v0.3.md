@@ -33,6 +33,93 @@ better operational visibility.
 
 ---
 
+### v0.3 Amendment — 2026-05-20 — Table-naming overhaul
+
+This is a sanctioned amendment to the v0.3 specification, recorded here rather
+than applied as a silent rewrite. It changes the physical naming of every
+library table. Behavior, the public API surface, and all contracts other than
+table names are unchanged, with the single exception of the
+`SchemaExtensions.table` / `LibraryTable` union, which is a deliberate
+public-API rename (see item 1).
+
+**1. The `trl_` prefix is replaced by `trageti_` for every library table.**
+The rename map:
+
+| Original (v0.3 as published) | Amended (steady state)      | Renamed by           |
+| ---------------------------- | --------------------------- | -------------------- |
+| `trl_namespaces`             | `trageti_namespaces`        | migration v005       |
+| `trl_episodes`               | `trageti_episodes`          | migration v005       |
+| `trl_assertions`             | `trageti_assertions`        | migration v005       |
+| `trl_links`                  | `trageti_links`             | migration v005       |
+| `trl_citations`              | `trageti_citations`         | migration v005       |
+| `trl_fts` (FTS5 virtual)     | `trageti_fulltext`          | migration v005       |
+| `trl_fts_meta` (tokenizer)   | `trageti_tokenizer`         | migration v005       |
+| `trl_idx_*` (indexes)        | `trageti_idx_*`             | migration v005       |
+| `trl_fts_a{i,d,u}` triggers  | `trageti_fulltext_a{i,d,u}` | migration v005       |
+| `trl_embeddings_<hash>` vec0 | `trageti_embeddings_<hash>` | migration v005       |
+| `trl_schema_version`         | `trageti_schema_version`    | the migration runner |
+
+The `LibraryTable` union — and therefore `ColumnExtension.table` — becomes
+`'trageti_assertions' | 'trageti_episodes' | 'trageti_links'`. The reserved
+extension prefix becomes `trageti_`.
+
+**2. The tokenizer-metadata table is `trageti_tokenizer`, superseding the
+spec's `trl_fts_config`.** This is not a pure prefix change. The originally
+specified `trl_fts_config` was physically impossible to create: SQLite FTS5
+reserves `<ftsname>_data/_idx/_content/_docsize/_config` as the FTS table's
+shadow tables, and the FTS table is `trl_fts`, so `trl_fts_config` collides
+with FTS5's own internal config table. No database ever contained a
+`trl_fts_config` table; the v003 implementation used `trl_fts_meta` instead.
+The lineage is: `trl_fts_config` (spec, never built) → `trl_fts_meta` (v003
+code) → `trageti_tokenizer` (this amendment, steady state).
+
+**3. The `embedding_table` indirection.** Per-namespace vec0 tables are named
+`trageti_embeddings_<hash>` going forward. Their authoritative name always
+lives in the `trageti_namespaces.embedding_table` column — no code re-derives
+a table name from the namespace hash. After a staging-swap reindex the stored
+name deliberately diverges from the hash-derived name.
+
+**4. Migrations v004 and v005 are part of the public contract.**
+
+- **Migration v004 — canonical timestamp backfill.** A standard
+  (non-FK-toggle) migration that rewrites existing `created_at` columns to
+  canonical ISO-8601 (`strftime('%Y-%m-%dT%H:%M:%fZ', …)`) so the determinism
+  tie-break (`createdAt ASC`) holds on upgraded databases. v0.3 repositories
+  also generate `new Date().toISOString()` for new rows.
+- **Migration v005 — table rename.** An FK-toggle migration that renames the
+  five core tables (modern SQLite rewrites FK references on rename), drops and
+  recreates the FTS5 table + sync triggers under the `trageti_fulltext` name
+  preserving the tokenizer recorded in `trl_fts_meta`, rebuilds the index set
+  as `trageti_idx_*`, renames `trl_fts_meta` to `trageti_tokenizer`, and
+  best-effort renames the embedding vec0 tables.
+
+**Runner-owned `trageti_schema_version`.** The schema-version table is renamed
+by the migration runner's own self-migration, not by a migration body: the
+runner reads that table to decide which migrations to run and writes it to
+record each one, so a migration that renamed it would deadlock its own
+version tracking. The runner creates `trageti_schema_version`, copies any
+rows from a legacy `trl_schema_version` forward inside `getCurrentVersion()`,
+and drops the legacy table only after a fully successful `applyMigrations()`
+run — a mid-run failure never strands the version history.
+
+**Embedding vec0 tables — eager, best-effort.** Migration v005 renames each
+namespace's `trl_embeddings_<hash>` table to `trageti_embeddings_<hash>`. When
+the physical vec0 table was never lazily created, v005 simply repoints
+`embedding_table`. When it exists and `sqlite-vec` is loaded, v005 creates the
+new vec0 table, copies rows via `INSERT … SELECT`, repoints `embedding_table`,
+and drops the old table. When it exists but `sqlite-vec` is NOT loaded (only
+possible for an unsupported pre-v0.3 vector database opened without the
+extension), the legacy table is left inert and `embedding_table` keeps
+pointing at it; vector operations still function through the indirection. No
+lazy runtime rename path exists — the rename is entirely contained in v005.
+
+**Compatibility statement.** Fresh v0.3 databases, and migrated databases
+opened with `sqlite-vec` loaded, contain only `trageti_*` library tables —
+zero `trl_*` tables remain. The sole exception is the remote, unsupported
+case above.
+
+---
+
 ### v0.3 — May 2026
 
 **Breaking changes are intentional.** The design goal is a professional-use
@@ -210,7 +297,7 @@ beyond fixed defects.
 
 - Fix the broken README supersession example: replace the two-call sequence
   with a single `writeAssertion({ supersedesId })` call.
-- `deleteNamespace()` looks up the embedding table from `trl_namespaces`
+- `deleteNamespace()` looks up the embedding table from `trageti_namespaces`
   rather than the in-memory cache (externally invisible correctness fix —
   closes the leak when a namespace was created by another store instance).
 - Identifier-quoting audit: every dynamic table or column name passes
@@ -231,7 +318,7 @@ sites continue to work without changes.
   The default flips to `'phrase'` in 0.3.0.
 - FTS5 tokenizer configuration is validated against an allow-list when
   newly creating an FTS table in a database that has not yet run v001
-  (the `trl_fts` table is global per-database). Existing databases retain
+  (the `trageti_fulltext` table is global per-database). Existing databases retain
   their tokenizer config; switching requires the explicit `rebuildFts()`
   introduced in Phase 3.
 - `Logger` interface is added with a backward-compatible default that
@@ -586,9 +673,9 @@ from v0.2:
 ```typescript
 interface AssertionCitation {
   id: string
-  /** FK → trl_assertions.id */
+  /** FK → trageti_assertions.id */
   assertionId: string
-  /** FK → trl_episodes.id (must share the assertion's namespace) */
+  /** FK → trageti_episodes.id (must share the assertion's namespace) */
   episodeId: string
   /** Caller-defined non-empty reference string; format opaque to the library. */
   sourceRef: string
@@ -651,7 +738,7 @@ interface AssertionLink {
   linkType: string
   validFrom: number
   validUntil: number | null
-  /** FK → trl_episodes.id (must share the link's namespace). */
+  /** FK → trageti_episodes.id (must share the link's namespace). */
   sourceEpisodeId: string
   /** ISO 8601 — filled by the store on write. */
   createdAt: string
@@ -899,13 +986,13 @@ interface FTS5TokenizerConfig {
   `SchemaExtensionError` at `init()` time.
 - The validated tokenizer string is interpolated into the FTS5 `CREATE
 VIRTUAL TABLE ... USING fts5(..., tokenize='<config>')` DDL exactly once,
-  at the moment a brand-new `trl_fts` table is created — never against a
+  at the moment a brand-new `trageti_fulltext` table is created — never against a
   populated database. The latter case is rejected by the migration system
   with `MigrationCompatibilityError(kind: 'rebuild-fts')`; callers must
   invoke `store.rebuildFts({ tokenizer })` to actually swap.
 
-The `trl_fts` table is **global per-database** (one per file, not one per
-namespace). The allow-list applies to newly created `trl_fts` tables in
+The `trageti_fulltext` table is **global per-database** (one per file, not one per
+namespace). The allow-list applies to newly created `trageti_fulltext` tables in
 databases that haven't yet run v001. Existing databases retain their
 tokenizer configuration unchanged unless `rebuildFts()` is invoked.
 
@@ -924,8 +1011,8 @@ interface SchemaExtensions {
 
 interface ColumnExtension {
   /** Library-managed table to extend. */
-  table: 'trl_assertions' | 'trl_episodes' | 'trl_links'
-  /** Custom column name. Must not start with `trl_` and must not collide
+  table: 'trageti_assertions' | 'trageti_episodes' | 'trageti_links'
+  /** Custom column name. Must not start with `trageti_` and must not collide
    *  with any library-defined column on the target table. */
   column: string
   /** Trusted-code SQL fragment: type, optional DEFAULT, optional CHECK,
@@ -1195,7 +1282,7 @@ interface NamespaceConfig {
   /** Null for vectorless namespaces. */
   embeddingDimension: number | null
   createdAt: string
-  /** Caller-defined arbitrary metadata; stored as JSON in trl_namespaces.config. */
+  /** Caller-defined arbitrary metadata; stored as JSON in trageti_namespaces.config. */
   config: Record<string, unknown>
 }
 ```
@@ -1203,7 +1290,7 @@ interface NamespaceConfig {
 **State at namespace creation time** is determined by the supplied options:
 a namespace is created **vector-configured** if either `embeddingDimension`
 or `embeddingProvider` is supplied; otherwise it is created **vectorless**
-(both `trl_namespaces.embedding_dimension` and `embedding_table` are NULL,
+(both `trageti_namespaces.embedding_dimension` and `embedding_table` are NULL,
 the v003 schema CHECK enforces that pair, and no vec0 table is ever
 created).
 
@@ -1266,13 +1353,13 @@ one transaction (satisfying the CHECK atomically); see Initialization.
 
 v0.3 keeps the v0.2 core tables:
 
-- `trl_schema_version`
-- `trl_namespaces`
-- `trl_episodes`
-- `trl_assertions`
-- `trl_citations`
-- `trl_links`
-- `trl_fts`
+- `trageti_schema_version`
+- `trageti_namespaces`
+- `trageti_episodes`
+- `trageti_assertions`
+- `trageti_citations`
+- `trageti_links`
+- `trageti_fulltext`
 - one `vec0` embedding table per **vector-configured** namespace (vectorless
   namespaces have NO vec0 table; see Initialization for the vector-configured
   vs vector-ready distinction).
@@ -1342,7 +1429,7 @@ interface Migration {
 ```
 
 **Standard migrations** are wrapped in a single transaction and the runner
-inserts the `trl_schema_version` row inside the same transaction.
+inserts the `trageti_schema_version` row inside the same transaction.
 
 **FK-toggle migrations** (`requiresForeignKeyToggle: true`) follow a
 runner-owned choreography because `PRAGMA foreign_keys` cannot be changed
@@ -1363,7 +1450,7 @@ runFkToggleMigration(migration, db):
         cause: 'FK violations after migration body',
         violations: rows
       })
-    db.prepare('INSERT INTO trl_schema_version ...').run(migration.version, ...)
+    db.prepare('INSERT INTO trageti_schema_version ...').run(migration.version, ...)
     db.exec('COMMIT')
     txn = null
   finally:
@@ -1371,11 +1458,11 @@ runFkToggleMigration(migration, db):
     db.pragma(`foreign_keys = ${capturedFk ? 'ON' : 'OFF'}`)
 ```
 
-This guarantees: the schema change and the `trl_schema_version` insert are
+This guarantees: the schema change and the `trageti_schema_version` insert are
 atomic, FK enforcement is restored to its captured value regardless of failure
 path, and a failed FK-toggle migration leaves the database at the prior
-schema version. Child-table FK references (`trl_episodes.namespace`,
-`trl_assertions.namespace`, `trl_links.namespace`) survive the v003 rebuild
+schema version. Child-table FK references (`trageti_episodes.namespace`,
+`trageti_assertions.namespace`, `trageti_links.namespace`) survive the v003 rebuild
 because SQLite stores FK definitions in the _referencing_ table's schema
 string; the post-migration `foreign_key_check` confirms this.
 
@@ -1409,7 +1496,7 @@ v0.3 distinguishes three namespace states:
 
 - **vector-configured namespace** — has either `embeddingDimension` or an
   `EmbeddingProvider` configured at registration time. Both
-  `embedding_dimension` AND `embedding_table` columns of `trl_namespaces` are
+  `embedding_dimension` AND `embedding_table` columns of `trageti_namespaces` are
   populated atomically at registration: dimension comes from the caller (or
   provider), and `embedding_table` is the deterministic name computed by the
   existing namespace-hash helper. The schema CHECK constraint enforces
@@ -1574,7 +1661,7 @@ ensureVectorReady(namespace):
     embedding_table because the schema CHECK forbids the partial state
     where dimension is set but table name is not. If ensureVectorReady
     encounters that impossible state, it throws an internal error —
-    indicates a corrupt trl_namespaces row.)
+    indicates a corrupt trageti_namespaces row.)
   - Return.
 
 Called by:    indexAssertion, indexBatch, reindexNamespace,
@@ -1697,7 +1784,7 @@ required and an omitted `embedding` is recorded in
 `IndexBatchResult.skipped` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`.
 
 **Unknown assertion IDs.** When `indexBatch()` is called with an
-`assertionId` that does not exist in `trl_assertions` for the namespace,
+`assertionId` that does not exist in `trageti_assertions` for the namespace,
 the item is recorded in `IndexBatchResult.skipped` with
 `reason: 'ASSERTION_NOT_FOUND'`. `onProviderError` does not apply (no
 provider call is made for a non-existent assertion); the entry appears in
@@ -1895,7 +1982,7 @@ store.getEntityTrajectory(namespace: string, entityId: string): Promise<Assertio
 ```
 
 These return assertions valid at (or evolving through) the requested position.
-None call `ensureVectorReady()` — they are pure SQL paths over `trl_assertions`
+None call `ensureVectorReady()` — they are pure SQL paths over `trageti_assertions`
 and never touch vec0.
 
 `getEntityTrajectory()` follows v0.2 semantics: within the entity's assertion
@@ -2018,27 +2105,27 @@ interface NamespaceStats {
   /** Echo of the requested namespace. */
   namespace: string
   /** Null for vectorless namespaces; otherwise the dimension recorded in
-   *  trl_namespaces.embedding_dimension at registration time. */
+   *  trageti_namespaces.embedding_dimension at registration time. */
   embeddingDimension: number | null
   /** True iff sqlite-vec is loaded AND the namespace's vec0 virtual table
    *  physically exists. False for: vectorless namespaces; vector-configured
    *  namespaces whose vec0 has not yet been lazily created; vector-configured
    *  namespaces reopened in a process that did not load sqlite-vec. */
   vectorReady: boolean
-  /** Episodes registered in trl_episodes for this namespace. */
+  /** Episodes registered in trageti_episodes for this namespace. */
   episodeCount: number
-  /** All assertions in trl_assertions for this namespace, including
+  /** All assertions in trageti_assertions for this namespace, including
    *  superseded ones. */
   assertionCount: number
-  /** Active assertions (validUntil IS NULL) in trl_assertions for this
+  /** Active assertions (validUntil IS NULL) in trageti_assertions for this
    *  namespace. */
   activeAssertionCount: number
   /** Closed/superseded assertions (validUntil IS NOT NULL). */
   supersededCount: number
-  /** Citations in trl_citations whose parent assertion belongs to this
+  /** Citations in trageti_citations whose parent assertion belongs to this
    *  namespace. */
   citationCount: number
-  /** Links in trl_links for this namespace. */
+  /** Links in trageti_links for this namespace. */
   linkCount: number
   /** Vectors in the namespace's vec0 table, when introspectable.
    *  - vectorReady === true: COUNT(*) FROM <vec0>.
@@ -2080,7 +2167,7 @@ interface InitNamespaceOptions {
    *  also supplied (in which case they MUST match). */
   embeddingProvider?: EmbeddingProvider
   /** Caller-defined arbitrary metadata; stored as JSON in
-   *  trl_namespaces.config. */
+   *  trageti_namespaces.config. */
   config?: Record<string, unknown>
 }
 
@@ -2166,7 +2253,7 @@ default-namespace path OR `initNamespace()` first. Calling a
 namespace-bearing method against an unregistered namespace throws
 `NamespaceNotInitializedError`.
 
-**Idempotence and persisted state.** `trl_namespaces` persists `namespace`,
+**Idempotence and persisted state.** `trageti_namespaces` persists `namespace`,
 `embedding_dimension`, `embedding_table`, `created_at`, and `config` —
 NOT `embeddingProvider` identity, which is process-local configuration only.
 Idempotence is therefore defined entirely on stored state:
@@ -2210,7 +2297,7 @@ Idempotence is therefore defined entirely on stored state:
 a vectorless namespace into a vector-configured one. It is rejected if the
 namespace is already vector-configured (use `reindexNamespace()` to change
 dimension instead). The operation runs inside a single transaction:
-populates `trl_namespaces.embedding_dimension` and `embedding_table`
+populates `trageti_namespaces.embedding_dimension` and `embedding_table`
 together (satisfying the v003 CHECK), and records the change in the audit
 log via `TRGT_NAMESPACE_VECTOR_UPGRADED` at info. The vec0 virtual table
 itself is created lazily on the first vector-touching operation per the
@@ -2223,7 +2310,7 @@ Operational note: callers must quiesce other writers before running
 writes; concurrent readers may observe either the old vectorless metadata or
 the new vector-configured metadata depending on transaction timing.
 
-`deleteNamespace()` looks up `embedding_table` from `trl_namespaces`
+`deleteNamespace()` looks up `embedding_table` from `trageti_namespaces`
 (DB-authoritative, not from process-local cache). The namespace's own vec0
 virtual table IS dropped when present (it belongs to a single namespace by
 construction, so the drop is unambiguous). **Extension tables are never
@@ -2234,8 +2321,8 @@ namespaces. When `cascade` is true and any extension is registered with
 each inside the same transaction (per-namespace row removal, no DDL).
 Without `cascade`, those extensions cause `deleteNamespace()` to throw
 `ReferencedExtensionTableError` listing them. The deletion is transactional —
-namespace rows in `trl_namespaces`/`trl_episodes`/`trl_assertions`/
-`trl_citations`/`trl_links`/`trl_fts`, the namespace's own vec0 DROP, and
+namespace rows in `trageti_namespaces`/`trageti_episodes`/`trageti_assertions`/
+`trageti_citations`/`trageti_links`/`trageti_fulltext`, the namespace's own vec0 DROP, and
 every extension's row-DELETE succeed or fail together. The previous
 warn-and-proceed behavior and the `DELETE_NAMESPACE_HAS_REFERENCES` log
 code are retired.
@@ -2250,11 +2337,11 @@ the previous live index is preserved; with `allowPartialSwap: true`, the
 swap proceeds with the partial new index. `'in-place'` is supported for
 callers that explicitly accept the partial-on-failure trade-off.
 
-`rebuildFts()` drops and recreates the global per-database `trl_fts` table
-and re-populates from `trl_assertions` in batches inside one write
+`rebuildFts()` drops and recreates the global per-database `trageti_fulltext` table
+and re-populates from `trageti_assertions` in batches inside one write
 transaction. The rowid invariant is mandatory: rebuild MUST insert with
-`INSERT INTO trl_fts(rowid, content) SELECT rowid, content FROM trl_assertions`
-so `trl_fts.rowid === trl_assertions.rowid` remains true for BM25 rowid
+`INSERT INTO trageti_fulltext(rowid, content) SELECT rowid, content FROM trageti_assertions`
+so `trageti_fulltext.rowid === trageti_assertions.rowid` remains true for BM25 rowid
 joins. Used to switch tokenizers on a populated database (the path the
 migration system flags via `MigrationCompatibilityError` with
 `{ kind: 'rebuild-fts', ... }`). Throws `MigrationCompatibilityError` if
@@ -2262,21 +2349,21 @@ the new tokenizer fails the v0.3 allow-list.
 
 **Tokenizer config metadata.** The "current tokenizer config" referenced
 by `RebuildFtsOptions.tokenizer` defaults is read from library-managed
-metadata (a dedicated `trl_fts_config` row inserted by the v001 migration
+metadata (a dedicated `trageti_fulltext_config` row inserted by the v001 migration
 and updated by every `rebuildFts()` call), NOT parsed from `sqlite_master`'s
 stored CREATE statement — SQL DDL parsing is brittle and version-dependent.
-The persisted metadata is the source of truth for "what is `trl_fts`
+The persisted metadata is the source of truth for "what is `trageti_fulltext`
 actually tokenized with."
 
 **Re-tokenization.** `rebuildFts()` re-tokenizes **every row in
-`trl_assertions`** because tokenizer changes invalidate the index
+`trageti_assertions`** because tokenizer changes invalidate the index
 contents — there is no in-place tokenizer upgrade. With a large corpus
 this can be a multi-second-to-minute operation; `batchSize` (default 1000)
 controls memory pressure per chunk but does not bound total runtime.
 
 **Operational impact.** The rebuild runs inside one write transaction;
 SQLite serializes concurrent writes for its duration, and reads of
-`trl_fts` block until the transaction commits. Callers MUST schedule
+`trageti_fulltext` block until the transaction commits. Callers MUST schedule
 `rebuildFts()` as a service-impacting maintenance operation and SHOULD
 quiesce write traffic to the database first. `signal` allows cooperative
 cancellation between batches but cannot interrupt a running SQLite
@@ -2363,7 +2450,7 @@ getPendingIndexing(namespace): Promise<Array<{ id, content }>>
                                           at debug.
 ```
 
-The `embedding_table` value in `trl_namespaces` is a **planned table name**
+The `embedding_table` value in `trageti_namespaces` is a **planned table name**
 computed deterministically from the namespace at registration time; its
 presence in metadata does not prove the virtual table exists. Code paths
 that need the existence answer must query `sqlite_master` or use
@@ -2371,7 +2458,7 @@ that need the existence answer must query `sqlite_master` or use
 
 **Unregistered namespaces.** `getStats(namespace)` and
 `getPendingIndexing(namespace)` both throw `NamespaceNotInitializedError`
-when the supplied `namespace` is not present in `trl_namespaces`. This is
+when the supplied `namespace` is not present in `trageti_namespaces`. This is
 consistent with every other public store method: the `requireOpen()` guard
 treats unknown namespaces as a precondition failure, not as an empty
 result. To distinguish "namespace exists but is vectorless" (returns
@@ -2381,7 +2468,7 @@ register via `initNamespace()` first or catch
 `NamespaceNotInitializedError` explicitly.
 `getStats()` and `getPendingIndexing()` use this same `sqlite_master` lookup
 for vec0 existence; they do not infer existence from the planned
-`embedding_table` value in `trl_namespaces`.
+`embedding_table` value in `trageti_namespaces`.
 
 Required regression test: open a file-backed DB, write assertions, index
 them with `sqlite-vec` loaded, close, reopen WITHOUT loading `sqlite-vec`,
@@ -2555,17 +2642,17 @@ SQL pattern (must preserve the BM25 rowid-join invariant for FTS5
 external-content tables):
 
 ```sql
-SELECT a.id AS assertion_id, bm25(trl_fts) AS bm25_score
-FROM trl_fts
-JOIN trl_assertions a ON a.rowid = trl_fts.rowid
-WHERE trl_fts MATCH ?
+SELECT a.id AS assertion_id, bm25(trageti_fulltext) AS bm25_score
+FROM trageti_fulltext
+JOIN trageti_assertions a ON a.rowid = trageti_fulltext.rowid
+WHERE trageti_fulltext MATCH ?
   AND a.id IN (SELECT value FROM json_each(?))   -- temporal-filter IDs
-ORDER BY bm25(trl_fts) ASC
+ORDER BY bm25(trageti_fulltext) ASC
 LIMIT ?
 ```
 
 FTS5 external-content tables cannot read UNINDEXED columns directly; all
-`assertion_id` reads must come from `trl_assertions` via the `rowid` join.
+`assertion_id` reads must come from `trageti_assertions` via the `rowid` join.
 The v0.3 BM25-only branch must obey this stable SQL invariant. Step 2-bm25
 never loads
 `sqlite-vec` and never touches vec0 — it is the path that supports the
@@ -2741,7 +2828,7 @@ unreachable in correctly-used library code:
 | Code                                     | Raised by                                                                                                                                                                                                                             |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SCORER_NO_USABLE_SIGNAL`                | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5. |
-| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trl_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt.                                   |
+| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trageti_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt.                               |
 
 ---
 
@@ -2795,7 +2882,7 @@ Required test classes:
   `getPendingIndexing()` throws `MissingPeerDependencyError`.
 - **Lazy vec0 creation.** Vector-configured namespace, no vec0 yet, then
   first `indexAssertion()` call creates the table. Verify
-  `trl_namespaces.embedding_table` was already populated at registration
+  `trageti_namespaces.embedding_table` was already populated at registration
   time (planned-name invariant).
 - **Hybrid retrieval graceful degradation.** `queryText` only with no
   provider → BM25 fallback emits `TRGT_RETRIEVE_VECTOR_SKIPPED` with
@@ -2818,7 +2905,7 @@ Required test classes:
   AND `queryTextMode: 'fts5'` modes.
 - **`rebuildFts()` rowid preservation.** Rebuild with and without a new
   tokenizer, then verify BM25 rowid joins still return assertion IDs via
-  `trl_assertions.rowid = trl_fts.rowid` and `newTokenizer` is the resolved
+  `trageti_assertions.rowid = trageti_fulltext.rowid` and `newTokenizer` is the resolved
   active config.
 - **Reindex provider failure preserves old embeddings** (staging-swap
   invariant).
@@ -2876,7 +2963,7 @@ Required test classes:
   `{ ..., vectorReady: false, embeddingDimension: null, ... }`).
 - **FTS tokenizer metadata round-trip.** `prepareDatabase` → `initNamespace` →
   write assertions → `rebuildFts({ tokenizer })` → close → reopen → confirm
-  the tokenizer config readable from the library-managed `trl_fts_config`
+  the tokenizer config readable from the library-managed `trageti_fulltext_config`
   row matches the post-rebuild config (NOT parsed from `sqlite_master`).
 - **FK verifier fail-closed.** A `ConnectionVerifier` against a DB where
   `PRAGMA foreign_keys = ON` cannot be enabled throws

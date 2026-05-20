@@ -16,7 +16,7 @@ describe('SchemaExtensionApplier.validate', () => {
       applier.validate({
         columns: [
           {
-            table: 'trl_assertions',
+            table: 'trageti_assertions',
             column: 'approval_status',
             definition: "TEXT NOT NULL DEFAULT 'pending'",
           },
@@ -25,11 +25,11 @@ describe('SchemaExtensionApplier.validate', () => {
     ).not.toThrow()
   })
 
-  it('rejects column names starting with trl_', async () => {
+  it('rejects column names starting with trageti_', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
-        columns: [{ table: 'trl_assertions', column: 'trl_foo', definition: 'TEXT' }],
+        columns: [{ table: 'trageti_assertions', column: 'trageti_foo', definition: 'TEXT' }],
       }),
     ).toThrow(SchemaExtensionError)
   })
@@ -38,7 +38,7 @@ describe('SchemaExtensionApplier.validate', () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
-        columns: [{ table: 'trl_assertions', column: 'select', definition: 'TEXT' }],
+        columns: [{ table: 'trageti_assertions', column: 'select', definition: 'TEXT' }],
       }),
     ).toThrow(SchemaExtensionError)
   })
@@ -47,19 +47,19 @@ describe('SchemaExtensionApplier.validate', () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
-        columns: [{ table: 'trl_assertions', column: 'content', definition: 'TEXT' }],
+        columns: [{ table: 'trageti_assertions', column: 'content', definition: 'TEXT' }],
       }),
     ).toThrow(SchemaExtensionError)
   })
 
-  it('rejects table names starting with trl_', async () => {
+  it('rejects table names starting with trageti_', async () => {
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
         tables: [
           {
-            tableName: 'trl_my_table',
-            createSQL: 'CREATE TABLE IF NOT EXISTS trl_my_table (id TEXT)',
+            tableName: 'trageti_my_table',
+            createSQL: 'CREATE TABLE IF NOT EXISTS trageti_my_table (id TEXT)',
             referencesNamespace: false,
           },
         ],
@@ -73,8 +73,8 @@ describe('SchemaExtensionApplier.validate', () => {
     try {
       applier.validate({
         columns: [
-          { table: 'trl_assertions', column: 'trl_bad', definition: 'TEXT' },
-          { table: 'trl_assertions', column: 'select', definition: 'TEXT' },
+          { table: 'trageti_assertions', column: 'trageti_bad', definition: 'TEXT' },
+          { table: 'trageti_assertions', column: 'select', definition: 'TEXT' },
         ],
       })
     } catch (e) {
@@ -93,18 +93,20 @@ describe('SchemaExtensionApplier.apply', () => {
     setupDb(db)
   })
 
-  it('adds a new column to trl_assertions', async () => {
+  it('adds a new column to trageti_assertions', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
       columns: [
         {
-          table: 'trl_assertions',
+          table: 'trageti_assertions',
           column: 'approval_status',
           definition: "TEXT NOT NULL DEFAULT 'pending'",
         },
       ],
     })
-    const cols = db.prepare(`PRAGMA table_info(trl_assertions)`).all() as Array<{ name: string }>
+    const cols = db.prepare(`PRAGMA table_info(trageti_assertions)`).all() as Array<{
+      name: string
+    }>
     expect(cols.map((c) => c.name)).toContain('approval_status')
   })
 
@@ -112,12 +114,18 @@ describe('SchemaExtensionApplier.apply', () => {
     const applier = new SchemaExtensionApplier()
     const ext = {
       columns: [
-        { table: 'trl_assertions' as const, column: 'my_flag', definition: 'INTEGER DEFAULT 0' },
+        {
+          table: 'trageti_assertions' as const,
+          column: 'my_flag',
+          definition: 'INTEGER DEFAULT 0',
+        },
       ],
     }
     applier.apply(db, ext)
     applier.apply(db, ext)
-    const cols = db.prepare(`PRAGMA table_info(trl_assertions)`).all() as Array<{ name: string }>
+    const cols = db.prepare(`PRAGMA table_info(trageti_assertions)`).all() as Array<{
+      name: string
+    }>
     expect(cols.filter((c) => c.name === 'my_flag').length).toBe(1)
   })
 
@@ -181,20 +189,20 @@ describe('SchemaExtensionApplier.getExtensionColumns', () => {
 
   it('returns empty array when no extensions added', async () => {
     const applier = new SchemaExtensionApplier()
-    expect(applier.getExtensionColumns(db, 'trl_assertions')).toEqual([])
+    expect(applier.getExtensionColumns(db, 'trageti_assertions')).toEqual([])
   })
 
   it('returns added extension columns', async () => {
     const applier = new SchemaExtensionApplier()
     applier.apply(db, {
-      columns: [{ table: 'trl_assertions', column: 'approval_status', definition: 'TEXT' }],
+      columns: [{ table: 'trageti_assertions', column: 'approval_status', definition: 'TEXT' }],
     })
-    expect(applier.getExtensionColumns(db, 'trl_assertions')).toContain('approval_status')
+    expect(applier.getExtensionColumns(db, 'trageti_assertions')).toContain('approval_status')
   })
 
   it('does not include library columns', async () => {
     const applier = new SchemaExtensionApplier()
-    const cols = applier.getExtensionColumns(db, 'trl_assertions')
+    const cols = applier.getExtensionColumns(db, 'trageti_assertions')
     expect(cols).not.toContain('content')
     expect(cols).not.toContain('id')
     expect(cols).not.toContain('namespace')

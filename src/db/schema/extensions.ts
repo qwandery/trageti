@@ -24,9 +24,9 @@ export class SchemaExtensionApplier {
     const violations: string[] = []
 
     for (const col of extensions.columns ?? []) {
-      if (col.column.toLowerCase().startsWith('trl_')) {
+      if (col.column.toLowerCase().startsWith('trageti_')) {
         violations.push(
-          `Column "${col.column}" on ${col.table}: names starting with "trl_" are reserved for library use`,
+          `Column "${col.column}" on ${col.table}: names starting with "trageti_" are reserved for library use`,
         )
       }
       if (isReserved(col.column)) {
@@ -41,9 +41,9 @@ export class SchemaExtensionApplier {
     }
 
     for (const tbl of extensions.tables ?? []) {
-      if (tbl.tableName.toLowerCase().startsWith('trl_')) {
+      if (tbl.tableName.toLowerCase().startsWith('trageti_')) {
         violations.push(
-          `Table "${tbl.tableName}": names starting with "trl_" are reserved for library use`,
+          `Table "${tbl.tableName}": names starting with "trageti_" are reserved for library use`,
         )
       }
       if (tbl.referencesNamespace && !tbl.namespaceColumn) {

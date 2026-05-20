@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-const TABLE_PREFIX = 'trl_embeddings_'
+const TABLE_PREFIX = 'trageti_embeddings_'
 
 /** Returns a stable 16-hex-char suffix derived from the namespace string. */
 export function namespaceToTableSuffix(namespace: string): string {

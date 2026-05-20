@@ -6,7 +6,7 @@ import type { LibraryTable } from '../../domain/types.js'
  * Must stay in sync with the v001 DDL in migrations/v001_initial.ts.
  */
 export const LIBRARY_COLUMNS: Readonly<Record<LibraryTable, readonly string[]>> = {
-  trl_assertions: [
+  trageti_assertions: [
     'id',
     'namespace',
     'type',
@@ -20,8 +20,8 @@ export const LIBRARY_COLUMNS: Readonly<Record<LibraryTable, readonly string[]>> 
     'entity_type',
     'created_at',
   ],
-  trl_episodes: ['id', 'namespace', 'position', 'occurred_at', 'type', 'content', 'created_at'],
-  trl_links: [
+  trageti_episodes: ['id', 'namespace', 'position', 'occurred_at', 'type', 'content', 'created_at'],
+  trageti_links: [
     'id',
     'namespace',
     'from_id',

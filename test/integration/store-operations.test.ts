@@ -221,7 +221,7 @@ describe('rebuildFts', () => {
     await store.close()
   })
 
-  it('round-trips a custom tokenizer through trl_fts_meta', async () => {
+  it('round-trips a custom tokenizer through trageti_tokenizer', async () => {
     const store = await vectorStore('fts')
     await seed(store, 'fts', ['a-1'])
     await store.rebuildFts({ tokenizer: { tokenizer: 'porter' } })

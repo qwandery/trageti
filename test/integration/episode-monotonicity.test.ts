@@ -136,7 +136,7 @@ describe('Episode position monotonicity (v0.2 spec invariant)', () => {
       }),
     ).rejects.toThrow(ValidationError)
     const row = db
-      .prepare<[string], { id: string }>('SELECT id FROM trl_episodes WHERE id = ?')
+      .prepare<[string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ?')
       .get('ep-2')
     expect(row).toBeUndefined()
   })

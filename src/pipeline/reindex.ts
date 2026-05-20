@@ -52,7 +52,7 @@ export async function reindexNamespace(
         .prepare<
           [string, number, number],
           { id: string; content: string }
-        >('SELECT id, content FROM trl_assertions WHERE namespace = ? LIMIT ? OFFSET ?')
+        >('SELECT id, content FROM trageti_assertions WHERE namespace = ? LIMIT ? OFFSET ?')
         .all(namespace, batchSize, offset)
       if (batch.length === 0) break
 

@@ -21,12 +21,12 @@ describe('TragetiError hierarchy', () => {
   })
 
   it('NamespaceHashCollisionError reports both namespaces and table', async () => {
-    const err = new NamespaceHashCollisionError('a', 'b', 'trl_embeddings_xxx')
+    const err = new NamespaceHashCollisionError('a', 'b', 'trageti_embeddings_xxx')
     expect(err.code).toBe(ErrorCode.NAMESPACE_HASH_COLLISION)
     expect(err.name).toBe('NamespaceHashCollisionError')
     expect(err.message).toContain('"a"')
     expect(err.message).toContain('"b"')
-    expect(err.message).toContain('trl_embeddings_xxx')
+    expect(err.message).toContain('trageti_embeddings_xxx')
   })
 
   it('SchemaExtensionError exposes violations array', async () => {

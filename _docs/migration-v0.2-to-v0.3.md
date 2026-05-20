@@ -203,8 +203,17 @@ try {
 Existing v0.2 databases upgrade automatically the first time you call
 `init()` (or `create()`). Migration v003 rebuilds `trl_namespaces` with
 nullable embedding columns under an FK-toggle transaction and adds a new
-`trl_fts_meta` table to track the active tokenizer. The runner verifies
-referential integrity (`PRAGMA foreign_key_check`) before committing.
+`trl_fts_meta` table to track the active tokenizer. Migration v004 backfills
+`created_at` columns to canonical ISO-8601. Migration v005 then renames every
+library table from the `trl_` prefix to `trageti_` (core tables,
+`trageti_fulltext`, `trageti_tokenizer`, indexes, and per-namespace
+`trageti_embeddings_<hash>` vec0 tables); the schema-version table is renamed
+by the runner itself. The runner verifies referential integrity
+(`PRAGMA foreign_key_check`) before committing each FK-toggle migration.
+
+After the upgrade, code that reads library tables directly (custom
+`ConnectionVerifier`s, raw SQL, `ColumnExtension.table`) must use the
+`trageti_` names — see the v0.3 Specification Amendment for the full map.
 
 ## Removed / deprecated
 

@@ -244,17 +244,17 @@ describe('TemporalStore — graph traversal', () => {
     })
     // Pin distinct created_at values so the tie-break has a stable signal.
     // Path A (a-1 → a-2 → a-4 via l-1, l-3): force l-1 to earlier timestamp.
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.001Z' WHERE id = ?").run(
+    db.prepare("UPDATE trageti_links SET created_at = '2024-01-01T00:00:00.001Z' WHERE id = ?").run(
       'l-1',
     )
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-01T00:00:00.002Z' WHERE id = ?").run(
+    db.prepare("UPDATE trageti_links SET created_at = '2024-01-01T00:00:00.002Z' WHERE id = ?").run(
       'l-3',
     )
     // Path B (a-1 → a-5 → a-4 via l-alt1, l-alt2): later timestamps.
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:00.000Z' WHERE id = ?").run(
+    db.prepare("UPDATE trageti_links SET created_at = '2024-01-02T00:00:00.000Z' WHERE id = ?").run(
       'l-alt1',
     )
-    db.prepare("UPDATE trl_links SET created_at = '2024-01-02T00:00:01.000Z' WHERE id = ?").run(
+    db.prepare("UPDATE trageti_links SET created_at = '2024-01-02T00:00:01.000Z' WHERE id = ?").run(
       'l-alt2',
     )
 

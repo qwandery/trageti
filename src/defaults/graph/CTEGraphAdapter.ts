@@ -69,7 +69,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
                1 AS depth,
                json_array(l.from_id, l.to_id) AS visited
-        FROM trl_links l
+        FROM trageti_links l
         WHERE l.namespace = ?
           AND l.from_id IN (SELECT value FROM json_each(?))
           AND l.valid_from <= ?
@@ -82,7 +82,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
                t.depth + 1,
                json_insert(t.visited, '$[#]', l.to_id)
-        FROM trl_links l
+        FROM trageti_links l
         JOIN traversal t ON l.from_id = t.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
@@ -130,7 +130,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const sql = `
       WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids) AS (
         SELECT l.to_id, 1, json_array(l.id), json_array(l.from_id, l.to_id)
-        FROM trl_links l
+        FROM trageti_links l
         WHERE l.namespace = ?
           AND l.from_id = ?
           AND l.valid_from <= ?
@@ -141,7 +141,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
         SELECT l.to_id, p.depth + 1,
                json_insert(p.path_ids, '$[#]', l.id),
                json_insert(p.visited_to_ids, '$[#]', l.to_id)
-        FROM trl_links l
+        FROM trageti_links l
         JOIN path_search p ON l.from_id = p.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
@@ -180,7 +180,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const allIds = [...new Set(candidates.flat())]
     const placeholders = allIds.map(() => '?').join(',')
     const linkRows = db
-      .prepare<string[], LinkRow>(`SELECT * FROM trl_links WHERE id IN (${placeholders})`)
+      .prepare<string[], LinkRow>(`SELECT * FROM trageti_links WHERE id IN (${placeholders})`)
       .all(...allIds)
     const byId = new Map<string, AssertionLink>()
     for (const r of linkRows) byId.set(r.id, rowToLink(r))

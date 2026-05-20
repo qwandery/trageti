@@ -310,7 +310,7 @@ describe('TemporalStore — citations', () => {
 
   it('legacy citation-less assertion (direct SQL) reads with citations: []', async () => {
     db.prepare(
-      `INSERT INTO trl_assertions
+      `INSERT INTO trageti_assertions
          (id, namespace, type, content, valid_from, valid_until, confidence,
           source_episode_id, supersedes_id, entity_id, entity_type)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -341,12 +341,12 @@ describe('TemporalStore — citations', () => {
         ],
       }),
     ).rejects.toThrow()
-    const a = db.prepare('SELECT id FROM trl_assertions WHERE id = ?').get('a-dup-cit') as
+    const a = db.prepare('SELECT id FROM trageti_assertions WHERE id = ?').get('a-dup-cit') as
       | { id: string }
       | undefined
     expect(a).toBeUndefined()
     const cits = db
-      .prepare('SELECT COUNT(*) AS c FROM trl_citations WHERE assertion_id = ?')
+      .prepare('SELECT COUNT(*) AS c FROM trageti_citations WHERE assertion_id = ?')
       .get('a-dup-cit') as { c: number }
     expect(cits.c).toBe(0)
   })
@@ -384,11 +384,13 @@ describe('TemporalStore — citations', () => {
         citations: [citationFor('a-supersede-closed', 'ep-2')],
       }),
     ).rejects.toThrow(ValidationError)
-    const a = db.prepare('SELECT id FROM trl_assertions WHERE id = ?').get('a-supersede-closed') as
-      | { id: string }
-      | undefined
+    const a = db
+      .prepare('SELECT id FROM trageti_assertions WHERE id = ?')
+      .get('a-supersede-closed') as { id: string } | undefined
     expect(a).toBeUndefined()
-    const pred = db.prepare('SELECT valid_until FROM trl_assertions WHERE id = ?').get('pred') as {
+    const pred = db
+      .prepare('SELECT valid_until FROM trageti_assertions WHERE id = ?')
+      .get('pred') as {
       valid_until: number
     }
     expect(pred.valid_until).toBe(5)

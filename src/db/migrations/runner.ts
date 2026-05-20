@@ -4,8 +4,19 @@ import { MigrationError } from '../../errors/index.js'
 import { validateTokenizer } from '../../internal/tokenizer.js'
 import { getMigrations } from './index.js'
 
+/**
+ * The schema-version table is renamed `trl_schema_version` → `trageti_schema_version`
+ * by the runner itself, not by a migration: the runner reads it to decide which
+ * migrations to run and writes it to record each one, so a migration that
+ * renamed it would deadlock its own version tracking. The copy step lives in
+ * `getCurrentVersion()`; the legacy table is dropped only after a fully
+ * successful `applyMigrations()` run.
+ */
+const SCHEMA_VERSION_TABLE = 'trageti_schema_version'
+const LEGACY_SCHEMA_VERSION_TABLE = 'trl_schema_version'
+
 const BOOTSTRAP_DDL = `
-  CREATE TABLE IF NOT EXISTS trl_schema_version (
+  CREATE TABLE IF NOT EXISTS ${SCHEMA_VERSION_TABLE} (
     version     INTEGER PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now')),
     description TEXT NOT NULL
@@ -24,11 +35,26 @@ export class MigrationRunner {
 
   getCurrentVersion(db: Database): number {
     db.exec(BOOTSTRAP_DDL)
+    // Carry the legacy version history forward (copy only — the legacy table
+    // is dropped by applyMigrations once every pending migration has succeeded).
+    const legacy = db
+      .prepare<
+        [string],
+        { name: string }
+      >("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(LEGACY_SCHEMA_VERSION_TABLE)
+    if (legacy) {
+      db.exec(
+        `INSERT INTO ${SCHEMA_VERSION_TABLE} (version, applied_at, description)
+           SELECT version, applied_at, description FROM ${LEGACY_SCHEMA_VERSION_TABLE}
+           WHERE version NOT IN (SELECT version FROM ${SCHEMA_VERSION_TABLE})`,
+      )
+    }
     const row = db
       .prepare<
         [],
         { version: number | null }
-      >('SELECT MAX(version) AS version FROM trl_schema_version')
+      >(`SELECT MAX(version) AS version FROM ${SCHEMA_VERSION_TABLE}`)
       .get()
     return row?.version ?? 0
   }
@@ -45,6 +71,11 @@ export class MigrationRunner {
         this.runStandardMigration(db, migration)
       }
     }
+
+    // Every pending migration succeeded — retire the legacy version table.
+    // A mid-run failure above leaves it in place, so a failed run never
+    // strands the version history.
+    db.exec(`DROP TABLE IF EXISTS ${LEGACY_SCHEMA_VERSION_TABLE}`)
   }
 
   /**
@@ -55,7 +86,7 @@ export class MigrationRunner {
     try {
       db.transaction(() => {
         migration.up(db)
-        db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
+        db.prepare(`INSERT INTO ${SCHEMA_VERSION_TABLE} (version, description) VALUES (?, ?)`).run(
           migration.version,
           migration.description,
         )
@@ -92,7 +123,7 @@ export class MigrationRunner {
           },
         )
       }
-      db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
+      db.prepare(`INSERT INTO ${SCHEMA_VERSION_TABLE} (version, description) VALUES (?, ?)`).run(
         migration.version,
         migration.description,
       )

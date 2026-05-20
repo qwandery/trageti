@@ -71,6 +71,7 @@ trageti/
 │   │   │   ├── v002_citations.ts   trl_citations + reverse-supersession index (v0.2)
 │   │   │   ├── v003_vectorless.ts  Nullable vector columns + trl_fts_meta (v0.3)
 │   │   │   ├── v004_timestamps.ts  Canonical ISO-8601 created_at backfill (v0.3)
+│   │   │   ├── v005_rename.ts      Rename trl_* tables to trageti_* (v0.3)
 │   │   │   ├── index.ts            Ordered migration list (version === index + 1)
 │   │   │   └── runner.ts           MigrationRunner — standard + FK-toggle choreography
 │   │   ├── repositories/       Thin DAOs; one per top-level table
@@ -154,7 +155,7 @@ await store.close()
 1. **Connection verification** — `ConnectionVerifier.verify(db)`. The default verifier **fails closed**: it sets `PRAGMA foreign_keys = ON`, re-reads it, and throws `ConnectionVerificationError` if FK enforcement is unavailable. On success it emits `TRGT_FOREIGN_KEYS_ENABLED` at debug level.
 2. **Migrations** — `MigrationRunner.applyMigrations(db)` brings the schema to the current version (idempotent).
 3. **Schema extensions** — `SchemaExtensionApplier` validates user-supplied extensions then applies them transactionally.
-4. **Namespace registration** — upsert the configured namespace into `trl_namespaces`.
+4. **Namespace registration** — upsert the configured namespace into `trageti_namespaces`.
 5. **Extension-cache warm-up** — read `PRAGMA table_info` for every library table and cache user-extension columns. Repositories use this to populate the `extensions` bag on returned rows.
 
 Direct construction (`new TemporalStore(db, options)` + `await store.init()`) still works and is what most integration tests use, but `create()` is the surface consumers should see. After `close()`, every public method throws `StoreClosedError` — guarded by `requireNotClosed()`.
@@ -186,12 +187,12 @@ The pinned step order in `pipeline/retrieve.ts`:
 1. Temporal filter    SQL: namespace + temporal window + optional filters → [ids]
 2. Vector scoring     SQL: vec_distance_cosine over candidate ids (json_each).
                       ↳ skipped for retrievalStrategy:'bm25' or vectorless ns.
-3. FTS5 / BM25        SQL: trl_fts MATCH …; raw BM25 score per candidate.
+3. FTS5 / BM25        SQL: trageti_fulltext MATCH …; raw BM25 score per candidate.
                       ↳ queryTextMode:'phrase' (default) quotes the query as a
                         single FTS5 phrase; 'fts5' passes raw FTS5 syntax.
 4. Score              TS:  scorer.scoreBatch() — cross-candidate normalisation.
 5. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
-6. Graph expand       SQL: recursive CTE through trl_links at temporalAnchor.
+6. Graph expand       SQL: recursive CTE through trageti_links at temporalAnchor.
 7. Trajectory         SQL: recursive CTE through supersedes_id; oldest-first.
 ```
 
@@ -213,37 +214,37 @@ A namespace registered with `embeddingDimension` of `null` / `0` / `undefined` i
 
 ### Per-namespace embedding tables
 
-Each vector namespace gets its own `vec0` virtual table named `trl_embeddings_{16hex}`, where `16hex` is the first 16 hex characters of `SHA-256(utf8(namespace))`. Why per-namespace?
+Each vector namespace gets its own `vec0` virtual table named `trageti_embeddings_{16hex}`, where `16hex` is the first 16 hex characters of `SHA-256(utf8(namespace))`. Why per-namespace?
 
 - **Dimension can vary** per namespace.
 - **Reindex is isolated** — rebuilding one namespace's vec0 table doesn't disturb others.
 - **Hash collision is detected** at namespace-registration time → `NamespaceHashCollisionError`.
 
-Table-name resolution is **always** via the `trl_namespaces.embedding_table` column — the single source of truth. After a staging-swap reindex the stored name deliberately diverges from the hash-derived name; no code may re-derive a table name from the namespace hash. `namespaceToEmbeddingTable()` is used only to seed a _fresh_ namespace's name.
+Table-name resolution is **always** via the `trageti_namespaces.embedding_table` column — the single source of truth. After a staging-swap reindex the stored name deliberately diverges from the hash-derived name; no code may re-derive a table name from the namespace hash. `namespaceToEmbeddingTable()` is used only to seed a _fresh_ namespace's name.
 
 ### Staging-swap reindex
 
-`reindexNamespace()` builds a brand-new vec0 table under a collision-safe staging name (`<base>_staging_<epochMillis>`), re-embeds into it, then **atomically repoints** `trl_namespaces.embedding_table` to the staging table and drops the old one. The swap is a column `UPDATE` — never a vec0 virtual-table rename (vec0 rename support is version-dependent). On any failure the previous index is left fully intact (`ReindexError`). A leftover staging table from an interrupted run is detected and cleaned up with `TRGT_REINDEX_STAGING_LEFTOVER`.
+`reindexNamespace()` builds a brand-new vec0 table under a collision-safe staging name (`<base>_staging_<epochMillis>`), re-embeds into it, then **atomically repoints** `trageti_namespaces.embedding_table` to the staging table and drops the old one. The swap is a column `UPDATE` — never a vec0 virtual-table rename (vec0 rename support is version-dependent). On any failure the previous index is left fully intact (`ReindexError`). A leftover staging table from an interrupted run is detected and cleaned up with `TRGT_REINDEX_STAGING_LEFTOVER`.
 
 ### Citations
 
-Every assertion has at least one citation. The `trl_citations` table holds them; `CitationRepository` is the DAO. Reads batch-fetch citations via `json_each` against the candidate funnel, so common reads stay O(rows + 1 query). Citations are surfaced on every returned `Assertion` and `RetrievedAssertion`. Strict mode (`validation.requireCitationExcerpt`) upgrades a null excerpt from a `TRGT_CITATION_EXCERPT_MISSING` warning to a `ValidationError`.
+Every assertion has at least one citation. The `trageti_citations` table holds them; `CitationRepository` is the DAO. Reads batch-fetch citations via `json_each` against the candidate funnel, so common reads stay O(rows + 1 query). Citations are surfaced on every returned `Assertion` and `RetrievedAssertion`. Strict mode (`validation.requireCitationExcerpt`) upgrades a null excerpt from a `TRGT_CITATION_EXCERPT_MISSING` warning to a `ValidationError`.
 
 ### Replacement vs accumulation
 
 `supersedes_id` represents _replacement only_ (strictly new → old). The single-call replacement pattern is `writeAssertion({ supersedesId })`, which atomically closes the predecessor's `valid_until` in the same transaction. For the no-replacement close (a data correction where nothing supersedes the row) use `store.advanced.closeAssertion(id, { validUntil })` — an escape hatch that emits `TRGT_DEPRECATED_USAGE` once per process. There is no top-level `supersedeAssertion` method in v0.3.
 
-When a new assertion _layers on_ an earlier one without replacing it, use `writeLink` with an accumulation link type (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trl_links`.
+When a new assertion _layers on_ an earlier one without replacing it, use `writeLink` with an accumulation link type (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trageti_links`.
 
 ### FTS5 with external content
 
-`trl_fts` is an external-content FTS5 table backed by `trl_assertions`. Three triggers (`trl_fts_ai`, `trl_fts_ad`, `trl_fts_au`) keep it in sync. The tokenizer config is recorded in the **`trl_fts_meta`** metadata table (v003).
+`trageti_fulltext` is an external-content FTS5 table backed by `trageti_assertions`. Three triggers (`trageti_fulltext_ai`, `trageti_fulltext_ad`, `trageti_fulltext_au`) keep it in sync. The tokenizer config is recorded in the **`trageti_tokenizer`** metadata table.
 
-> **Naming note:** the v0.3 spec originally named this table `trl_fts_config`, which is physically impossible — SQLite FTS5 reserves `<ftsname>_config` (and `_data` / `_idx` / `_content` / `_docsize`) as the FTS table's own shadow tables, and the FTS table is `trl_fts`. The implementation uses `trl_fts_meta`. The R6 spec amendment renames it to `trageti_tokenizer` as the steady-state name.
+> **Naming note:** the v0.3 spec originally named the tokenizer table `trl_fts_config`, which is physically impossible — SQLite FTS5 reserves `<ftsname>_config` (and `_data` / `_idx` / `_content` / `_docsize`) as the FTS table's own shadow tables, and the FTS table was `trl_fts`. The v003 implementation used `trl_fts_meta` instead; the v0.3 table-naming amendment (migration v005) renamed it to the steady-state `trageti_tokenizer`. Lineage: `trl_fts_config` (spec, never built) → `trl_fts_meta` (v003 code) → `trageti_tokenizer` (final).
 
-`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trl_fts_meta`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
+`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trageti_tokenizer`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
 
-**External-content FTS5 quirk:** these tables cannot reliably read `UNINDEXED` columns back via the table alias. `runStep3` in `pipeline/retrieve.ts` joins to `trl_assertions` via `rowid` rather than reading `assertion_id` from `trl_fts` directly. If you change this, run the full integration suite.
+**External-content FTS5 quirk:** these tables cannot reliably read `UNINDEXED` columns back via the table alias. `runStep3` in `pipeline/retrieve.ts` joins to `trageti_assertions` via `rowid` rather than reading `assertion_id` from `trageti_fulltext` directly. If you change this, run the full integration suite.
 
 ### Schema extensions
 
@@ -255,7 +256,7 @@ await TemporalStore.create({
   namespace: 'x',
   embeddingDimension: 768,
   schemaExtensions: {
-    columns: [{ table: 'trl_assertions', columnName: 'source_url', columnDef: 'TEXT' }],
+    columns: [{ table: 'trageti_assertions', columnName: 'source_url', columnDef: 'TEXT' }],
     tables: [{ tableName: 'meta', columns: ['k TEXT', 'v TEXT'], referencesNamespace: false }],
   },
 })
@@ -299,7 +300,7 @@ A numbered migration must NEVER drop a column/table or be edited after release. 
 
 ### 5. `embedding_table` is the only table-name source of truth
 
-No code derives a vec0 table name from the namespace hash at runtime. Always read `trl_namespaces.embedding_table`. The hash function seeds a fresh name only; after a reindex swap the stored name diverges and that is correct.
+No code derives a vec0 table name from the namespace hash at runtime. Always read `trageti_namespaces.embedding_table`. The hash function seeds a fresh name only; after a reindex swap the stored name diverges and that is correct.
 
 ### 6. The connection verifier fails closed on foreign keys
 
@@ -321,7 +322,7 @@ Ranked results are ordered `(score DESC, validFrom DESC, createdAt ASC, id ASC)`
 
 Nothing in `src/internal/` is re-exported from `src/index.ts` except the `Logger` / `Metrics` / `LogFields` **types**. Treat any change to internal runtime APIs as an internal refactor.
 
-> **Forward note:** the R6 work renames every `trl_*` library table to a `trageti_*` prefix (migration v005 + a runner self-migration for the schema-version table). Until R6 lands, this document deliberately uses the `trl_*` names that the code currently creates.
+> **Table naming:** every library table uses the `trageti_` prefix. Migration v005 renamed the legacy `trl_` tables; the schema-version table (`trageti_schema_version`) is renamed by the migration runner's own self-migration. The `trl_` names survive only inside the v001–v004 migration bodies (which factually created tables of that era) and the v005 rename body. See the v0.3 Specification Amendment for the rename map.
 
 ---
 
@@ -482,7 +483,7 @@ Migrations are code-registered in `src/db/migrations/index.ts` as a numbered arr
 
 ### The runner
 
-`MigrationRunner` (`src/db/migrations/runner.ts`) owns the `trl_schema_version` bootstrap table and chooses one of two execution modes per migration:
+`MigrationRunner` (`src/db/migrations/runner.ts`) owns the `trageti_schema_version` bootstrap table and chooses one of two execution modes per migration:
 
 - **Standard migration** — the body and the `schema_version` insert run in one `db.transaction()` (atomic). Used for additive DDL and data backfills.
 - **FK-toggle migration** (`requiresForeignKeyToggle: true`) — `PRAGMA foreign_keys` cannot change inside a transaction, so the runner captures the current setting, disables FKs, runs the body inside an explicit `BEGIN`/`COMMIT` with the `schema_version` insert before `COMMIT`, runs `foreign_key_check`, and restores the captured FK state in `finally`. A failed FK check rolls back the whole migration. Used for table rewrites / column-nullability changes that SQLite implements via table recreation.
@@ -495,6 +496,12 @@ Migrations are code-registered in `src/db/migrations/index.ts` as a numbered arr
 | v002    | `v002_citations.ts`  | standard  | `trl_citations` + reverse-supersession index (v0.2)             |
 | v003    | `v003_vectorless.ts` | FK-toggle | Nullable vector columns + `trl_fts_meta` tokenizer table (v0.3) |
 | v004    | `v004_timestamps.ts` | standard  | Backfill `created_at` to canonical ISO-8601 (v0.3)              |
+| v005    | `v005_rename.ts`     | FK-toggle | Rename every library table from the `trl_` prefix to `trageti_` |
+
+The v001–v004 bodies legitimately name `trl_*` tables (they created the
+schema of their era); v005 renames them. The schema-version table is renamed
+not by a migration but by the runner's own self-migration — see the
+`trageti_schema_version` handling in [runner.ts](../../src/db/migrations/runner.ts).
 
 ### Adding a migration
 
@@ -507,10 +514,10 @@ export function createV0NNMigration(): Migration {
   return {
     version: NN,
     name: 'v0NN_my_change',
-    description: 'Add foo column to trl_assertions',
+    description: 'Add foo column to trageti_assertions',
     // requiresForeignKeyToggle: true,   // only if the body rewrites a table
     up(db: Database): void {
-      db.exec(`ALTER TABLE trl_assertions ADD COLUMN foo TEXT`)
+      db.exec(`ALTER TABLE trageti_assertions ADD COLUMN foo TEXT`)
     },
   }
 }
@@ -619,8 +626,8 @@ npx vitest run test/integration/temporal-filter.test.ts -t "validAt"
 
 ```typescript
 console.log(db.prepare('SELECT name, sql FROM sqlite_master').all())
-console.log(db.prepare('PRAGMA table_info(trl_assertions)').all())
-console.log(db.prepare('SELECT MAX(version) FROM trl_schema_version').get())
+console.log(db.prepare('PRAGMA table_info(trageti_assertions)').all())
+console.log(db.prepare('SELECT MAX(version) FROM trageti_schema_version').get())
 ```
 
 ### Reproducing a CI failure locally
@@ -639,7 +646,7 @@ npm run build
 
 **`Error: vec_version is not a function`** → `openTestDb()` wasn't used, or sqlite-vec isn't installed. Vector-path tests need it; BM25-only tests don't.
 
-**`SQLITE_ERROR: no such column: T.assertion_id`** → the FTS5 join workaround in `pipeline/retrieve.ts` was reverted. External-content FTS5 cannot read `UNINDEXED` columns via alias; join to `trl_assertions` via rowid.
+**`SQLITE_ERROR: no such column: T.assertion_id`** → the FTS5 join workaround in `pipeline/retrieve.ts` was reverted. External-content FTS5 cannot read `UNINDEXED` columns via alias; join to `trageti_assertions` via rowid.
 
 **`StoreClosedError`** → a method was called after `close()`. Each public method is `requireNotClosed()`-guarded.
 

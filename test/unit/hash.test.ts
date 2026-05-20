@@ -31,7 +31,7 @@ describe('namespaceToTableSuffix', () => {
 describe('namespaceToEmbeddingTable', () => {
   it('has the correct prefix format', async () => {
     const table = namespaceToEmbeddingTable('my-namespace')
-    expect(table).toMatch(/^trl_embeddings_[0-9a-f]{16}$/)
+    expect(table).toMatch(/^trageti_embeddings_[0-9a-f]{16}$/)
   })
 
   it('is deterministic', async () => {

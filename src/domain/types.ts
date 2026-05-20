@@ -52,9 +52,9 @@ export interface Assertion {
  */
 export interface AssertionCitation {
   id: string
-  /** FK → trl_assertions.id */
+  /** FK → trageti_assertions.id */
   assertionId: string
-  /** FK → trl_episodes.id — required; validated at write time. Must share the assertion's namespace. */
+  /** FK → trageti_episodes.id — required; validated at write time. Must share the assertion's namespace. */
   episodeId: string
   /** Required, non-empty. Caller-defined reference string; format opaque to the library. */
   sourceRef: string
@@ -485,11 +485,11 @@ export interface RebuildFtsResult {
 
 // ─── Schema extensions ────────────────────────────────────────────────────────
 
-export type LibraryTable = 'trl_assertions' | 'trl_episodes' | 'trl_links'
+export type LibraryTable = 'trageti_assertions' | 'trageti_episodes' | 'trageti_links'
 
 export interface ColumnExtension {
   table: LibraryTable
-  /** Must not start with 'trl_', shadow any library column, or be a reserved keyword. */
+  /** Must not start with 'trageti_', shadow any library column, or be a reserved keyword. */
   column: string
   /** SQL column definition: type + optional DEFAULT + optional CHECK. */
   definition: string
@@ -498,7 +498,7 @@ export interface ColumnExtension {
 }
 
 export interface TableExtension {
-  /** Must not start with 'trl_'. */
+  /** Must not start with 'trageti_'. */
   tableName: string
   /** Full CREATE TABLE IF NOT EXISTS statement. */
   createSQL: string
