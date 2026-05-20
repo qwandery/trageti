@@ -38,8 +38,8 @@ export class EpisodeRepository {
       }
       this.db
         .prepare(
-          `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           episode.id,
@@ -48,6 +48,7 @@ export class EpisodeRepository {
           episode.occurredAt,
           episode.type,
           episode.content,
+          new Date().toISOString(),
         )
       const row = this.db
         .prepare<[string], EpisodeRow>('SELECT * FROM trl_episodes WHERE id = ?')

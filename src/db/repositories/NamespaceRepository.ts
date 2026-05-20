@@ -105,10 +105,10 @@ export class NamespaceRepository {
 
     this.db
       .prepare(
-        `INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table, config)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(namespace, dim, embeddingTable, JSON.stringify(config))
+      .run(namespace, dim, embeddingTable, JSON.stringify(config), new Date().toISOString())
   }
 
   updateEmbeddingDimension(namespace: string, newDimension: number, newTable: string): void {

@@ -46,8 +46,8 @@ export class CitationRepository {
   insertMany(assertionId: string, citations: NewAssertionCitation[]): AssertionCitation[] {
     const stmt = this.db.prepare(
       `INSERT INTO trl_citations
-         (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     for (const cit of citations) {
       stmt.run(
@@ -59,6 +59,7 @@ export class CitationRepository {
         cit.excerptStart ?? null,
         cit.excerptEnd ?? null,
         cit.metadata !== undefined ? JSON.stringify(cit.metadata) : null,
+        new Date().toISOString(),
       )
     }
     return this.getByAssertionId(assertionId)
@@ -68,8 +69,8 @@ export class CitationRepository {
     this.db
       .prepare(
         `INSERT INTO trl_citations
-           (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         citation.id,
@@ -80,6 +81,7 @@ export class CitationRepository {
         citation.excerptStart ?? null,
         citation.excerptEnd ?? null,
         citation.metadata !== undefined ? JSON.stringify(citation.metadata) : null,
+        new Date().toISOString(),
       )
     const row = this.db
       .prepare<[string], CitationRow>('SELECT * FROM trl_citations WHERE id = ?')

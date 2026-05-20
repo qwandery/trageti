@@ -185,10 +185,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1')
   })
 
-  it('schema version is 3 after init (v003 = vectorless namespaces + trl_fts_meta)', async () => {
+  it('schema version is 4 after init (v004 = canonical ISO-8601 created_at backfill)', async () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     await store.init()
-    expect(await store.getCurrentSchemaVersion()).toBe(3)
+    expect(await store.getCurrentSchemaVersion()).toBe(4)
   })
 })

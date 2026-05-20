@@ -47,8 +47,8 @@ export class AssertionRepository {
       .prepare(
         `INSERT INTO trl_assertions
            (id, namespace, type, content, valid_from, valid_until, confidence,
-            source_episode_id, supersedes_id, entity_id, entity_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            source_episode_id, supersedes_id, entity_id, entity_type, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         assertion.id,
@@ -62,6 +62,7 @@ export class AssertionRepository {
         assertion.supersedesId ?? null,
         assertion.entityId ?? null,
         assertion.entityType ?? null,
+        new Date().toISOString(),
       )
   }
 

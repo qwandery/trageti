@@ -1,4 +1,4 @@
-import type { Database } from 'better-sqlite3'
+import type { Database, Options as BetterSqlite3ConstructorOptions } from 'better-sqlite3'
 import type { Logger, Metrics } from '../internal/logger.js'
 
 // ─── Core domain ─────────────────────────────────────────────────────────────
@@ -586,6 +586,11 @@ export interface CreateStoreOptions extends TemporalStoreOptions {
   closeDatabaseOnStoreClose?: boolean
 }
 
+/** Re-export of better-sqlite3's constructor options, so callers can pass
+ *  strongly-typed forwarding options without importing better-sqlite3
+ *  types directly. */
+export type BetterSqlite3Options = BetterSqlite3ConstructorOptions
+
 export interface PrepareDatabaseOptions {
   /** Default true. */
   loadSqliteVec?: boolean
@@ -597,7 +602,7 @@ export interface PrepareDatabaseOptions {
   tempStore?: 'DEFAULT' | 'FILE' | 'MEMORY'
   pragmas?: Record<string, string | number>
   /** Forwarded to `new Database(filename, options)` when source is a filename. */
-  betterSqlite3?: Record<string, unknown>
+  betterSqlite3?: BetterSqlite3Options
 }
 
 export interface UpgradeNamespaceToVectorOptions {

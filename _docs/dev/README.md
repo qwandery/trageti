@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide is for engineers working **on** trageti — extending the library, fixing bugs, writing tests, cutting releases. For consumer-facing API documentation, see the top-level [README](../../README.md).
+This guide is for engineers working **on** trageti — extending the library, fixing bugs, writing tests, cutting releases. For consumer-facing API documentation, see the top-level [README](../../README.md). For the behavioural contract, see [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md).
 
 ---
 
@@ -10,17 +10,19 @@ This guide is for engineers working **on** trageti — extending the library, fi
 2. [Project layout](#project-layout)
 3. [Architectural overview](#architectural-overview)
 4. [Critical invariants](#critical-invariants)
-5. [Tooling](#tooling)
-6. [Local development workflow](#local-development-workflow)
-7. [Testing](#testing)
-8. [Linting, formatting, typechecking](#linting-formatting-typechecking)
-9. [Building](#building)
-10. [Adding features](#adding-features)
-11. [Database migrations](#database-migrations)
-12. [Versioning with changesets](#versioning-with-changesets)
-13. [Publishing](#publishing)
-14. [Debugging](#debugging)
-15. [Performance considerations](#performance-considerations)
+5. [Error codes and log codes](#error-codes-and-log-codes)
+6. [Tooling](#tooling)
+7. [Local development workflow](#local-development-workflow)
+8. [Testing](#testing)
+9. [Linting, formatting, typechecking](#linting-formatting-typechecking)
+10. [Building](#building)
+11. [Adding features](#adding-features)
+12. [Database migrations](#database-migrations)
+13. [Production-integration guidance](#production-integration-guidance)
+14. [Versioning and releases](#versioning-and-releases)
+15. [Publishing](#publishing)
+16. [Debugging](#debugging)
+17. [Performance considerations](#performance-considerations)
 
 ---
 
@@ -37,9 +39,10 @@ npm run build
 
 Requirements:
 
-- **Node.js >= 18** (the package targets Node 18, the CI matrix runs 18 / 20 / 22)
+- **Node.js >= 18** (the package targets Node 18; the CI matrix runs 18 / 20 / 22)
 - **npm** (used for lockfile + scripts; pnpm/yarn untested)
 - A C++ toolchain for `better-sqlite3` native compilation (already on most dev machines; on Windows install Visual Studio Build Tools, on Linux install `build-essential`, on macOS the Xcode CLI tools)
+- `sqlite-vec` is an **optional** peer dependency. It is installed as a dev dependency so the integration suite can exercise the vector path. The library runs BM25-only without it.
 
 ---
 
@@ -54,46 +57,52 @@ trageti/
 │   ├── domain/
 │   │   ├── types.ts            ALL interfaces (domain + contracts) live here
 │   │   └── vocabulary.ts       Frozen recommended assertion / link types
-│   ├── contracts/              Pure re-export barrels for the contract names
 │   ├── defaults/               Default implementations of the contracts
-│   │   ├── connection/         DefaultConnectionVerifier
+│   │   ├── connection/         DefaultConnectionVerifier + prepareDatabase
 │   │   ├── formatting/         Prose / Structured / Json formatters
-│   │   ├── graph/              CTEGraphAdapter (recursive CTE BFS)
+│   │   ├── graph/              CTEGraphAdapter (recursive CTE BFS, cycle-safe)
+│   │   ├── providers/          MockEmbeddingProvider, RawVectorProvider
 │   │   ├── scoring/            DefaultScorer (semantic 0.6 / bm25 0.3 / recency 0.1)
 │   │   └── validation/         DefaultAssertionValidator
 │   ├── db/                     Everything that touches the Database object
 │   │   ├── candidates.ts       buildCandidateJson — JSON-serialised id list
 │   │   ├── migrations/         Code-registered Migration[] + runner
-│   │   │   ├── v001_initial.ts Initial schema (v0.1)
-│   │   │   └── v002_citations.ts trl_citations + reverse-supersession index (v0.2)
+│   │   │   ├── v001_initial.ts     Initial schema (v0.1)
+│   │   │   ├── v002_citations.ts   trl_citations + reverse-supersession index (v0.2)
+│   │   │   ├── v003_vectorless.ts  Nullable vector columns + trl_fts_meta (v0.3)
+│   │   │   ├── v004_timestamps.ts  Canonical ISO-8601 created_at backfill (v0.3)
+│   │   │   ├── index.ts            Ordered migration list (version === index + 1)
+│   │   │   └── runner.ts           MigrationRunner — standard + FK-toggle choreography
 │   │   ├── repositories/       Thin DAOs; one per top-level table
 │   │   │   ├── AssertionRepository.ts
-│   │   │   ├── CitationRepository.ts (v0.2)
+│   │   │   ├── CitationRepository.ts
 │   │   │   ├── EpisodeRepository.ts
 │   │   │   ├── LinkRepository.ts
 │   │   │   ├── EmbeddingRepository.ts
 │   │   │   └── NamespaceRepository.ts
 │   │   └── schema/             columns / extensions / reserved-words
-│   ├── pipeline/               Retrieval orchestration; no inline SQL
-│   │   ├── retrieve.ts         6-step retrieval (filter → vec → fts → score → rank → expand)
+│   ├── pipeline/               Retrieval orchestration; no inline SQL outside retrieve
+│   │   ├── retrieve.ts         Multi-step retrieval → RetrievalResult envelope
 │   │   ├── assemble.ts         retrieve + format + coverage block
 │   │   ├── snapshot.ts         Pure temporal filter
 │   │   ├── graph.ts            getConnected / findPath wrappers
-│   │   ├── middleware.ts       before/after composition
-│   │   └── reindex.ts          Drop+recreate vec0; stream re-embed
+│   │   ├── middleware.ts       before/after composition over RetrievalResult
+│   │   └── reindex.ts          Staging-swap vec0 rebuild; stream re-embed
 │   ├── errors/
-│   │   └── index.ts            TragetiError + 6 typed subclasses; ErrorCode enum
-│   └── internal/               NOT exported from src/index.ts
-│       ├── hash.ts             namespaceToTableSuffix (SHA-256 → 16 hex)
-│       ├── logger.ts           structuredWarn (no content/embedding leakage)
-│       └── sql-ident.ts        quoteIdent for safe DDL interpolation
+│   │   └── index.ts            TragetiError + typed subclasses; ErrorCode enum
+│   └── internal/               NOT exported from src/index.ts (except Logger types)
+│       ├── hash.ts             namespaceToEmbeddingTable (SHA-256 → 16 hex)
+│       ├── logger.ts           Logger / Metrics contracts + Console/Noop impls
+│       ├── sql-ident.ts        quoteIdent for safe DDL interpolation
+│       └── tokenizer.ts        validateTokenizer — FTS5 tokenizer allow-list
 ├── test/
 │   ├── unit/                   No DB; vitest projects → fast, deterministic
-│   ├── integration/            Requires better-sqlite3 + sqlite-vec
+│   ├── integration/            Requires better-sqlite3 (+ sqlite-vec for vector)
 │   ├── helpers/openTestDb.ts   :memory: + sqliteVec.load + WAL + FK
-│   └── fixtures/scenario.ts    3 episodes / ~10 assertions / 5 links
+│   └── fixtures/scenario.ts    Reusable domain-neutral scenario graph
 ├── _docs/dev/                  This file
-├── .changeset/                 Pending version bumps
+├── _docs/specs/                trageti-spec-v0.3.md (current) + v0.1/v0.2 (historical)
+├── .changeset/                 Changeset config (see Versioning)
 ├── .github/workflows/          ci.yml + publish.yml
 ├── dist/                       Build output (gitignored)
 ├── eslint.config.js            Flat ESLint config; @typescript-eslint/strict-type-checked
@@ -102,103 +111,147 @@ trageti/
 ├── tsconfig.eslint.json        Extends; includes src + test for ESLint type service
 ├── tsup.config.ts              Dual ESM+CJS; dts; better-sqlite3 externalised
 ├── vitest.config.ts            Single fork (SQLite determinism); v8 coverage
-├── package.json                exports map: ESM types-first; CJS via .d.cts
-└── _docs/specs/trageti-spec-v0.2.md   Source of truth for behaviour (v0.1 deprecated)
+└── package.json                exports map: ESM types-first; CJS via .d.cts
 ```
 
 ### Layering rules
 
 ```text
-domain  ←  contracts  ←  defaults  ←  pipeline  ←  store
-                ↑           ↑
-                └── errors ─┘
-                ↑
+domain  ←  defaults  ←  pipeline  ←  store
+              ↑           ↑
+              └── errors ─┘
+              ↑
 db  ←  pipeline / store / defaults
-internal ← (anything; never re-exported)
+internal ← (anything; only Logger/Metrics types are re-exported)
 ```
 
-- `domain/types.ts` is the only file that defines interfaces. Contract files just re-export those names. This keeps imports loop-free at TS-resolution time.
+- `domain/types.ts` is the only file that defines interfaces — domain types **and** the extension-point contracts (`GraphQueryAdapter`, `RetrievalScorer`, `ContextFormatter`, `AssertionValidator`, `ConnectionVerifier`, `RetrievalMiddleware`, `EmbeddingProvider`). There is no separate `contracts/` directory; the v0.2-era re-export barrels were removed in v0.3 as dead code.
 - `db/` is the only directory that touches the `Database` object directly.
-- `pipeline/` orchestrates repositories and contracts but never writes inline SQL.
-- `internal/` is for implementation detail. It is **not** re-exported from `src/index.ts`. Treat it as a private namespace.
+- `pipeline/` orchestrates repositories and contracts. `retrieve.ts` owns the retrieval SQL; other pipeline files delegate to repositories.
+- `internal/` is implementation detail. Only the `Logger` / `Metrics` / `LogFields` **types** are re-exported from `src/index.ts` (consumers must be able to type a custom logger). The runtime helpers in `internal/` are private.
 
 ---
 
 ## Architectural overview
 
-### The `TemporalStore` facade
+### Lifecycle: `create()` / `close()`
 
-`TemporalStore` is the single public entry point. Construction is **side-effect-free** — no I/O happens until `init()` is called. `init()` runs in this order:
+v0.3 has a uniform async lifecycle. The recommended entry point is the static factory:
 
-1. **Connection verification** — `ConnectionVerifier.verify(db)` checks sqlite-vec, warns on non-WAL / FK-disabled.
+```typescript
+const store = await TemporalStore.create({
+  database: '/path/to/data.db', // path string, or a better-sqlite3 Database
+  namespace: 'default',
+  embeddingDimension: 768, // omit / null → vectorless namespace
+  embeddingProvider, // optional
+})
+// ... use the store ...
+await store.close()
+```
+
+`create()` opens (or accepts) the database via `prepareDatabase()`, constructs the store, and runs `init()`. `init()` runs in this order:
+
+1. **Connection verification** — `ConnectionVerifier.verify(db)`. The default verifier **fails closed**: it sets `PRAGMA foreign_keys = ON`, re-reads it, and throws `ConnectionVerificationError` if FK enforcement is unavailable. On success it emits `TRGT_FOREIGN_KEYS_ENABLED` at debug level.
 2. **Migrations** — `MigrationRunner.applyMigrations(db)` brings the schema to the current version (idempotent).
 3. **Schema extensions** — `SchemaExtensionApplier` validates user-supplied extensions then applies them transactionally.
-4. **Namespace registration** — upsert the default namespace into `trl_namespaces`.
-5. **Extension cache warm-up** — read `PRAGMA table_info` for every library table and cache the user-extension columns. Repositories use this to populate the `extensions` bag on returned rows.
+4. **Namespace registration** — upsert the configured namespace into `trl_namespaces`.
+5. **Extension-cache warm-up** — read `PRAGMA table_info` for every library table and cache user-extension columns. Repositories use this to populate the `extensions` bag on returned rows.
 
-After this, the store delegates everything to repositories (writes) and pipeline modules (retrieval).
+Direct construction (`new TemporalStore(db, options)` + `await store.init()`) still works and is what most integration tests use, but `create()` is the surface consumers should see. After `close()`, every public method throws `StoreClosedError` — guarded by `requireNotClosed()`.
+
+### Uniform async API
+
+Every public method returns a `Promise`, even where the underlying `better-sqlite3` work is synchronous. This is deliberate: it keeps the API stable if an async `EmbeddingProvider` is introduced on a path that is currently sync, and it lets `EmbeddingProvider.embed` (genuinely async) compose without a signature split. `TemporalStore.ts` carries a file-wide, documented `eslint-disable @typescript-eslint/require-await` for the methods that are async-by-contract but sync-by-implementation.
 
 ### Hybrid retrieval pipeline
 
-`retrieve()` has seven pinned steps as of v0.2. They MUST execute in this order; reordering changes the meaning of `temporalAnchor`.
+`retrieve(query)` resolves to a `RetrievalResult` envelope — **not** a bare array:
 
-```text
-1. Temporal filter        SQL: namespace + temporal window + optional filters → [ids]
-                          ↳ v0.2: includeSuperseded:false uses spec wording
-                            (a.supersedes_id IS NULL OR a.valid_until IS NULL)
-2. Semantic scoring       SQL: vec_distance_cosine over candidate ids (json_each binding)
-3. Optional FTS5          SQL: trl_fts MATCH …; raw FTS5 BM25 score per candidate
-                          ↳ v0.2: pipeline passes RAW BM25 (negative) into the
-                            scorer. Cross-candidate normalisation moved into
-                            DefaultScorer.scoreBatch.
-4. Score                  TS:  scorer.scoreBatch() if present; else per-candidate
-                          score() with the hydrated assertion (with citations)
-5. Rank + truncate        TS:  sort by score desc; slice(limit)
-6. Optional graph expand  SQL: recursive CTE through trl_links at temporalAnchor
-7. Optional trajectory    SQL: recursive CTE through supersedes_id; oldest-first;
-                          attached as supersessionChain (excludes the result itself)
+```typescript
+const { results, meta } = await store.retrieve({ queryText: '...', namespace: 'default' })
 ```
 
-The funnel between steps is `buildCandidateJson(ids)` — a JSON-serialised array bound as a single parameter and consumed via `json_each(?)`. This is the **only** mechanism for passing intermediate id sets between SQL stages. See [critical invariants](#critical-invariants).
+- `results: RetrievedAssertion[]` — the ranked hits.
+- `meta: RetrievalMeta` — `namespace`, `temporalAnchor`, `limit`, `candidateCount`, `retrievalStrategy`, `vectorApplied`, `bm25Applied`, `queryTextMode`, `tookMs?`, `warnings`.
 
-### Citations
+The pinned step order in `pipeline/retrieve.ts`:
 
-Every assertion has at least one citation. The `trl_citations` table (introduced in v002) holds them; `CitationRepository` is the DAO. Reads batch-fetch citations via `json_each` against the candidate funnel — the same mechanism repositories already use for assertion id sets — so common reads stay O(rows + 1 query).
+```text
+0. Query routing      TS:  resolve retrievalStrategy + query embedding.
+                      ↳ hybrid: derive an embedding from queryText via the
+                        namespace's EmbeddingProvider when no queryEmbedding
+                        is supplied; fall back to BM25 with
+                        TRGT_RETRIEVE_VECTOR_SKIPPED if the vector backend
+                        is unavailable.
+1. Temporal filter    SQL: namespace + temporal window + optional filters → [ids]
+2. Vector scoring     SQL: vec_distance_cosine over candidate ids (json_each).
+                      ↳ skipped for retrievalStrategy:'bm25' or vectorless ns.
+3. FTS5 / BM25        SQL: trl_fts MATCH …; raw BM25 score per candidate.
+                      ↳ queryTextMode:'phrase' (default) quotes the query as a
+                        single FTS5 phrase; 'fts5' passes raw FTS5 syntax.
+4. Score              TS:  scorer.scoreBatch() — cross-candidate normalisation.
+5. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
+6. Graph expand       SQL: recursive CTE through trl_links at temporalAnchor.
+7. Trajectory         SQL: recursive CTE through supersedes_id; oldest-first.
+```
 
-Citations are surfaced on every returned `Assertion` and `RetrievedAssertion`. There is no read path that yields an empty citation array unless the row pre-dates v002 (legacy data only — the validator does not retroactively invalidate such rows).
+`retrievalStrategy` is `hybrid` (default), `vector`, or `bm25`. Each retrieval step can be observed via the `RetrievalDebug.onStep` hook; a throwing hook is caught and logged as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` (the hook never breaks retrieval).
 
-### Replacement vs accumulation
+The funnel between SQL steps is `buildCandidateJson(ids)` — a JSON-serialised array bound as a single parameter, consumed via `json_each(?)`. This is the **only** mechanism for passing intermediate id sets between SQL stages. See [critical invariants](#critical-invariants).
 
-`supersedes_id` represents _replacement only_ (strictly new → old). When a new assertion arrives that _layers on_ an earlier one without replacing it, the caller should use `writeLink` with one of the accumulation link types (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trl_links`. Multi-leaf trajectories are merged + de-duplicated + sorted by `(valid_from, created_at, id)`; branch grouping is _not_ preserved (return type is flat `Assertion[]`).
+### `explain()`
 
-There is no `replaced_by_id` column in v0.2. The `replacedById` parameter on `supersedeAssertion()` is validated for namespace compatibility but not persisted. Use the `trl_idx_assertions_supersedes` index (added in v002) to answer "what replaced X?" via `SELECT id FROM trl_assertions WHERE namespace = ? AND supersedes_id = ?`. A future-design discussion of a forward pointer is deferred — it would either invert the supersession direction or require a separate column / typed link.
+`store.explain(query)` returns a `RetrievalExplainResult` with a per-step `RetrievalExplainStep` (`step`, `sql`, `queryPlan`, `estimatedRows`, `vectorReady`) and routing flags (`wouldApplyVector` / `wouldApplyBm25`). It is **non-executing** — it runs `EXPLAIN QUERY PLAN`, never the queries themselves.
+
+### Vectorless namespaces
+
+A namespace registered with `embeddingDimension` of `null` / `0` / `undefined` is **vectorless**: both `embedding_dimension` and `embedding_table` are stored as `NULL`. Vectorless namespaces support BM25-only retrieval and never create a vec0 table. The schema `CHECK` forbids the partial state (dimension set, table name absent), so both columns are written atomically. A vector path on a vectorless namespace throws via the `ensureVectorReady` chokepoint. To add vectors later, call `upgradeNamespaceToVector()` — re-`initNamespace()` with a dimension is rejected with an actionable error pointing at that method.
+
+### Embedding providers
+
+`EmbeddingProvider` (`embed(texts, options?) → Promise<number[][]>`) is a contract. Providers are **process-local — never persisted**. The store keeps an in-process **namespace → provider registry**: a provider can be bound store-wide (the default) or per namespace at `create()` / `initNamespace()` / `upgradeNamespaceToVector()` time. Retrieval Step 0 and `explain()` consult this registry to resolve the right provider for the queried namespace. `RawVectorProvider` is a pass-through for callers that already hold embeddings; `MockEmbeddingProvider` (`new MockEmbeddingProvider({ dimension })`) is deterministic test scaffolding and emits a once-per-process non-production warning.
 
 ### Per-namespace embedding tables
 
-Each namespace gets its own `vec0` virtual table named `trl_embeddings_{16hex}`, where `16hex` is the first 16 hex characters of `SHA-256(utf8(namespace))`. Why per-namespace?
+Each vector namespace gets its own `vec0` virtual table named `trl_embeddings_{16hex}`, where `16hex` is the first 16 hex characters of `SHA-256(utf8(namespace))`. Why per-namespace?
 
-- **Dimension can vary** per namespace (each one stores its own `embedding_dimension`).
-- **Reindex is cheap** — drop+recreate one vec0 table doesn't disturb other namespaces.
-- **Hash collision is detected** at `initNamespace()` time and throws `NamespaceHashCollisionError`.
+- **Dimension can vary** per namespace.
+- **Reindex is isolated** — rebuilding one namespace's vec0 table doesn't disturb others.
+- **Hash collision is detected** at namespace-registration time → `NamespaceHashCollisionError`.
 
-Table name resolution:
+Table-name resolution is **always** via the `trl_namespaces.embedding_table` column — the single source of truth. After a staging-swap reindex the stored name deliberately diverges from the hash-derived name; no code may re-derive a table name from the namespace hash. `namespaceToEmbeddingTable()` is used only to seed a _fresh_ namespace's name.
 
-- In-memory `embeddingTableCache: Map<string, string>` on the store
-- Authoritative source: `trl_namespaces.embedding_table` column
-- On cache miss, computed from `namespaceToEmbeddingTable(ns)` (deterministic)
+### Staging-swap reindex
+
+`reindexNamespace()` builds a brand-new vec0 table under a collision-safe staging name (`<base>_staging_<epochMillis>`), re-embeds into it, then **atomically repoints** `trl_namespaces.embedding_table` to the staging table and drops the old one. The swap is a column `UPDATE` — never a vec0 virtual-table rename (vec0 rename support is version-dependent). On any failure the previous index is left fully intact (`ReindexError`). A leftover staging table from an interrupted run is detected and cleaned up with `TRGT_REINDEX_STAGING_LEFTOVER`.
+
+### Citations
+
+Every assertion has at least one citation. The `trl_citations` table holds them; `CitationRepository` is the DAO. Reads batch-fetch citations via `json_each` against the candidate funnel, so common reads stay O(rows + 1 query). Citations are surfaced on every returned `Assertion` and `RetrievedAssertion`. Strict mode (`validation.requireCitationExcerpt`) upgrades a null excerpt from a `TRGT_CITATION_EXCERPT_MISSING` warning to a `ValidationError`.
+
+### Replacement vs accumulation
+
+`supersedes_id` represents _replacement only_ (strictly new → old). The single-call replacement pattern is `writeAssertion({ supersedesId })`, which atomically closes the predecessor's `valid_until` in the same transaction. For the no-replacement close (a data correction where nothing supersedes the row) use `store.advanced.closeAssertion(id, { validUntil })` — an escape hatch that emits `TRGT_DEPRECATED_USAGE` once per process. There is no top-level `supersedeAssertion` method in v0.3.
+
+When a new assertion _layers on_ an earlier one without replacing it, use `writeLink` with an accumulation link type (`deepens`, `qualifies`, `contextualizes`, `contradicts`, `measures`) and leave both assertions valid. `getEntityTrajectory()` follows replacement only — it does NOT traverse `trl_links`.
 
 ### FTS5 with external content
 
-`trl_fts` is an external-content FTS5 table backed by `trl_assertions`. Three triggers (`trl_fts_ai`, `trl_fts_ad`, `trl_fts_au`) keep it in sync. The `AFTER UPDATE OF content` trigger only fires when the `content` column changes — so `supersedeAssertion` (which only updates `valid_until`) does NOT trigger an FTS rebuild.
+`trl_fts` is an external-content FTS5 table backed by `trl_assertions`. Three triggers (`trl_fts_ai`, `trl_fts_ad`, `trl_fts_au`) keep it in sync. The tokenizer config is recorded in the **`trl_fts_meta`** metadata table (v003).
 
-**Important quirk**: external-content FTS5 tables cannot read `UNINDEXED` columns back via the table alias in some SQLite versions. The `runStep3` query in `pipeline/retrieve.ts` joins to `trl_assertions` via `rowid` rather than reading `assertion_id` from `trl_fts` directly. If you change this, run the full integration suite — the `semantic-retrieval.test.ts` "FTS5 path" test catches regressions.
+> **Naming note:** the v0.3 spec originally named this table `trl_fts_config`, which is physically impossible — SQLite FTS5 reserves `<ftsname>_config` (and `_data` / `_idx` / `_content` / `_docsize`) as the FTS table's own shadow tables, and the FTS table is `trl_fts`. The implementation uses `trl_fts_meta`. The R6 spec amendment renames it to `trageti_tokenizer` as the steady-state name.
+
+`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trl_fts_meta`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
+
+**External-content FTS5 quirk:** these tables cannot reliably read `UNINDEXED` columns back via the table alias. `runStep3` in `pipeline/retrieve.ts` joins to `trl_assertions` via `rowid` rather than reading `assertion_id` from `trl_fts` directly. If you change this, run the full integration suite.
 
 ### Schema extensions
 
 Users can add columns to library tables and additional tables of their own:
 
 ```typescript
-new TemporalStore(db, {
+await TemporalStore.create({
+  database: ':memory:',
   namespace: 'x',
   embeddingDimension: 768,
   schemaExtensions: {
@@ -208,15 +261,11 @@ new TemporalStore(db, {
 })
 ```
 
-Validation (in `SchemaExtensionApplier.validate`):
+Validation (in `SchemaExtensionApplier.validate`): column names must not shadow `LIBRARY_COLUMNS`, must not be SQLite reserved words; user table names must not start with the reserved library prefix. Application is wrapped in a single `db.transaction()` — all-or-nothing. Extension columns are surfaced on returned rows under `assertion.extensions[colName]`, cached at `init()` time.
 
-- Column names must not match library columns (shadow check)
-- Column names must not be SQLite reserved words
-- User table names must not start with `trl_`
+### Logging and metrics
 
-Application is wrapped in a single `db.transaction()` — all-or-nothing. Existing columns are detected via `PRAGMA table_info` and skipped (SQLite has no `ADD COLUMN IF NOT EXISTS`).
-
-Extension columns are surfaced on returned rows under `assertion.extensions[colName]`. The list of extension columns is cached at `init()` time on the store.
+`Logger` and `Metrics` are contracts (`internal/logger.ts`). The store is constructed with a `Logger` (default `ConsoleLogger`; `NoopLogger` for silence) and threads that **store-scoped** instance everywhere — there is no process-global logging shim. `emitOnce` deduplicates once-per-process codes (e.g. `TRGT_DEPRECATED_USAGE`); `incr` / `observe` are guarded metric helpers. Metrics emitted: `trageti.retrieve.tookMs`, `trageti.retrieve.candidateCount`, `trageti.indexBatch.indexed`, `trageti.indexBatch.skipped`, `trageti.reindex.tookMs`, `trageti.embeddingProvider.failures`.
 
 ### Middleware composition
 
@@ -224,7 +273,7 @@ Extension columns are surfaced on returned rows under `assertion.extensions[colN
 global.before[0..n]  →  call.before[0..n]  →  retrieveCore  →  call.after[n..0]  →  global.after[n..0]
 ```
 
-Implemented in `pipeline/middleware.ts:applyMiddleware`. Note the **reverse** order on `after` — this matches the standard onion-layer middleware idiom.
+Implemented in `pipeline/middleware.ts:applyMiddleware`, threading the `RetrievalResult` envelope. Note the **reverse** order on `after` — the standard onion-layer idiom.
 
 ---
 
@@ -234,53 +283,59 @@ These rules are load-bearing. Breaking them breaks the security/correctness stor
 
 ### 1. Candidate funneling: `json_each` only
 
-`buildCandidateJson(ids: readonly string[]) → string` is the **only** way candidate ID sets reach SQL. Never:
+`buildCandidateJson(ids: readonly string[]) → string` is the **only** way candidate ID sets reach SQL. Never use `IN (?, ?, …)` parameter unrolling (slow + bind-limit risk), never create TEMP tables for funneling (can spill to disk), never inline ids into the SQL string (injection risk).
 
-- Use `IN (?, ?, ?, …)` with parameter unrolling (slow + bind-limit risk)
-- Create TEMP tables for funneling (TEMP tables can spill to disk)
-- Inline ids into the SQL string (injection risk)
+### 2. Log/error payloads carry no content
 
-The bound JSON string lives in memory; SQLite parses it via `json_each(:p)` without materialising to disk.
-
-### 2. `structuredWarn` payload typing
-
-`structuredWarn(code: string, meta: Record<string, string|number|boolean>)` accepts only primitive metadata values. Adding a parameter that takes content, embedding, or query text is a hard rule violation. The same goes for error messages — include IDs, namespaces, types; never content.
+`Logger` methods and `LogFields` accept only primitive metadata (IDs, namespaces, types, counts, codes). Never log or put into an error message: assertion content, embeddings, query text, or raw provider error messages. `indexBatch`'s `skipped[].errorCode` is a short **sanitized** identifier — never the raw provider message.
 
 ### 3. `LIBRARY_COLUMNS` is canonical
 
-`src/db/schema/columns.ts` lists every column the library owns. Used for shadow-detection in extensions and for filtering extension columns from row mappers. If you add a column in a migration, you **must** add it to `LIBRARY_COLUMNS` in the same change.
+`src/db/schema/columns.ts` lists every column the library owns. Used for extension shadow-detection and for filtering extension columns out of row mappers. If you add a column in a migration, add it to `LIBRARY_COLUMNS` in the same change.
 
-### 4. Migrations are additive
+### 4. Shipped migrations are immutable; new behaviour is a new migration
 
-A numbered migration must NEVER drop a column or table. Adding `v003_*` is always fine; modifying `v001_initial` or `v002_citations` after release is not.
+A numbered migration must NEVER drop a column/table or be edited after release. `v001`–`v004` bodies are frozen. New schema behaviour arrives as a new numbered migration. The runner asserts `migrations[i].version === i + 1` at startup.
 
-### 4a. Citations are always populated on read (with one caveat)
+### 5. `embedding_table` is the only table-name source of truth
 
-Every read path returns assertions with `citations` populated. The only exception is rows that pre-date the v002 migration — those return `citations: []` until backfilled. The validator only enforces citation presence on _new_ writes; it does not retroactively invalidate legacy data.
+No code derives a vec0 table name from the namespace hash at runtime. Always read `trl_namespaces.embedding_table`. The hash function seeds a fresh name only; after a reindex swap the stored name diverges and that is correct.
 
-### 4b. `supersedes_id` is strictly new → old
+### 6. The connection verifier fails closed on foreign keys
 
-`writeAssertion({ supersedesId })` persists this backward pointer. `supersedeAssertion()` only writes `valid_until` and never touches `supersedes_id`. `replacedById` is informational. The `trl_idx_assertions_supersedes` index supports reverse lookups.
+`DefaultConnectionVerifier` enables and re-checks `PRAGMA foreign_keys` and throws if enforcement is unavailable. It does **not** check encryption PRAGMAs, and it does **not** warn about a missing `sqlite-vec` — vectorless / BM25-only operation is fully supported. sqlite-vec absence surfaces only where it actually matters (`prepareDatabase`, `ensureVectorReady`, hybrid fallback).
 
-### 4c. `writeAssertion({ supersedesId })` is a strong replacement signal
+### 7. Structural invariants live on `TemporalStore`, not the validator chain
 
-It atomically closes the predecessor's `valid_until = new.validFrom` in the same transaction. Once closed, `supersedeAssertion` rejects further window mutations on the predecessor — this prevents chain inconsistency. For accumulation, prefer `writeLink` with one of the accumulation link types and leave both assertions valid.
+Citation presence / sourceRef / episode-namespace and predecessor existence / namespace / ordering checks are enforced by `TemporalStore.writeAssertion()` itself (`enforceStructuralInvariants`, operating on `NormalizedNewAssertion`). Replacing the `validators` array does **not** bypass them. Configured validators run only after structural checks pass.
 
-### 4d. Structural invariants live on `TemporalStore`, not the validator chain
+### 8. Public input is validated before SQLite execution
 
-Citation presence/sourceRef/episode-namespace and predecessor-existence/namespace/ordering checks are enforced by `TemporalStore.writeAssertion()` itself (the `enforceStructuralInvariants` helper). Replacing the validators array (`validators: []` or a custom list) does **not** bypass these checks. The default `DefaultAssertionValidator` is for friendly user-facing rules (id/namespace/type non-empty, confidence range, sourceEpisodeId FK) and the `CITATION_EXCERPT_MISSING` warning. Ordering: structural checks first; configured validators run only if structural checks pass — this avoids duplicate error messages on the same field.
+Every `retrieve` / context call fails fast, before any SQLite execution, with a typed error. `RetrievalInputError` codes: `RETRIEVAL_INPUT_EMPTY`, `RETRIEVAL_REQUIRES_QUERY_TEXT`, `RETRIEVAL_REQUIRES_VECTOR_INPUT`, `RETRIEVAL_INVALID_LIMIT`, `RETRIEVAL_INVALID_MAX_DEPTH`, `RETRIEVAL_DIMENSION_MISMATCH`, `RETRIEVAL_NAMESPACE_VECTORLESS`, `SCORER_INVALID_OUTPUT`.
 
-### 4e. Schema-extension reserved-name rule is the `trl_` prefix only
+### 9. Determinism tie-break
 
-There is no library-table-name registry. `SchemaExtensionApplier` rejects extension table names starting with `trl_` and column names that shadow `LIBRARY_COLUMNS`. `trl_citations` is not extensible via `SchemaExtensions` in v0.2.
+Ranked results are ordered `(score DESC, validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be canonical ISO-8601 (millisecond precision) for the lexicographic tie-break to hold — repositories generate `new Date().toISOString()` explicitly, and migration v004 backfills pre-existing rows.
 
-### 5. Connection verifier is operational only
+### 10. `src/internal/` is private
 
-`DefaultConnectionVerifier` checks `vec_version()`, `journal_mode`, and `foreign_keys`. It does **not** check or reference encryption-related PRAGMAs. Encryption support is a deployment concern; the library stays neutral.
+Nothing in `src/internal/` is re-exported from `src/index.ts` except the `Logger` / `Metrics` / `LogFields` **types**. Treat any change to internal runtime APIs as an internal refactor.
 
-### 6. `src/internal/` is private
+> **Forward note:** the R6 work renames every `trl_*` library table to a `trageti_*` prefix (migration v005 + a runner self-migration for the schema-version table). Until R6 lands, this document deliberately uses the `trl_*` names that the code currently creates.
 
-Nothing in `src/internal/` is re-exported from `src/index.ts`. Public consumers cannot rely on these names. Treat any change to internal APIs as an internal refactor.
+---
+
+## Error codes and log codes
+
+### Error model
+
+All errors extend `TragetiError`, which carries a stable `code` from the `ErrorCode` enum. Typed subclasses (exported from `src/index.ts`): `NamespaceNotInitializedError`, `NamespaceHashCollisionError`, `NamespaceDimensionMismatchError`, `SchemaExtensionError`, `ReferencedExtensionTableError`, `ValidationError`, `MigrationError`, `MigrationCompatibilityError`, `ConnectionVerificationError`, `StoreClosedError`, `IndexingError`, `RetrievalInputError`, `ReindexError`, `EmbeddingProviderError`, `MissingPeerDependencyError`.
+
+When adding an error: add the code to `ErrorCode`, throw the most specific subclass, never embed content in the message (IDs / namespaces / types only), and add a test that asserts on `.code`.
+
+### Log codes
+
+Log codes are stable `TRGT_*` strings passed as the first argument to `Logger` methods. They are part of the observable contract — renaming one is a breaking change and must be reflected in `CHANGELOG.md`. Notable codes: `TRGT_FOREIGN_KEYS_ENABLED`, `TRGT_RETRIEVE_VECTOR_SKIPPED`, `TRGT_PENDING_INDEXING_VECTORLESS`, `TRGT_STATS_VEC_NOT_INTROSPECTED`, `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`, `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`, `TRGT_DEPRECATED_USAGE`, `TRGT_REINDEX_STAGING_LEFTOVER`, `TRGT_CITATION_EXCERPT_MISSING`.
 
 ---
 
@@ -289,39 +344,27 @@ Nothing in `src/internal/` is re-exported from `src/index.ts`. Public consumers 
 | Concern     | Tool                                                             | Why                                                                                                  |
 | ----------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Build       | `tsup` (esbuild)                                                 | Zero-config dual ESM+CJS, dts generation, fast                                                       |
-| Test runner | `vitest` v2                                                      | Native ESM, TS support, single-fork mode for SQLite determinism                                      |
+| Test runner | `vitest`                                                         | Native ESM, TS support, single-fork mode for SQLite determinism                                      |
 | Lint        | `eslint` 9 flat config + `typescript-eslint` strict-type-checked | Catches type-unsafe patterns at static analysis time                                                 |
 | Format      | `prettier`                                                       | Non-negotiable formatting; integrated via `eslint-config-prettier`                                   |
-| Versioning  | `@changesets/cli`                                                | Per-PR semver intent + changelog generation                                                          |
 | Coverage    | `@vitest/coverage-v8`                                            | Native v8 coverage; thresholds enforced                                                              |
-| Native dep  | `better-sqlite3` (peer) + `sqlite-vec` (dev only)                | Better-sqlite3 is synchronous (matches our transactional model); sqlite-vec ships pre-built binaries |
+| Native dep  | `better-sqlite3` (peer) + `sqlite-vec` (optional peer; dev dep)  | better-sqlite3 is synchronous (matches our transactional model); sqlite-vec ships pre-built binaries |
 
 ### TypeScript configuration
 
 Three tsconfig files:
 
-- **`tsconfig.json`** — for the build and editor. `rootDir: "src"`, excludes `test/`. Strict mode plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`.
-- **`tsconfig.test.json`** — extends the above. Includes both `src/` and `test/`. Used by `npm run typecheck` to verify tests too.
-- **`tsconfig.eslint.json`** — extends the above. Same includes plus root-level `*.ts` / `*.js`. Used by ESLint's type-aware rules.
-
-Why three?
-
-- The build needs `rootDir: "src"` so `dist/` mirrors `src/` cleanly.
-- Test typechecking needs `test/` in scope so we catch type errors in tests too.
-- ESLint needs every linted file in _some_ tsconfig — having a dedicated file lets us shape includes without disturbing the build.
+- **`tsconfig.json`** — build and editor. `rootDir: "src"`, excludes `test/`. Strict plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`.
+- **`tsconfig.test.json`** — extends the above; includes `src/` and `test/`. Used by `npm run typecheck`.
+- **`tsconfig.eslint.json`** — extends; same includes plus root-level `*.ts` / `*.js`. Used by ESLint's type-aware rules.
 
 If you add a new top-level directory that should be linted, add it to `tsconfig.eslint.json`'s `include`.
 
-### Strict ESLint rules in effect
+### Strict ESLint rules
 
-The flat config in `eslint.config.js` enables `tseslint.configs.strictTypeChecked` plus extra rules:
+`eslint.config.js` enables `tseslint.configs.strictTypeChecked` plus: `no-non-null-assertion` (must pair with a why-comment), `consistent-type-imports`, `no-explicit-any` and the `no-unsafe-*` family, `restrict-template-expressions` (allows numbers/booleans/nullish). Tests relax `no-unsafe-*`, `no-non-null-assertion`, `no-unnecessary-condition`, `no-confusing-void-expression`, `require-await`.
 
-- `no-non-null-assertion` (no `x!` in src — must explain why)
-- `consistent-type-imports` (use `import type` for type-only imports)
-- `no-explicit-any` and the `no-unsafe-*` family (off in tests)
-- `restrict-template-expressions` configured to allow numbers/booleans/nullish (numeric IDs are common in error messages)
-
-Tests relax: `no-unsafe-*`, `no-non-null-assertion`, `no-unnecessary-condition`, `no-confusing-void-expression`, `require-await`. These rules add noise without value in test code (e.g. async mock providers without await).
+`TemporalStore.ts` carries a single documented file-wide `eslint-disable @typescript-eslint/require-await` — the uniform-async-API methods are async-by-contract, sync-by-implementation. Any other `eslint-disable` must be a single line paired with a why-comment.
 
 ---
 
@@ -339,11 +382,11 @@ npm run lint:fix            # ESLint with autofix
 npm run format              # Prettier write
 npm run format:check        # CI mirror
 
-# Before pushing
-npm run lint && npm run typecheck && npm test && npm run build
+# Before pushing — the green-only gate
+npm run lint && npm run format:check && npm run typecheck && npm run build && npm test
 ```
 
-The `prepublishOnly` hook in `package.json` runs `build` + `typecheck`, so an accidental `npm publish` won't ship broken code.
+`prepublishOnly` runs `lint` + `typecheck` + `build` + `test:coverage`, so an accidental `npm publish` cannot ship code that fails the gate or the coverage thresholds.
 
 ---
 
@@ -351,39 +394,36 @@ The `prepublishOnly` hook in `package.json` runs `build` + `typecheck`, so an ac
 
 ### Test taxonomy
 
-| Tier        | Location                       | Marker                             | DB                      | Speed    | When       |
-| ----------- | ------------------------------ | ---------------------------------- | ----------------------- | -------- | ---------- |
-| Unit        | `test/unit/`                   | run via `npm run test:unit`        | none                    | <1s      | Every save |
-| Integration | `test/integration/`            | run via `npm run test:integration` | `:memory:` + sqlite-vec | ~1s      | Pre-commit |
-| E2E         | `test/integration/e2e.test.ts` | part of integration                | `:memory:`              | included | Pre-commit |
+| Tier        | Location                       | Command                    | DB                        | Speed    |
+| ----------- | ------------------------------ | -------------------------- | ------------------------- | -------- |
+| Unit        | `test/unit/`                   | `npm run test:unit`        | none                      | <1s      |
+| Integration | `test/integration/`            | `npm run test:integration` | `:memory:` (+ sqlite-vec) | ~1s      |
+| E2E         | `test/integration/e2e.test.ts` | part of integration        | `:memory:` / file-backed  | included |
 
-There is no separate "regression" tier — every bug fix gets a regression test alongside the integration suite. The reasoning: a regression test is just an integration test that exercises a previously-broken path. Co-locating them keeps coverage discoverable.
+Every bug fix gets a regression test in the integration suite — there is no separate regression tier.
 
 ### Single-fork pool
 
-`vitest.config.ts` sets `pool: 'forks'` with `singleFork: true`. SQLite (and better-sqlite3) are not safe across worker boundaries; running tests in a single process keeps the suite deterministic. Don't change this unless you've tested it on Windows + macOS + Linux.
+`vitest.config.ts` sets `pool: 'forks'`, `singleFork: true`. SQLite and better-sqlite3 are not safe across worker boundaries; a single process keeps the suite deterministic. Don't change this without testing on Windows + macOS + Linux.
 
 ### Fixtures
 
-`test/helpers/openTestDb.ts` opens `:memory:`, loads sqlite-vec, sets WAL + foreign_keys + temp_store. Use it for every integration test.
+`test/helpers/openTestDb.ts` opens `:memory:`, loads sqlite-vec, sets WAL + foreign_keys + temp_store. `test/fixtures/scenario.ts` writes a reusable domain-neutral scenario graph (episodes, assertions including supersession chains, links of varied types). Reuse them; avoid duplicating fixtures.
 
-`test/fixtures/scenario.ts` writes a reusable domain-neutral scenario (3 episodes at positions 1/5/10, ~10 assertions including 2 supersession chains, 5 links of varied types). Use it whenever you need a non-trivial graph; avoid duplicating fixtures.
+### Test against the public surface
+
+Prefer exercising the v0.3 primary surface — `TemporalStore.create()` / `prepareDatabase()` / `close()` — not just the low-level constructor. A test that only uses `new TemporalStore(db, …)` is not exercising the path consumers use.
 
 ### Coverage thresholds
 
-`vitest.config.ts` enforces:
-
-- Lines / Functions / Statements ≥ 90%
-- Branches ≥ 75% (the optional-spread idiom in `assemble.ts` skews branch coverage downward without indicating real gaps)
-
-Run `npm run test:coverage` to print the table. Type-only barrels (`contracts/*`, `defaults/index.ts`, `domain/types.ts`, `index.ts`) are excluded — they have no executable code.
+`vitest.config.ts` enforces **95 / 95 / 95 / 85** (lines / functions / statements / branches). Run `npm run test:coverage` to print the table. Type-only modules (`domain/types.ts`, `index.ts`, `defaults/index.ts`) are excluded — no executable code.
 
 ### Adding a test
 
-1. Pick the right tier — does it need a DB? → integration.
-2. Reuse `openTestDb` and `loadScenario` where possible.
-3. Use `beforeEach` to recreate state; never share state across tests.
-4. Assert on **observable behaviour**, not implementation details. Don't reach into private methods.
+1. Pick the right tier — needs a DB? → integration.
+2. Reuse `openTestDb` and the scenario fixture where possible.
+3. `beforeEach` to recreate state; never share state across tests.
+4. Assert on **observable behaviour**, not implementation details. For errors, assert on `.code`.
 
 ---
 
@@ -396,16 +436,7 @@ npm run format:check       # prettier --check (CI uses this)
 npm run format             # prettier --write
 ```
 
-CI runs all four. A PR that fails any of them is blocked.
-
-If you need to disable a rule for a specific line:
-
-```ts
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-const x = arr[0]! // safe because arr.length === 1 was just asserted
-```
-
-Always pair the `eslint-disable` with a why-comment. Reviewers will reject blanket disables.
+CI runs all four. A change that fails any of them is blocked. Always pair an `eslint-disable` with a why-comment; reviewers reject blanket disables.
 
 ---
 
@@ -415,42 +446,9 @@ Always pair the `eslint-disable` with a why-comment. Reviewers will reject blank
 npm run build
 ```
 
-Outputs to `dist/`:
+Outputs to `dist/`: `index.js` (ESM) + `index.cjs` (CJS), `index.d.ts` + `index.d.cts`, and source maps. Configured in `tsup.config.ts` — targets Node 18, `external: ['better-sqlite3']`, `dts: true`, cleans `dist/` first.
 
-- `dist/index.js` (ESM) + `dist/index.js.map`
-- `dist/index.cjs` (CJS) + `dist/index.cjs.map`
-- `dist/index.d.ts` (ESM types) + `dist/index.d.cts` (CJS types)
-
-Configuration in `tsup.config.ts`:
-
-- Targets Node 18
-- `external: ['better-sqlite3']` — peer dependency, never bundled
-- `dts: true` — generates declaration files
-- `sourcemap: true`
-- Cleans `dist/` before each build
-
-The `package.json#exports` map points consumers at the right artefact:
-
-```json
-"exports": {
-  ".": {
-    "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
-  }
-}
-```
-
-The "types" condition comes **first** within each branch — this is the modern Node + TS resolution algorithm requirement (`moduleResolution: "Bundler"` or `"Node16"+`). Don't reorder these.
-
-### What ships in the package
-
-`package.json#files` lists what npm publish includes:
-
-```json
-"files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"]
-```
-
-`.npmignore` provides a belt-and-suspenders exclusion for everything else. **Source code does not ship to npm** — only the built `dist/`. If a consumer needs the source, they should clone the repo.
+The `package.json#exports` map puts the `"types"` condition **first** within each branch (modern Node + TS resolution requirement). Don't reorder. `package.json#files` ships only `dist`, `README.md`, `LICENSE`, `CHANGELOG.md` — source does not ship to npm.
 
 ---
 
@@ -458,129 +456,109 @@ The "types" condition comes **first** within each branch — this is the modern 
 
 ### Adding a public API method
 
-1. Add the method to `TemporalStore` (likely delegating to a `pipeline/` function).
-2. Add domain types to `src/domain/types.ts` if you need new option/result shapes.
+1. Add the method to `TemporalStore` (likely delegating to a `pipeline/` function). Guard it with `requireNotClosed()`.
+2. Add domain types to `src/domain/types.ts` for new option/result shapes.
 3. Re-export new types from `src/index.ts`.
-4. Write integration tests in `test/integration/`. Cover happy path + at least one error case.
-5. If the method changes a contract, update the relevant interface in `src/domain/types.ts` (contract files are pure re-exports — they update automatically).
-6. Add a changeset: `npx changeset`.
+4. Write integration tests — happy path + at least one typed-error case.
+5. Update [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md) if you change a contract, and the consumer README.
 
 ### Adding a contract / extension point
 
 1. Define the interface in `src/domain/types.ts`.
-2. Re-export it from `src/contracts/MyNewContract.ts` and `src/contracts/index.ts`.
-3. Provide a default implementation in `src/defaults/{category}/MyDefault.ts`.
-4. Wire it into `TemporalStoreOptions` and the constructor's defaults block.
-5. Pass it down to the consuming pipeline function.
-6. Add unit tests for the default implementation; add integration tests proving the override works.
+2. Provide a default implementation in `src/defaults/{category}/MyDefault.ts`.
+3. Wire it into `TemporalStoreOptions` / `CreateStoreOptions` and the constructor defaults.
+4. Pass it down to the consuming pipeline function.
+5. Unit-test the default; integration-test that an override works.
 
 ### Adding a default implementation variant
 
-E.g. a new formatter:
-
-1. Create `src/defaults/formatting/MyFormatter.ts` implementing `ContextFormatter`.
-2. Add `metadata.formatter` so callers can identify which formatter ran.
-3. Honour `tokenBudget` correctly — set `truncated: true` when items are dropped, populate `metadata.includedAssertions`.
-4. Re-export from `src/index.ts`.
-5. Add to `test/unit/formatters.test.ts` and `test/integration/context-assembly.test.ts`.
-
-### Schema-touching changes
-
-If you change the database schema, you must add a migration (next section).
+E.g. a new formatter: implement `ContextFormatter` in `src/defaults/formatting/`, set `metadata.formatter`, honour `tokenBudget` (`truncated: true` + `includedCount` when items are dropped), re-export from `src/index.ts`, and add to `test/unit/formatters.test.ts` + `test/integration/context-assembly.test.ts`.
 
 ---
 
 ## Database migrations
 
-Migrations are code-registered in `src/db/migrations/index.ts` as a numbered array. The runner asserts at runtime that `migrations[i].version === i + 1`. Skipping a number is a fatal startup error.
+Migrations are code-registered in `src/db/migrations/index.ts` as a numbered array. The runner asserts `migrations[i].version === i + 1` — a gap is a fatal startup error.
 
-### Adding migration v002
+### The runner
+
+`MigrationRunner` (`src/db/migrations/runner.ts`) owns the `trl_schema_version` bootstrap table and chooses one of two execution modes per migration:
+
+- **Standard migration** — the body and the `schema_version` insert run in one `db.transaction()` (atomic). Used for additive DDL and data backfills.
+- **FK-toggle migration** (`requiresForeignKeyToggle: true`) — `PRAGMA foreign_keys` cannot change inside a transaction, so the runner captures the current setting, disables FKs, runs the body inside an explicit `BEGIN`/`COMMIT` with the `schema_version` insert before `COMMIT`, runs `foreign_key_check`, and restores the captured FK state in `finally`. A failed FK check rolls back the whole migration. Used for table rewrites / column-nullability changes that SQLite implements via table recreation.
+
+### Current migration history
+
+| Version | File                 | Mode      | Purpose                                                         |
+| ------- | -------------------- | --------- | --------------------------------------------------------------- |
+| v001    | `v001_initial.ts`    | standard  | Initial schema (v0.1)                                           |
+| v002    | `v002_citations.ts`  | standard  | `trl_citations` + reverse-supersession index (v0.2)             |
+| v003    | `v003_vectorless.ts` | FK-toggle | Nullable vector columns + `trl_fts_meta` tokenizer table (v0.3) |
+| v004    | `v004_timestamps.ts` | standard  | Backfill `created_at` to canonical ISO-8601 (v0.3)              |
+
+### Adding a migration
 
 ```typescript
-// src/db/migrations/v002_my_change.ts
+// src/db/migrations/v0NN_my_change.ts
+import type { Database } from 'better-sqlite3'
 import type { Migration } from '../../domain/types.js'
 
-export function createV002Migration(): Migration {
+export function createV0NNMigration(): Migration {
   return {
-    version: 2,
+    version: NN,
+    name: 'v0NN_my_change',
     description: 'Add foo column to trl_assertions',
-    up(db) {
-      db.exec(`ALTER TABLE trl_assertions ADD COLUMN foo TEXT;`)
-      // Backfill, index creation, etc.
+    // requiresForeignKeyToggle: true,   // only if the body rewrites a table
+    up(db: Database): void {
+      db.exec(`ALTER TABLE trl_assertions ADD COLUMN foo TEXT`)
     },
   }
 }
 ```
 
-```typescript
-// src/db/migrations/index.ts — append, do not reorder
-import { createV001Migration } from './v001_initial.js'
-import { createV002Migration } from './v002_my_change.js'
-
-export function getMigrations(tokenizer?: FTS5TokenizerConfig): Migration[] {
-  return [createV001Migration(tokenizer), createV002Migration()]
-}
-```
-
-```typescript
-// src/db/schema/columns.ts — keep in sync
-export const LIBRARY_COLUMNS = {
-  trl_assertions: [..., 'foo'],
-  // …
-}
-```
-
-Then add an integration test in `test/integration/migrations.test.ts` that:
-
-- Verifies a fresh DB ends at the new schema version
-- Verifies running migrations on a v001 DB upgrades it to v002 cleanly
-- Verifies idempotent re-runs
+Then: register it in `src/db/migrations/index.ts` (append — never reorder); add the column to `LIBRARY_COLUMNS` in `src/db/schema/columns.ts` in the same change; and add `test/integration/migrations.test.ts` coverage that a fresh DB ends at the new version, an older DB upgrades cleanly, and re-runs are idempotent.
 
 ### Migration constraints
 
-- **Additive only.** Don't drop columns or tables in numbered migrations. If you absolutely must remove something, deprecate it first across at least one minor version.
-- **Each migration runs in its own `db.transaction()`** (the runner handles this).
-- **No data dependencies on user content.** A migration must succeed on every database, regardless of namespace count or row count.
-- **Idempotent.** Use `IF NOT EXISTS` clauses; tolerate re-runs.
+- **Additive only.** Don't drop columns/tables. Shipped migration bodies are immutable.
+- **No data dependency on user content.** A migration must succeed on every database regardless of row count.
+- **Idempotent / safe to re-run.** Use `IF NOT EXISTS`; the v004 `strftime` backfill, for instance, accepts both the old and the canonical timestamp form.
 
 ---
 
-## Versioning with changesets
+## Production-integration guidance
 
-We use [changesets](https://github.com/changesets/changesets) for semver intent capture and changelog generation.
+trageti is a library, not a service. Consumers own the operational concerns below.
 
-### Adding a changeset (every PR)
+### Database lifecycle ownership
 
-```bash
-npx changeset
-```
+When you pass a path string to `create()`, the store opens the connection and `close()` closes it. When you pass an existing `Database`, the store uses it but does **not** own it — `close()` releases store state without closing a caller-supplied handle. Pick one model and be consistent; sharing one `Database` across multiple `TemporalStore` instances is supported but they then share schema and pragmas.
 
-Choose:
+### Pragmas: WAL and busy-timeout
 
-- **patch** — bug fixes, internal refactors, doc-only
-- **minor** — new features, new public API
-- **major** — breaking changes (renamed/removed APIs, behavioural changes that break existing callers)
+`prepareDatabase()` applies the recommended pragmas (WAL journal mode, foreign keys on, a temp store). For a file-backed multi-reader deployment, also set a `busy_timeout` so a transient writer lock retries instead of erroring immediately. SQLite supports many concurrent readers + one writer under WAL; trageti assumes **one writer at a time** — multi-process writes need external coordination (a lock file, an in-process queue). This is a deployment concern; the library does not enforce it.
 
-Write a one-line summary that will appear in the changelog. The CLI writes a markdown file under `.changeset/`. **Commit it with your code change** — the publish workflow consumes it.
+### Embedding provider timeouts and cancellation
 
-### Pre-1.0 caveat
+`EmbeddingProvider.embed` is genuinely async and may call a remote model. Give it its own timeout and respect the `signal` (`AbortSignal`) threaded through `RetrievalQuery` / `ReindexOptions` / `ContextAssemblyOptions`. A provider that throws is surfaced as `EmbeddingProviderError` (retrieval) or recorded in `indexBatch`'s `skipped[]` with a sanitized `errorCode` — never the raw provider message.
 
-Until we hit `1.0.0`, **breaking changes can ship as minor bumps** (per semver pre-1.0). Reserve major bumps for the 0→1 transition. Until then, mark every breaking change as `minor` and call out "BREAKING:" in the changeset summary.
+### Logging field-sensitivity
 
-### Releasing
+Inject a `Logger` that ships to your observability stack, but remember `LogFields` is primitives-only by contract: trageti never logs content, embeddings, or query text, and a custom logger must not be wired to add them. Wire the `Metrics` contract to your metrics backend to track `trageti.retrieve.tookMs`, `candidateCount`, `indexBatch.indexed`/`skipped`, `reindex.tookMs`, `embeddingProvider.failures`.
 
-The `publish.yml` workflow runs on every push to `main`:
+### Reindex operational impact
 
-1. Builds the package
-2. Runs `changesets/action@v1`
-3. If `.changeset/*.md` files exist, opens (or updates) a "Version Packages" PR that bumps `package.json` and rolls up the changesets into `CHANGELOG.md`
-4. When that PR is merged, the workflow publishes to npm via `npm run release` (which calls `changeset publish`)
+`reindexNamespace()` re-embeds every active assertion in the namespace — for a remote provider that is N model calls and can take real time. It is staging-swap safe (the live index serves queries until the atomic repoint), but it is I/O- and cost-heavy: schedule it off-peak, pass `batchSize` to bound memory, and pass a `signal` so it can be cancelled. An interrupted run leaves the old index intact and a staging table behind; the next run cleans it up (`TRGT_REINDEX_STAGING_LEFTOVER`).
 
-So the human flow is:
+---
 
-```text
-PR with code + changeset  →  merge to develop  →  promote to main  →  Version Packages PR appears  →  merge it  →  npm publish runs automatically
-```
+## Versioning and releases
+
+`package.json` is at `0.3.0`, set directly. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and is edited directly — log-code and contract changes must land there in the same change that makes them.
+
+The `.changeset/` directory is configured, and Changesets remains the intended mechanism for _future_ releases. **Do not add a changeset for the 0.3.0 release** — a changeset would bump the next release past the manually-set `0.3.0`. If a later release should go through Changesets, that is a separate, deliberate decision.
+
+Pre-1.0 semver: breaking changes may ship as **minor** bumps; reserve a major bump for the 0→1 transition. Call out `BREAKING:` explicitly in the changelog entry regardless.
 
 ---
 
@@ -588,97 +566,39 @@ PR with code + changeset  →  merge to develop  →  promote to main  →  Vers
 
 ### Required GitHub secrets
 
-| Secret         | Used by             | Notes                                                                                                            |
-| -------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_TOKEN` | `changesets/action` | Auto-provided by GitHub Actions                                                                                  |
-| `NPM_TOKEN`    | `npm publish`       | Set in repo settings → Secrets and variables → Actions. Use an npm "Automation" token (does not require 2FA OTP) |
+| Secret         | Used by             | Notes                                                                       |
+| -------------- | ------------------- | --------------------------------------------------------------------------- |
+| `GITHUB_TOKEN` | `changesets/action` | Auto-provided by GitHub Actions                                             |
+| `NPM_TOKEN`    | `npm publish`       | npm "Automation" token (no 2FA OTP). Repo → Secrets and variables → Actions |
 
-### Publishing to npmjs.org (automated)
+### Automated publish
 
-The standard path. After merging a Version Packages PR to `main`, the publish workflow:
+`publish.yml` runs on pushes to `main`: installs, builds, runs `changesets/action`, and on a merged "Version Packages" PR publishes to npm with `--provenance`. **Do not run `npm publish` from a laptop** — it bypasses provenance and CI gates.
 
-1. Installs and builds
-2. Calls `changeset publish`
-3. Publishes the new version to npm with `--provenance` (via `NPM_CONFIG_PROVENANCE: true`)
-4. Creates GitHub release notes
-
-You don't need to do anything manually. **Do not run `npm publish` from your laptop** — it bypasses provenance and CI gates.
-
-### Publishing to npmjs.org (manual fallback)
-
-Only if the automated workflow is broken:
+### Manual fallback (only if the workflow is broken)
 
 ```bash
-npm login                          # one time
-npm run build                      # produces dist/
-npm publish --access public        # use --provenance if you have a ci-style token
-```
-
-You'll need write access to the `trageti` package on npm and an authenticated npm session.
-
-### Publishing to GitHub Packages
-
-Not currently configured. If we add it:
-
-1. Add a second registry to the publish workflow
-2. Add `publishConfig.registry` overrides per registry
-3. Generate a separate `GITHUB_PACKAGES_TOKEN` with `packages:write`
-
-### Local "publish" — testing the published package without publishing
-
-#### Option A: `npm pack`
-
-```bash
+npm login
 npm run build
-npm pack                     # produces trageti-X.Y.Z.tgz
-cd /path/to/consumer-project
-npm install /path/to/trageti-X.Y.Z.tgz
+npm publish --access public
 ```
-
-This is the **closest fidelity** to a real publish — it exercises `package.json#files` and the `exports` map exactly as consumers will see it.
-
-#### Option B: `npm link`
-
-```bash
-cd /path/to/trageti
-npm run build
-npm link                     # registers a global symlink
-
-cd /path/to/consumer-project
-npm link trageti
-```
-
-Faster iteration but quirky on Windows and with peer deps. Prefer `npm pack` for verification, `npm link` only for active local-development loops.
-
-#### Option C: file: dependency
-
-```json
-// in consumer's package.json
-"dependencies": {
-  "trageti": "file:../trageti"
-}
-```
-
-Useful in monorepo-like setups. Run `npm run build` after changes — consumers will pull from `dist/`.
 
 ### Verifying a release before publish
 
 ```bash
 npm run build
-npm pack --dry-run           # prints what would be packed
+npm pack --dry-run     # should list only dist/, README.md, LICENSE, CHANGELOG.md, package.json
 ```
 
-The output should include `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md`, and `package.json` — and nothing else. If you see source files in the list, fix `package.json#files` and `.npmignore` before publishing.
+Source files in the list mean `package.json#files` / `.npmignore` need fixing first.
 
-### Unpublishing / yanking
+### Local install testing
 
-npm strongly discourages unpublish. If a release is broken:
+`npm pack` → `npm install /path/to/trageti-X.Y.Z.tgz` is the closest fidelity to a real publish (exercises `files` + `exports`). `npm link` is faster but quirky on Windows and with peer deps.
 
-```bash
-npm deprecate trageti@X.Y.Z "Critical bug — upgrade to X.Y.Z+1"
-```
+### Unpublishing
 
-Then ship a fix as `X.Y.Z+1` immediately.
+npm discourages unpublish. For a broken release: `npm deprecate trageti@X.Y.Z "…"` then ship a fix immediately.
 
 ---
 
@@ -691,19 +611,9 @@ npx vitest run test/integration/temporal-filter.test.ts
 npx vitest run test/integration/temporal-filter.test.ts -t "validAt"
 ```
 
-### See SQL the library is running
+### Use `explain()`
 
-There is no built-in query logger (we don't want to risk leaking content). For local debugging, monkey-patch your test connection:
-
-```typescript
-const original = db.prepare.bind(db)
-;(db as any).prepare = (sql: string) => {
-  console.log('[SQL]', sql)
-  return original(sql)
-}
-```
-
-Don't commit this.
+`store.explain(query)` returns each step's SQL, `EXPLAIN QUERY PLAN` output, estimated rows, and `vectorReady` — without executing the retrieval. It is the first thing to reach for on a "why did this query do X" question.
 
 ### Inspect schema state mid-test
 
@@ -715,69 +625,64 @@ console.log(db.prepare('SELECT MAX(version) FROM trl_schema_version').get())
 
 ### Reproducing a CI failure locally
 
-CI runs on Node 18/20/22 on Ubuntu. To match exactly:
+CI runs Node 18/20/22 on Ubuntu. To match:
 
 ```bash
 nvm use 18
-npm ci                       # not npm install — uses lockfile
-npm run format:check
-npm run lint
-npm run typecheck
-npm run test:unit
-npm run test:integration
+npm ci
+npm run format:check && npm run lint && npm run typecheck
+npm run test:unit && npm run test:integration
 npm run build
 ```
 
 ### Common issues
 
-**`Error: vec_version is not a function`** during a test → `openTestDb()` wasn't used, or sqlite-vec isn't installed. Run `npm install`.
+**`Error: vec_version is not a function`** → `openTestDb()` wasn't used, or sqlite-vec isn't installed. Vector-path tests need it; BM25-only tests don't.
 
-**`Error: SQLITE_ERROR: no such column: T.assertion_id`** → you reverted the FTS5 join workaround in `pipeline/retrieve.ts`. The external-content FTS5 table cannot read `UNINDEXED` columns back via alias; join to `trl_assertions` via rowid.
+**`SQLITE_ERROR: no such column: T.assertion_id`** → the FTS5 join workaround in `pipeline/retrieve.ts` was reverted. External-content FTS5 cannot read `UNINDEXED` columns via alias; join to `trl_assertions` via rowid.
 
-**Lint error: "parserOptions.project" was not found in any of the provided project(s)** → the file isn't in `tsconfig.eslint.json`'s `include`. Add it.
+**`StoreClosedError`** → a method was called after `close()`. Each public method is `requireNotClosed()`-guarded.
 
-**Type error in a test that compiles in src** → tests use `tsconfig.test.json`, which extends the strict src config. Don't relax src strictness; fix the test.
+**`ConnectionVerificationError`** → FK enforcement could not be enabled on the connection. The default verifier fails closed by design.
 
-**`[trageti:warn] code=CITATION_EXCERPT_MISSING ...`** → expected when an assertion's citation has `excerpt: null`. Advisory only; emitted by `DefaultAssertionValidator`. Replace the validator chain to suppress it in domains where verbatim excerpts are unavailable.
+**`MigrationCompatibilityError`** → a tokenizer value failed the `validateTokenizer()` allow-list. Use `unicode61` / `ascii` / `porter` / `trigram` with safe arguments.
 
-**`citations: []` on every read** → the row pre-dates the v002 migration (legacy v0.1 data). The validator only enforces citation presence on new writes; existing rows remain readable. Backfill citations via `store.writeCitation({ ... })` if needed.
+**`RetrievalInputError`** → a retrieve/context call had bad input (empty query, bad limit, dimension mismatch, vector path on a vectorless namespace, …). The `.code` says which.
 
-**`ValidationError: predecessor "X" already closed at validUntil=N`** → `writeAssertion({ supersedesId: 'X' })` failed because X's window is already closed (someone else superseded it first or you ran the same write twice). The structural-invariant check rejects this to prevent chain corruption. If you're trying to layer rather than replace, drop `supersedesId` and use `writeLink` with one of the accumulation link types.
+**`citations: []` on every read** → the row pre-dates the v002 migration. The validator only enforces citation presence on new writes; legacy rows remain readable.
+
+**Lint: "parserOptions.project was not found"** → the file isn't in `tsconfig.eslint.json`'s `include`. Add it.
 
 ---
 
 ## Performance considerations
 
-This is a v0.2 library with conservative performance characteristics. Hot spots to be aware of:
-
 ### `findPath` is O(branching^depth)
 
-The default `CTEGraphAdapter.findPath` uses a recursive CTE without pruning. On dense graphs (many edges per node) and large depths (>5), this gets slow. If you hit this, implement a custom `GraphQueryAdapter`. Don't try to make the default smarter at the cost of correctness — graph-native engines exist for a reason.
+`CTEGraphAdapter.findPath` uses a recursive CTE with cycle protection but no path-cost pruning. On dense graphs at large depths this gets slow. If you hit it, implement a custom `GraphQueryAdapter` rather than complicating the default.
 
 ### BM25 normalisation is O(candidates)
 
-`pipeline/retrieve.ts:runStep3` normalises BM25 across the candidate set before feeding them into the scorer. Cost is proportional to the number of candidates, not the corpus size, so this scales fine for our typical retrieval sizes. If you cache scorer results across queries, ensure cache keys include the candidate set hash.
+`runStep3` normalises BM25 across the candidate set before scoring. Cost is proportional to candidate count, not corpus size — fine for typical retrieval sizes.
 
 ### Vec0 dimension is interpolated
 
-sqlite-vec's `vec0` virtual table requires the dimension as a literal in the DDL, not a parameter. `EmbeddingRepository.ensureVec0Table` interpolates it via string concatenation — but we validate `embedding_dimension` is a positive integer first, so injection isn't possible. Don't change this without re-validating the input check.
+sqlite-vec's `vec0` virtual table requires the dimension as a DDL literal, not a parameter. `EmbeddingRepository` interpolates it via string concatenation — but only after validating `embedding_dimension` is a positive integer, so injection isn't possible. Don't change this without re-validating the input check.
 
-### `reindexNamespace` is not transactional
+### Reindex is staging-swap safe but cost-heavy
 
-The drop+recreate is in one transaction, but the streaming re-embed is not. better-sqlite3 transactions are synchronous; you cannot `await` inside `db.transaction(...)`. So if the embedding provider throws halfway through, the embedding table is empty and the dimension is updated. Recovery: call `getPendingIndexing(ns)` to see what's missing, then call `reindexNamespace` again. This is documented; don't try to "fix" it with a bigger transaction.
+`reindexNamespace()` keeps the live index serving queries until an atomic column repoint; a mid-run failure preserves the old index. It is not "cheap" though — it re-embeds every active assertion. See [reindex operational impact](#reindex-operational-impact).
 
 ### Single-process writes
 
-trageti assumes one writer at a time. SQLite supports concurrent readers + one writer with WAL mode, but multi-process writes need external coordination (a lock file, an in-process queue, etc.). This is a deployment concern; the library does not enforce it.
+trageti assumes one writer at a time. WAL gives concurrent readers + one writer; multi-process writes need external coordination. The library does not enforce this.
 
 ---
 
 ## Where to look next
 
-- `_docs/specs/trageti-spec-v0.2.md` — the source of truth for the public contract (current).
-- `trageti-spec-v0.1-DEPRECATED.md` at the repo root — historical v0.1 spec, retained for reference only.
-- `src/store/TemporalStore.ts` — the entry point. Read top-to-bottom to understand the orchestration. The `enforceStructuralInvariants` method is where citation + predecessor checks live.
-- `src/pipeline/retrieve.ts` — the most algorithmically dense file. Heavily commented. Step 7 is trajectory expansion.
-- `src/db/repositories/CitationRepository.ts` — the citations DAO with batch-fetch helpers.
-- `test/integration/e2e.test.ts` — exercise of the full happy path; useful as a tour.
-- `test/integration/citations.test.ts` and `test/integration/trajectory.test.ts` — v0.2-specific behavioural coverage.
+- [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md) — the source of truth for the public contract. v0.1 / v0.2 specs are retained alongside it for history only.
+- `src/store/TemporalStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
+- `src/pipeline/retrieve.ts` — the most algorithmically dense file. Step 0 is query routing; Step 7 is trajectory expansion.
+- `src/db/migrations/runner.ts` — the standard vs FK-toggle migration choreography.
+- `test/integration/e2e.test.ts` — a tour of the full happy path.

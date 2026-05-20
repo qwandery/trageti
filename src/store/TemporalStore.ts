@@ -1,3 +1,13 @@
+/*
+ * eslint-disable @typescript-eslint/require-await --
+ * v0.3 public API contract: every TemporalStore method is `async` for a
+ * uniform Promise-returning surface, even where the body is currently
+ * synchronous (repositories and DB calls are sync internally). The
+ * require-await rule is therefore disabled file-wide *by design* for this
+ * one file — it is not masking missing awaits; the all-async surface is
+ * intentional. Genuinely async work (provider.embed in indexAssertion/
+ * indexBatch/reindex/retrieve) does use await.
+ */
 /* eslint-disable @typescript-eslint/require-await */
 import type { Database } from 'better-sqlite3'
 import type {
@@ -447,6 +457,10 @@ export class TemporalStore {
       supplied?: Float32Array | number[]
     }
     const pending: Pending[] = []
+    // ensureVectorReady / dimension lookups are resolved once per namespace
+    // per call, not once per item.
+    const tableByNs = new Map<string, string>()
+    const dimByNs = new Map<string, number | null>()
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
@@ -463,9 +477,18 @@ export class TemporalStore {
         })
         continue
       }
-      // Validate the namespace is vector-configured / sqlite-vec loaded.
-      const table = this.ensureVectorReady(assertion.namespace, 'indexing')
-      const dim = this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null
+      // Validate the namespace is vector-configured / sqlite-vec loaded —
+      // resolved once per distinct namespace in this batch.
+      let table = tableByNs.get(assertion.namespace)
+      if (table === undefined) {
+        table = this.ensureVectorReady(assertion.namespace, 'indexing')
+        tableByNs.set(assertion.namespace, table)
+        dimByNs.set(
+          assertion.namespace,
+          this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null,
+        )
+      }
+      const dim = dimByNs.get(assertion.namespace) ?? null
 
       if (item.embedding) {
         if (dim !== null && this.embeddingLength(item.embedding) !== dim) {

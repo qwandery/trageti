@@ -26,7 +26,7 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
-    expect(runner.getCurrentVersion(db)).toBe(3)
+    expect(runner.getCurrentVersion(db)).toBe(4)
 
     const tables = getObjects(db, 'table').map((r) => r.name)
     expect(tables).toContain('trl_namespaces')
@@ -42,12 +42,12 @@ describe('MigrationRunner', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
     runner.applyMigrations(db)
-    expect(runner.getCurrentVersion(db)).toBe(3)
+    expect(runner.getCurrentVersion(db)).toBe(4)
 
     const versionRows = db.prepare('SELECT COUNT(*) AS cnt FROM trl_schema_version').get() as {
       cnt: number
     }
-    expect(versionRows.cnt).toBe(3)
+    expect(versionRows.cnt).toBe(4)
   })
 
   it('creates FTS5 table', async () => {
@@ -108,7 +108,7 @@ describe('MigrationRunner', () => {
 
     // Now run the full runner — should upgrade to the latest version cleanly
     new MigrationRunner().applyMigrations(db)
-    expect(new MigrationRunner().getCurrentVersion(db)).toBe(3)
+    expect(new MigrationRunner().getCurrentVersion(db)).toBe(4)
 
     // trl_citations exists and is empty
     const tables = getObjects(db, 'table').map((r) => r.name)

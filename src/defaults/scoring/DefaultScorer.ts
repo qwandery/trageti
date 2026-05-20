@@ -24,6 +24,14 @@ const WEIGHT_RECENCY = 0.1
  * When bm25Score is null (no queryText), semantic and recency weights are renormalised to sum to 1.
  */
 export class DefaultScorer implements RetrievalScorer {
+  /** The signal weights used by the default scoring formula. Exposed so
+   *  callers and custom scorers can reference the canonical values. */
+  static readonly WEIGHTS = {
+    SEMANTIC: WEIGHT_SEMANTIC,
+    BM25: WEIGHT_BM25,
+    RECENCY: WEIGHT_RECENCY,
+  } as const
+
   /**
    * Per-candidate score. Used when scoreBatch is bypassed or for callers that
    * call score() directly. Without cross-candidate context, BM25 cannot be

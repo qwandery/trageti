@@ -30,15 +30,16 @@ export class RawVectorProvider implements EmbeddingProvider {
     this.vectors.set(text, vec)
   }
 
-  embed(texts: readonly string[], _options?: EmbedOptions): Promise<Float32Array[]> {
-    return Promise.resolve(
-      texts.map((text) => {
-        const vec = this.vectors.get(text)
-        if (!vec) {
-          throw new EmbeddingProviderError(this.name, 0, `no pre-registered embedding for text`)
-        }
-        return vec
-      }),
-    )
+  // `async` so an unknown-text failure surfaces as a rejected promise rather
+  // than a synchronous throw — consistent with the EmbeddingProvider contract.
+  // eslint-disable-next-line @typescript-eslint/require-await -- async-by-contract: a sync throw inside an async fn is the intended rejection
+  async embed(texts: readonly string[], _options?: EmbedOptions): Promise<Float32Array[]> {
+    return texts.map((text) => {
+      const vec = this.vectors.get(text)
+      if (!vec) {
+        throw new EmbeddingProviderError(this.name, 0, `no pre-registered embedding for text`)
+      }
+      return vec
+    })
   }
 }

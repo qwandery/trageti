@@ -308,6 +308,15 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   } else {
     scores = candidates.map((c) => scorer.score(c.candidate, scoringContext))
   }
+  // Scorer output must be finite — NaN / ±Infinity would corrupt ranking.
+  for (const s of scores) {
+    if (!Number.isFinite(s)) {
+      throw new RetrievalInputError(
+        ErrorCode.SCORER_INVALID_OUTPUT,
+        `RetrievalScorer produced a non-finite score (${String(s)})`,
+      )
+    }
+  }
 
   // Step 5: Rank + truncate with deterministic tie-breaking
   //   (score DESC, validFrom DESC, createdAt ASC, id ASC).

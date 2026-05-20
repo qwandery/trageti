@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3'
 import type { Database as DatabaseType } from 'better-sqlite3'
 import { createRequire } from 'node:module'
-import type { PrepareDatabaseOptions } from '../../domain/types.js'
+import type { PrepareDatabaseOptions, BetterSqlite3Options } from '../../domain/types.js'
 import { MissingPeerDependencyError } from '../../errors/index.js'
 
-export type BetterSqlite3Options = Database.Options
+// Re-exported from its canonical home in domain/types.ts for back-compat.
+export type { BetterSqlite3Options }
 
 const require = createRequire(import.meta.url)
 
