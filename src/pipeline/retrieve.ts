@@ -17,7 +17,7 @@ import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository
 import { buildCandidateJson } from '../db/candidates.js'
 import { quoteIdent } from '../internal/sql-ident.js'
 import { applyMiddleware } from './middleware.js'
-import { ErrorCode, RetrievalInputError, ValidationError } from '../errors/index.js'
+import { ErrorCode, RetrievalInputError, ValidationError, errorCodeOf } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js'
 import { observe } from '../internal/logger.js'
 
@@ -51,10 +51,9 @@ function debugStep(
   try {
     hook(step, info)
   } catch (err) {
-    logger.warn('TRGT_RETRIEVAL_DEBUG_HOOK_ERROR', {
-      step,
-      error: err instanceof Error ? err.message : String(err),
-    })
+    // Never log the raw error — it may carry caller content, query text, or
+    // secrets. Only the thrown error's stable code (or 'UNKNOWN') is recorded.
+    logger.warn('TRGT_RETRIEVAL_DEBUG_HOOK_ERROR', { step, errorCode: errorCodeOf(err) })
   }
 }
 
@@ -226,13 +225,20 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   }
   debugStep(query, ctx.logger, 'vector', { applied: applyVector, candidates: step2Rows.length })
 
-  // Step 3: BM25 candidate / re-rank (when applicable).
+  // Step 3: BM25. When Step 2 (vector) ran, BM25 is a *re-scoring* step over
+  // the vector-selected candidates only — it attaches keyword scores, it does
+  // not contribute its own candidates (spec §2581-2582, §2661-2665). When
+  // Step 2 was skipped (bm25 strategy, or hybrid fallback), BM25 selects over
+  // the full temporal candidate set.
   const bm25Map = new Map<string, number>()
   const applyBm25 = strategy !== 'vector' && hasQueryText
   if (applyBm25 && query.queryText) {
+    const bm25CandidateJson = applyVector
+      ? buildCandidateJson(step2Rows.map((r) => r.assertion_id))
+      : candidateJson
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText
     try {
-      const step3 = runStep3(db, candidateJson, ftsText)
+      const step3 = runStep3(db, bm25CandidateJson, ftsText)
       for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score)
     } catch (err) {
       // Malformed FTS5 input under raw mode bubbles up as RetrievalInputError;
@@ -249,10 +255,16 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
 
   debugStep(query, ctx.logger, 'bm25', { applied: applyBm25, candidates: bm25Map.size })
 
-  // Build candidate set: union of vector and BM25 hits.
+  // Build the candidate set. When Step 2 ran, the candidates are exactly the
+  // vector-selected rows (BM25 only re-scored them) — a BM25-only hit never
+  // enters a hybrid+vector result. When Step 2 was skipped, the BM25 hits are
+  // the candidate set.
   const candidateIds = new Set<string>()
-  for (const r of step2Rows) candidateIds.add(r.assertion_id)
-  for (const id of bm25Map.keys()) candidateIds.add(id)
+  if (applyVector) {
+    for (const r of step2Rows) candidateIds.add(r.assertion_id)
+  } else {
+    for (const id of bm25Map.keys()) candidateIds.add(id)
+  }
   if (candidateIds.size === 0) {
     return { results: [], meta: emptyMeta(applyVector, applyBm25) }
   }

@@ -35,6 +35,7 @@ import type {
   ReindexResult,
   RebuildFtsOptions,
   RebuildFtsResult,
+  FTS5TokenizerConfig,
   RetrievalExplainResult,
   EmbeddingProvider,
   InitNamespaceOptions,
@@ -64,6 +65,7 @@ import {
   EmbeddingProviderError,
   ReindexError,
   ErrorCode,
+  errorCodeOf,
 } from '../errors/index.js'
 import { ConsoleLogger, setDefaultLogger, emitOnce, incr, observe } from '../internal/logger.js'
 import { namespaceToEmbeddingTable } from '../internal/hash.js'
@@ -405,14 +407,18 @@ export class TemporalStore {
     if (embedding) {
       vec = embedding
     } else {
-      if (!this.options.embeddingProvider) {
+      // Resolve the namespace-effective provider: a per-namespace binding
+      // (from initNamespace/upgradeNamespaceToVector) takes precedence over
+      // the store-level default.
+      const provider = this.getNamespaceProvider(assertion.namespace)
+      if (!provider) {
         throw new IndexingError(
           ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
           `Cannot index "${assertionId}": no embedding supplied and no embedding provider configured`,
           { assertionId },
         )
       }
-      const [computed] = await this.options.embeddingProvider.embed([assertion.content], {
+      const [computed] = await provider.embed([assertion.content], {
         purpose: 'assertion',
       })
       if (!computed) {
@@ -441,7 +447,6 @@ export class TemporalStore {
   ): Promise<IndexBatchResult> {
     this.requireInit()
     const mode = options.onProviderError ?? 'fail-fast'
-    const provider = this.options.embeddingProvider
 
     // Skips are tracked with their input index so the returned skipped[]
     // preserves input order regardless of which resolution stage produced them.
@@ -455,12 +460,15 @@ export class TemporalStore {
       dim: number | null
       needsProvider: boolean
       supplied?: Float32Array | number[]
+      /** The namespace-effective provider for a provider-derived item. */
+      provider?: EmbeddingProvider
     }
     const pending: Pending[] = []
-    // ensureVectorReady / dimension lookups are resolved once per namespace
-    // per call, not once per item.
+    // ensureVectorReady / dimension / provider lookups are resolved once per
+    // namespace per call, not once per item.
     const tableByNs = new Map<string, string>()
     const dimByNs = new Map<string, number | null>()
+    const providerByNs = new Map<string, EmbeddingProvider | null>()
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
@@ -477,8 +485,8 @@ export class TemporalStore {
         })
         continue
       }
-      // Validate the namespace is vector-configured / sqlite-vec loaded —
-      // resolved once per distinct namespace in this batch.
+      // Validate the namespace is vector-configured / sqlite-vec loaded, and
+      // resolve its effective embedding provider — once per distinct namespace.
       let table = tableByNs.get(assertion.namespace)
       if (table === undefined) {
         table = this.ensureVectorReady(assertion.namespace, 'indexing')
@@ -487,8 +495,10 @@ export class TemporalStore {
           assertion.namespace,
           this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null,
         )
+        providerByNs.set(assertion.namespace, this.getNamespaceProvider(assertion.namespace))
       }
       const dim = dimByNs.get(assertion.namespace) ?? null
+      const provider = providerByNs.get(assertion.namespace) ?? null
 
       if (item.embedding) {
         if (dim !== null && this.embeddingLength(item.embedding) !== dim) {
@@ -511,7 +521,7 @@ export class TemporalStore {
           supplied: item.embedding,
         })
       } else if (provider) {
-        pending.push({ index: i, assertion, table, dim, needsProvider: true })
+        pending.push({ index: i, assertion, table, dim, needsProvider: true, provider })
       } else {
         skips.push({
           index: i,
@@ -545,23 +555,32 @@ export class TemporalStore {
       if (!p.needsProvider && p.supplied) persist(p, p.supplied)
     }
 
-    // Provider-derived embeddings.
-    const needsProvider = pending.filter((p) => p.needsProvider)
-    if (needsProvider.length > 0 && provider) {
-      if (mode === 'fail-fast') {
-        // Embed and persist chunk-by-chunk so a mid-run provider failure
-        // leaves EmbeddingProviderError.indexed reflecting rows actually
-        // written to vec0.
-        const batchSize = options.batchSize ?? 64
+    // Provider-derived embeddings, grouped by the effective provider so a
+    // batch spanning namespaces never calls provider A for namespace B.
+    const needsProvider = pending.filter(
+      (p): p is Pending & { provider: EmbeddingProvider } => p.needsProvider && !!p.provider,
+    )
+    const groups = new Map<EmbeddingProvider, Array<Pending & { provider: EmbeddingProvider }>>()
+    for (const p of needsProvider) {
+      const g = groups.get(p.provider) ?? []
+      g.push(p)
+      groups.set(p.provider, g)
+    }
+
+    if (mode === 'fail-fast') {
+      // Embed and persist chunk-by-chunk so a mid-run provider failure leaves
+      // EmbeddingProviderError.indexed reflecting rows actually written to vec0.
+      const batchSize = options.batchSize ?? 64
+      for (const [groupProvider, groupItems] of groups) {
         try {
-          for (let off = 0; off < needsProvider.length; off += batchSize) {
+          for (let off = 0; off < groupItems.length; off += batchSize) {
             if (options.signal?.aborted) {
-              throw new EmbeddingProviderError(provider.name, indexed, 'aborted by signal')
+              throw new EmbeddingProviderError(groupProvider.name, indexed, 'aborted by signal')
             }
-            const chunk = needsProvider.slice(off, off + batchSize)
+            const chunk = groupItems.slice(off, off + batchSize)
             const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
             if (options.signal) opts.signal = options.signal
-            const vecs = await provider.embed(
+            const vecs = await groupProvider.embed(
               chunk.map((p) => p.assertion.content),
               opts,
             )
@@ -570,7 +589,7 @@ export class TemporalStore {
               const c = chunk[k]
               if (!vec || !c) {
                 throw new EmbeddingProviderError(
-                  provider.name,
+                  groupProvider.name,
                   indexed,
                   `provider returned no vector for batch item ${String(k)}`,
                 )
@@ -580,48 +599,48 @@ export class TemporalStore {
           }
         } catch (err) {
           if (err instanceof EmbeddingProviderError) throw err
-          throw new EmbeddingProviderError(provider.name, indexed, err)
+          throw new EmbeddingProviderError(groupProvider.name, indexed, err)
         }
-      } else {
-        // skip mode: embed one at a time; record failures in skipped[] with a
-        // stable `reason` token and a sanitized `errorCode` — never the raw
-        // provider message.
-        for (const p of needsProvider) {
-          if (options.signal?.aborted) {
-            skips.push({
-              index: p.index,
-              entry: { assertionId: p.assertion.id, reason: 'ABORTED', errorCode: 'ABORTED' },
-            })
-            continue
-          }
-          try {
-            const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
-            if (options.signal) opts.signal = options.signal
-            const [vec] = await provider.embed([p.assertion.content], opts)
-            if (!vec) {
-              skips.push({
-                index: p.index,
-                entry: {
-                  assertionId: p.assertion.id,
-                  reason: 'EMBEDDING_PROVIDER_ERROR',
-                  errorCode: 'EMBEDDING_PROVIDER_EMPTY',
-                },
-              })
-              continue
-            }
-            persist(p, vec)
-          } catch {
-            // The raw error is intentionally not surfaced — it may carry
-            // assertion content or provider secrets.
+      }
+    } else {
+      // skip mode: embed one at a time; record failures in skipped[] with a
+      // stable `reason` token and a sanitized `errorCode` derived from the
+      // thrown error — never the raw provider message.
+      for (const p of needsProvider) {
+        if (options.signal?.aborted) {
+          skips.push({
+            index: p.index,
+            entry: { assertionId: p.assertion.id, reason: 'ABORTED', errorCode: 'ABORTED' },
+          })
+          continue
+        }
+        try {
+          const opts: { purpose: 'assertion'; signal?: AbortSignal } = { purpose: 'assertion' }
+          if (options.signal) opts.signal = options.signal
+          const [vec] = await p.provider.embed([p.assertion.content], opts)
+          if (!vec) {
             skips.push({
               index: p.index,
               entry: {
                 assertionId: p.assertion.id,
                 reason: 'EMBEDDING_PROVIDER_ERROR',
-                errorCode: 'EMBEDDING_PROVIDER_ERROR',
+                errorCode: 'EMBEDDING_PROVIDER_EMPTY',
               },
             })
+            continue
           }
+          persist(p, vec)
+        } catch (err) {
+          // The raw message is never surfaced — errorCode is the thrown
+          // error's stable code, or 'UNKNOWN' for a plain Error.
+          skips.push({
+            index: p.index,
+            entry: {
+              assertionId: p.assertion.id,
+              reason: 'EMBEDDING_PROVIDER_ERROR',
+              errorCode: errorCodeOf(err),
+            },
+          })
         }
       }
     }
@@ -632,9 +651,7 @@ export class TemporalStore {
     }
     incr(this.options.metrics ?? undefined, 'trageti.indexBatch.indexed', { count: indexed })
     incr(this.options.metrics ?? undefined, 'trageti.indexBatch.skipped', { count: skipped.length })
-    const providerFailures = skipped.filter(
-      (s) => s.errorCode === 'EMBEDDING_PROVIDER_ERROR',
-    ).length
+    const providerFailures = skipped.filter((s) => s.reason === 'EMBEDDING_PROVIDER_ERROR').length
     if (providerFailures > 0) {
       incr(this.options.metrics ?? undefined, 'trageti.embeddingProvider.failures', {
         count: providerFailures,
@@ -762,14 +779,21 @@ export class TemporalStore {
       return degrade('NO_SQLITE_VEC')
     }
 
+    // Pre-checks passed (provider resolvable, sqlite-vec loaded, namespace
+    // vector-ready) — Step 0 has committed to deriving a query embedding. From
+    // here a provider outage is a hard failure: it surfaces as
+    // EmbeddingProviderError and is NOT hidden behind a BM25 degrade, for both
+    // hybrid and vector strategy (spec §2569, §2589).
     const embedOpts: { purpose: 'query'; signal?: AbortSignal } = { purpose: 'query' }
     if (query.signal) embedOpts.signal = query.signal
-    const [vec] = await provider.embed([query.queryText as string], embedOpts)
+    let vec: Float32Array | undefined
+    try {
+      ;[vec] = await provider.embed([query.queryText as string], embedOpts)
+    } catch (err) {
+      throw new EmbeddingProviderError(provider.name, 0, err)
+    }
     if (!vec) {
-      if (strategy === 'vector') {
-        throw new EmbeddingProviderError(provider.name, 0, 'provider returned no query embedding')
-      }
-      return degrade('NO_PROVIDER')
+      throw new EmbeddingProviderError(provider.name, 0, 'provider returned no query embedding')
     }
     return { query: { ...query, queryEmbedding: vec } }
   }
@@ -890,12 +914,10 @@ export class TemporalStore {
     })()
   }
 
-  async reindexNamespace(
-    namespace: string,
-    options: ReindexOptions & { embeddingProvider?: EmbeddingProvider } = {},
-  ): Promise<ReindexResult> {
+  async reindexNamespace(namespace: string, options: ReindexOptions = {}): Promise<ReindexResult> {
     this.requireNamespaceInit(namespace)
-    const provider = options.embeddingProvider ?? this.options.embeddingProvider
+    // Effective provider: explicit override → per-namespace binding → store default.
+    const provider = options.embeddingProvider ?? this.getNamespaceProvider(namespace)
     if (!provider) {
       throw new ReindexError(
         namespace,
@@ -926,9 +948,16 @@ export class TemporalStore {
         .get(namespace)?.cnt ?? 0
     const ns = this.namespaceRepo.get(namespace)
     const table = this.namespaceRepo.getEmbeddingTable(namespace)
-    const vectorReady = Boolean(
-      table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table),
-    )
+    // Table existence is probed independently of sqlite-vec so the
+    // vec0-exists-but-no-sqlite-vec gap can be reported.
+    const sqliteVecLoaded = this.isSqliteVecLoaded()
+    const tableExists = table ? this.embeddingRepo.tableExists(table) : false
+    if (tableExists && !sqliteVecLoaded) {
+      // The vec0 table physically exists but cannot be introspected — surface
+      // the gap so callers can see why indexedCount is 0 (spec §2133, §2404).
+      this.options.logger.debug('TRGT_STATS_VEC_NOT_INTROSPECTED', { namespace })
+    }
+    const vectorReady = Boolean(table && sqliteVecLoaded && tableExists)
     const indexedCount =
       vectorReady && table ? this.embeddingRepo.getIndexedCount(table, namespace) : 0
     const linkCount = this.linkRepo.getCount(namespace)
@@ -974,7 +1003,10 @@ export class TemporalStore {
   async rebuildFts(options: RebuildFtsOptions = {}): Promise<RebuildFtsResult> {
     this.requireInit()
     const started = Date.now()
-    const tokenizer = options.tokenizer ?? this.options.fts5Tokenizer
+    // When no tokenizer is supplied, a rebuild is a repair — it MUST preserve
+    // the tokenizer currently recorded in trageti_tokenizer, never silently
+    // reset to the store's configured fts5Tokenizer (spec §2088-2099, §2350-2355).
+    const tokenizer = options.tokenizer ?? this.readStoredTokenizer() ?? this.options.fts5Tokenizer
     // Reject an unsafe/unsupported tokenizer before generating any DDL.
     validateTokenizer(tokenizer)
     const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
@@ -1050,39 +1082,55 @@ export class TemporalStore {
   }
 
   /**
-   * Non-executing retrieval planning introspection. Reports the strategy,
-   * the per-step plan, and whether each branch would actually run — without
-   * touching the assertion/embedding data.
+   * Non-executing retrieval planning introspection. Reports the strategy, the
+   * per-step plan, and whether each branch would actually run — without
+   * touching assertion/embedding data or calling the embedding provider.
    *
-   * Note: the provider-derived case (queryText + configured provider, no
-   * queryEmbedding) is finalized in R3 (hybrid Step-0 routing). At present
-   * `wouldApplyVector` is accurate for the supplied-`queryEmbedding` and
-   * `bm25`-strategy cases and conservative otherwise.
+   * Step-0 routing is modelled exactly as `resolveQueryEmbedding()` decides
+   * it: a `queryText`-only query with a resolvable provider, a loaded
+   * `sqlite-vec`, and a vector-configured namespace WOULD run vector retrieval.
    */
   async explain(query: RetrievalQuery): Promise<RetrievalExplainResult> {
     this.requireNamespaceInit(query.namespace)
     const strategy = query.retrievalStrategy ?? 'hybrid'
     const config = this.namespaceRepo.get(query.namespace)
     const table = this.namespaceRepo.getEmbeddingTable(query.namespace)
-    const vectorReady = Boolean(
-      table && this.isSqliteVecLoaded() && this.embeddingRepo.tableExists(table),
-    )
+    const sqliteVec = this.isSqliteVecLoaded()
+    const vectorReady = Boolean(table && sqliteVec && this.embeddingRepo.tableExists(table))
+    const vectorless = !config || config.embeddingDimension === null
+    const provider = this.getNamespaceProvider(query.namespace)
     const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0
     const hasQueryEmbedding = Boolean(query.queryEmbedding)
     const notes: string[] = []
 
-    const wouldApplyVector =
-      strategy !== 'bm25' && hasQueryEmbedding && config?.embeddingDimension !== null
+    // wouldApplyVector — true iff Step 2 (vector candidate selection) would run.
+    let wouldApplyVector = false
+    if (strategy !== 'bm25') {
+      if (hasQueryEmbedding) {
+        wouldApplyVector = !vectorless
+        if (vectorless) {
+          notes.push('namespace is vectorless — vector retrieval cannot apply')
+        }
+      } else if (hasQueryText) {
+        // Step 0 would derive the embedding from the provider — model the
+        // same pre-checks resolveQueryEmbedding() applies, without calling it.
+        const blocker = vectorless
+          ? 'NAMESPACE_VECTORLESS'
+          : !provider
+            ? 'NO_PROVIDER'
+            : !sqliteVec
+              ? 'NO_SQLITE_VEC'
+              : null
+        if (blocker === null) {
+          wouldApplyVector = true
+        } else if (strategy === 'vector') {
+          notes.push(`retrievalStrategy 'vector' would fail: ${blocker}`)
+        } else {
+          notes.push(`would fall back to BM25-only: ${blocker}`)
+        }
+      }
+    }
     const wouldApplyBm25 = strategy !== 'vector' && hasQueryText
-
-    if (strategy !== 'bm25' && hasQueryEmbedding && config?.embeddingDimension === null) {
-      notes.push('namespace is vectorless — vector retrieval cannot apply')
-    }
-    if (strategy !== 'bm25' && !hasQueryEmbedding) {
-      notes.push(
-        'no queryEmbedding supplied — provider-derived embedding is resolved at retrieve time (R3)',
-      )
-    }
 
     const steps: RetrievalExplainResult['steps'] = [
       {
@@ -1270,6 +1318,25 @@ export class TemporalStore {
       return true
     } catch {
       return false
+    }
+  }
+
+  /**
+   * The tokenizer config currently recorded in the `trageti_tokenizer`
+   * metadata table — the source of truth for "what is the FTS index actually
+   * tokenized with". Returns null if the row is somehow absent.
+   */
+  private readStoredTokenizer(): FTS5TokenizerConfig | null {
+    const row = this.db
+      .prepare<
+        [],
+        { tokenizer: string; tokenizer_args: string }
+      >('SELECT tokenizer, tokenizer_args FROM trageti_tokenizer WHERE id = 1')
+      .get()
+    if (!row) return null
+    return {
+      tokenizer: row.tokenizer,
+      tokenizerArgs: JSON.parse(row.tokenizer_args) as string[],
     }
   }
 }

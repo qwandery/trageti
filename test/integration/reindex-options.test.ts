@@ -1,0 +1,184 @@
+import { describe, it, expect } from 'vitest'
+import { openTestDb } from '../helpers/openTestDb.js'
+import { TemporalStore } from '../../src/store/TemporalStore.js'
+import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
+import type { EmbeddingProvider } from '../../src/domain/types.js'
+import { ReindexError } from '../../src/errors/index.js'
+import { citationFor } from '../fixtures/scenario.js'
+
+const DIM = 4
+
+/** Rejects for any text containing 'POISON'; deterministic vector otherwise. */
+class FlakyProvider implements EmbeddingProvider {
+  readonly name = 'flaky'
+  readonly dimension = DIM
+  embed(texts: readonly string[]): Promise<Float32Array[]> {
+    return Promise.resolve().then(() =>
+      texts.map((t) => {
+        if (t.includes('POISON')) throw new Error('cannot embed')
+        return new Float32Array([1, 0, 0, 0])
+      }),
+    )
+  }
+}
+
+async function vectorStore(ns: string): Promise<TemporalStore> {
+  const store = new TemporalStore(openTestDb(), { namespace: ns, embeddingDimension: DIM })
+  await store.init()
+  return store
+}
+
+async function seed(
+  store: TemporalStore,
+  ns: string,
+  contents: Record<string, string>,
+): Promise<void> {
+  await store.writeEpisode({
+    id: 'ep-1',
+    namespace: ns,
+    position: 1,
+    occurredAt: '2024-01-01T00:00:00Z',
+    type: 'document',
+    content: 'episode',
+  })
+  let from = 1
+  for (const [id, content] of Object.entries(contents)) {
+    await store.writeAssertion({
+      id,
+      namespace: ns,
+      type: 'fact',
+      content,
+      validFrom: from++,
+      validUntil: null,
+      confidence: 0.9,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor(id, 'ep-1')],
+    })
+  }
+}
+
+describe('reindexNamespace — staging-swap', () => {
+  it('fail-fast success swaps and reports swappedAt', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'one', 'a-2': 'two', 'a-3': 'three' })
+    const result = await store.reindexNamespace('rx', {
+      embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
+    })
+    expect(result.reindexed).toBe(3)
+    expect(result.skipped).toHaveLength(0)
+    expect(typeof result.swappedAt).toBe('string')
+    expect((await store.getStats('rx')).indexedCount).toBe(3)
+    await store.close()
+  })
+
+  it('skip mode with allowPartialSwap:false rejects the partial build', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'ok', 'a-2': 'POISON', 'a-3': 'ok' })
+    let thrown: unknown
+    try {
+      await store.reindexNamespace('rx', {
+        embeddingProvider: new FlakyProvider(),
+        onProviderError: 'skip',
+      })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(ReindexError)
+    expect((thrown as ReindexError).code).toBe('REINDEX_PARTIAL_REJECTED')
+    expect((thrown as ReindexError).skipped).toHaveLength(1)
+    expect((thrown as ReindexError).advice).toBeDefined()
+    // The live index was never created/swapped — the namespace is still unindexed.
+    expect((await store.getStats('rx')).indexedCount).toBe(0)
+    await store.close()
+  })
+
+  it('skip mode with allowPartialSwap:true swaps and returns skipped[]', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'ok', 'a-2': 'POISON', 'a-3': 'ok' })
+    const result = await store.reindexNamespace('rx', {
+      embeddingProvider: new FlakyProvider(),
+      onProviderError: 'skip',
+      allowPartialSwap: true,
+    })
+    expect(result.reindexed).toBe(2)
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]?.assertionId).toBe('a-2')
+    expect(typeof result.swappedAt).toBe('string')
+    expect((await store.getStats('rx')).indexedCount).toBe(2)
+    await store.close()
+  })
+
+  it('fail-fast aborts via a pre-aborted signal', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'one' })
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      store.reindexNamespace('rx', {
+        embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(ReindexError)
+    await store.close()
+  })
+
+  it('fail-fast surfaces a provider dimension mismatch as ReindexError', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'one' })
+    await expect(
+      store.reindexNamespace('rx', {
+        embeddingProvider: new MockEmbeddingProvider({ dimension: 2 }),
+      }),
+    ).rejects.toThrow(ReindexError)
+    await store.close()
+  })
+})
+
+describe('reindexNamespace — in-place', () => {
+  it('writes directly into the live table with no swappedAt', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'one', 'a-2': 'two' })
+    const result = await store.reindexNamespace('rx', {
+      strategy: 'in-place',
+      embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
+    })
+    expect(result.reindexed).toBe(2)
+    expect(result.swappedAt).toBeUndefined()
+    expect((await store.getStats('rx')).indexedCount).toBe(2)
+    await store.close()
+  })
+
+  it('with newDimension recreates the live table at the new dimension', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'one', 'a-2': 'two' })
+    const result = await store.reindexNamespace('rx', {
+      strategy: 'in-place',
+      newDimension: 8,
+      embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
+    })
+    expect(result.reindexed).toBe(2)
+    expect(result.swappedAt).toBeUndefined()
+    const stats = await store.getStats('rx')
+    expect(stats.embeddingDimension).toBe(8)
+    expect(stats.indexedCount).toBe(2)
+    await store.close()
+  })
+
+  it('fail-fast leaves the namespace partially indexed on failure', async () => {
+    const store = await vectorStore('rx')
+    await seed(store, 'rx', { 'a-1': 'ok', 'a-2': 'POISON' })
+    await expect(
+      store.reindexNamespace('rx', {
+        strategy: 'in-place',
+        batchSize: 1,
+        embeddingProvider: new FlakyProvider(),
+      }),
+    ).rejects.toThrow(ReindexError)
+    // in-place does not roll back: the first assertion's embedding survives.
+    expect((await store.getStats('rx')).indexedCount).toBe(1)
+    await store.close()
+  })
+})

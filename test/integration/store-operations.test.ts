@@ -146,7 +146,8 @@ describe('indexBatch', () => {
     expect(result.skipped).toHaveLength(2)
     for (const s of result.skipped) {
       expect(s.reason).toBe('EMBEDDING_PROVIDER_ERROR')
-      expect(s.errorCode).toBe('EMBEDDING_PROVIDER_ERROR')
+      // FailingProvider throws a plain Error (no stable .code) → 'UNKNOWN'.
+      expect(s.errorCode).toBe('UNKNOWN')
       expect(s.errorCode).not.toContain('exploded')
     }
     await store.close()

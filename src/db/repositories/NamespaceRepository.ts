@@ -1,11 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { NamespaceConfig } from '../../domain/types.js'
 import { namespaceToEmbeddingTable } from '../../internal/hash.js'
-import {
-  NamespaceDimensionMismatchError,
-  NamespaceHashCollisionError,
-  ValidationError,
-} from '../../errors/index.js'
+import { NamespaceDimensionMismatchError, NamespaceHashCollisionError } from '../../errors/index.js'
 
 interface NamespaceRow {
   namespace: string
@@ -73,14 +69,10 @@ export class NamespaceRepository {
     if (existing) {
       if (dim !== null) {
         if (existing.embeddingDimension === null) {
-          // Reopening a vectorless namespace with a dimension is not a
-          // dimension *mismatch* — it is the wrong API. Point the caller at
-          // the correct path rather than reporting a misleading "got 0".
-          throw new ValidationError([
-            `Namespace "${namespace}" is registered as vectorless. To add vector support, ` +
-              `call store.upgradeNamespaceToVector("${namespace}", { embeddingDimension: ${String(dim)} }) ` +
-              `instead of re-initializing it with a dimension.`,
-          ])
+          // Re-registering a vectorless namespace with a dimension MUST throw
+          // NamespaceDimensionMismatchError with the actionable message
+          // pointing at upgradeNamespaceToVector() (spec §1685-1687, §2287-2289).
+          throw new NamespaceDimensionMismatchError(namespace, null, dim)
         }
         if (existing.embeddingDimension !== dim) {
           throw new NamespaceDimensionMismatchError(namespace, existing.embeddingDimension, dim)

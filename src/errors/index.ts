@@ -34,6 +34,7 @@ export const ErrorCode = {
   MISSING_PEER_DEPENDENCY: 'MISSING_PEER_DEPENDENCY',
   EMBEDDING_PROVIDER_ERROR: 'EMBEDDING_PROVIDER_ERROR',
   REINDEX_ERROR: 'REINDEX_ERROR',
+  REINDEX_PARTIAL_REJECTED: 'REINDEX_PARTIAL_REJECTED',
 
   // Domain-prefixed codes used inside IndexingError / RetrievalInputError / DefaultScorer
   INDEXING_NAMESPACE_VECTORLESS: 'INDEXING_NAMESPACE_VECTORLESS',
@@ -151,13 +152,20 @@ export class StoreClosedError extends TragetiError {
 
 export class NamespaceDimensionMismatchError extends TragetiError {
   readonly namespace: string
-  readonly expected: number
+  /** The namespace's registered dimension, or `null` when it is vectorless
+   *  (the caller attempted a vectorless → vector re-registration). */
+  readonly expected: number | null
   readonly actual: number
 
-  constructor(namespace: string, expected: number, actual: number) {
+  constructor(namespace: string, expected: number | null, actual: number) {
     super(
       ErrorCode.NAMESPACE_DIMENSION_MISMATCH,
-      `Namespace "${namespace}" was registered with embedding dimension ${expected}; got ${actual}.`,
+      expected === null
+        ? `Namespace "${namespace}" is registered as vectorless (no embedding dimension). ` +
+            `To add vector support call ` +
+            `store.upgradeNamespaceToVector("${namespace}", { embeddingDimension: ${String(actual)} }) ` +
+            `— re-registering it via initNamespace() with a dimension is not the upgrade path.`
+        : `Namespace "${namespace}" was registered with embedding dimension ${String(expected)}; got ${String(actual)}.`,
     )
     this.name = 'NamespaceDimensionMismatchError'
     this.namespace = namespace
@@ -228,13 +236,30 @@ export class RetrievalInputError extends TragetiError {
   }
 }
 
+/** Per-item failure entry shared by IndexBatchResult and ReindexResult. */
+export interface SkippedEntry {
+  assertionId: string
+  reason: string
+  errorCode?: string
+}
+
 export class ReindexError extends TragetiError {
   readonly namespace: string
   readonly indexed: number
+  /** Populated for a REINDEX_PARTIAL_REJECTED error: the per-item skips that
+   *  the staging build collected under `onProviderError: 'skip'`. */
+  readonly skipped?: readonly SkippedEntry[]
+  /** Populated for a REINDEX_PARTIAL_REJECTED error: actionable recovery guidance. */
+  readonly advice?: string
 
-  constructor(namespace: string, indexed: number, cause: unknown) {
+  constructor(
+    namespace: string,
+    indexed: number,
+    cause: unknown,
+    options?: { code?: string; skipped?: readonly SkippedEntry[]; advice?: string },
+  ) {
     super(
-      ErrorCode.REINDEX_ERROR,
+      options?.code ?? ErrorCode.REINDEX_ERROR,
       `Reindex failed for namespace "${namespace}" after indexing ${indexed} rows: ${
         cause instanceof Error ? cause.message : String(cause)
       }`,
@@ -243,6 +268,8 @@ export class ReindexError extends TragetiError {
     this.name = 'ReindexError'
     this.namespace = namespace
     this.indexed = indexed
+    if (options?.skipped) this.skipped = options.skipped
+    if (options?.advice) this.advice = options.advice
   }
 }
 
@@ -263,4 +290,21 @@ export class EmbeddingProviderError extends TragetiError {
     this.providerName = providerName
     this.indexed = indexed
   }
+}
+
+/**
+ * Derive a short, sanitized, stable error-code token from an unknown thrown
+ * value — the thrown error's `.code` when it carries one, otherwise `'UNKNOWN'`.
+ * Used for `skipped[].errorCode` and `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` logging,
+ * where a raw error message must never be surfaced (it may leak content,
+ * query text, or secrets).
+ */
+export function errorCodeOf(err: unknown): string {
+  if (err !== null && typeof err === 'object' && 'code' in err) {
+    const code: unknown = err.code
+    if (typeof code === 'string' && code.length > 0) {
+      return code.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 64)
+    }
+  }
+  return 'UNKNOWN'
 }

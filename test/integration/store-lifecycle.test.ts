@@ -8,7 +8,6 @@ import {
   StoreClosedError,
   NamespaceNotInitializedError,
   NamespaceDimensionMismatchError,
-  ValidationError,
 } from '../../src/errors/index.js'
 import { citationFor } from '../fixtures/scenario.js'
 
@@ -165,12 +164,21 @@ describe('TemporalStore initNamespace reopen matrix', () => {
     await store.close()
   })
 
-  it('re-registering a vectorless namespace with a dimension is rejected with an actionable error', async () => {
+  it('re-registering a vectorless namespace with a dimension throws NamespaceDimensionMismatchError', async () => {
     const store = await TemporalStore.create({ database: ':memory:', namespace: 'base' })
     await store.initNamespace('later-vec')
-    await expect(store.initNamespace('later-vec', { embeddingDimension: 4 })).rejects.toThrow(
-      ValidationError,
+    let thrown: unknown
+    try {
+      await store.initNamespace('later-vec', { embeddingDimension: 4 })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(NamespaceDimensionMismatchError)
+    // Actionable: the message points at the correct upgrade path.
+    expect((thrown as NamespaceDimensionMismatchError).message).toContain(
+      'upgradeNamespaceToVector',
     )
+    expect((thrown as NamespaceDimensionMismatchError).expected).toBeNull()
     await store.close()
   })
 
