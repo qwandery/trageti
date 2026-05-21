@@ -246,7 +246,8 @@ export interface RetrievalMeta {
   retrievalStrategy: RetrievalStrategy
   vectorApplied: boolean
   bm25Applied: boolean
-  queryTextMode: QueryTextMode
+  /** Effective query-text mode, or `null` when the call carried no queryText. */
+  queryTextMode: QueryTextMode | null
   /** Wall-clock duration of the retrieval call, in milliseconds. */
   tookMs?: number
   warnings: RetrievalWarning[]
@@ -515,7 +516,7 @@ export interface ReindexOptions {
   allowPartialSwap?: boolean
   /** Optional new dimension; defaults to the namespace's current dimension. */
   newDimension?: number
-  /** Per-batch row size while re-embedding. Default 200. */
+  /** Per-batch row size while re-embedding. Default 64. */
   batchSize?: number
   /** Optional cancellation signal. */
   signal?: AbortSignal
@@ -585,7 +586,6 @@ export interface Migration {
   /** v0.3: when true, runner toggles PRAGMA foreign_keys around the migration. */
   requiresForeignKeyToggle?: boolean
   up: (db: Database) => void
-  down?: (db: Database) => void
 }
 
 export interface MigrationDescriptor {

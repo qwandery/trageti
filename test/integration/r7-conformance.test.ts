@@ -523,7 +523,10 @@ describe('indexBatch skip-mode errorCode derives from the thrown error', () => {
 })
 
 describe('namespaceColumn identifier validation', () => {
-  it('rejects a reserved-word namespaceColumn', async () => {
+  it('accepts a reserved-word namespaceColumn (quoted in DDL)', async () => {
+    // R9 §4.5: a SQLite reserved keyword is a valid namespaceColumn — the
+    // identifier is quoteIdent-quoted wherever it reaches DDL. Only the
+    // trageti_ prefix remains a rejection.
     const store = new TemporalStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
@@ -538,7 +541,8 @@ describe('namespaceColumn identifier validation', () => {
         ],
       },
     })
-    await expect(store.init()).rejects.toThrow(SchemaExtensionError)
+    await expect(store.init()).resolves.toBeUndefined()
+    await store.close()
   })
 
   it('rejects a trageti_-prefixed namespaceColumn', async () => {

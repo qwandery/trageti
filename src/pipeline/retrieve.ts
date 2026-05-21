@@ -106,7 +106,7 @@ function buildMeta(
   query: RetrievalQuery,
   limit: number,
   strategy: RetrievalStrategy,
-  queryTextMode: QueryTextMode,
+  queryTextMode: QueryTextMode | null,
   opts: { candidateCount: number; vectorApplied: boolean; bm25Applied: boolean },
 ): RetrievalMeta {
   return {
@@ -134,16 +134,20 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const mode = query.mode ?? 'snapshot'
   const strategy = query.retrievalStrategy ?? 'hybrid'
   const queryTextMode = query.queryTextMode ?? 'phrase'
-  const emptyMeta = (vectorApplied: boolean, bm25Applied: boolean): RetrievalMeta =>
-    buildMeta(query, limit, strategy, queryTextMode, {
-      candidateCount: 0,
-      vectorApplied,
-      bm25Applied,
-    })
 
   // Treat a whitespace-only queryText as absent.
   const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0
   const hasQueryEmbedding = Boolean(query.queryEmbedding)
+
+  // Meta reports the effective query-text mode only when a queryText was
+  // actually supplied; a vector-only call carries no text mode.
+  const metaQueryTextMode: QueryTextMode | null = hasQueryText ? queryTextMode : null
+  const emptyMeta = (vectorApplied: boolean, bm25Applied: boolean): RetrievalMeta =>
+    buildMeta(query, limit, strategy, metaQueryTextMode, {
+      candidateCount: 0,
+      vectorApplied,
+      bm25Applied,
+    })
 
   // Strategy-specific input validation.
   if (strategy === 'vector' && !hasQueryEmbedding) {
@@ -430,7 +434,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
 
   return {
     results,
-    meta: buildMeta(query, limit, strategy, queryTextMode, {
+    meta: buildMeta(query, limit, strategy, metaQueryTextMode, {
       candidateCount: candidates.length,
       vectorApplied: applyVector && step2Rows.length > 0,
       bm25Applied: applyBm25 && bm25Map.size > 0,

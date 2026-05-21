@@ -99,6 +99,42 @@ function assertValidDimension(namespace: string, dimension: number): void {
   }
 }
 
+/**
+ * Validates an episode's identity and numeric fields before any SQLite write,
+ * so malformed input fails with a typed `ValidationError` rather than a raw
+ * constraint error: non-empty `id`, finite `position`. `occurredAt` / `type` /
+ * `content` are opaque payload — the library does not constrain their values
+ * (an empty `occurredAt` is an accepted "no audit timestamp" sentinel).
+ */
+function validateEpisodeInput(episode: Omit<Episode, 'createdAt'>): void {
+  const errors: string[] = []
+  if (!episode.id || !episode.id.trim()) errors.push('episode.id is required')
+  if (!Number.isFinite(episode.position))
+    errors.push(`episode.position must be a finite number, got ${String(episode.position)}`)
+  if (errors.length > 0) throw new ValidationError(errors)
+}
+
+/**
+ * Validates a link's identity, reference, and numeric fields before any SQLite
+ * write: non-empty `id` / `fromId` / `toId` / `sourceEpisodeId` (a blank
+ * reference would otherwise surface as a raw foreign-key error); finite
+ * `validFrom`; `validUntil` either null or finite. `linkType` is opaque,
+ * caller-defined payload and is not constrained.
+ */
+function validateLinkInput(link: Omit<AssertionLink, 'createdAt'>): void {
+  const errors: string[] = []
+  if (!link.id || !link.id.trim()) errors.push('link.id is required')
+  if (!link.fromId || !link.fromId.trim()) errors.push('link.fromId is required')
+  if (!link.toId || !link.toId.trim()) errors.push('link.toId is required')
+  if (!link.sourceEpisodeId || !link.sourceEpisodeId.trim())
+    errors.push('link.sourceEpisodeId is required')
+  if (!Number.isFinite(link.validFrom))
+    errors.push(`link.validFrom must be a finite number, got ${String(link.validFrom)}`)
+  if (link.validUntil !== null && !Number.isFinite(link.validUntil))
+    errors.push(`link.validUntil must be null or a finite number, got ${String(link.validUntil)}`)
+  if (errors.length > 0) throw new ValidationError(errors)
+}
+
 export class TemporalStore {
   private readonly db: Database
   private readonly options: TemporalStoreOptions & {
@@ -301,6 +337,7 @@ export class TemporalStore {
 
   async writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
     this.requireNamespaceInit(episode.namespace)
+    validateEpisodeInput(episode)
     const maxBytes = this.options.maxEpisodeContentBytes
     if (maxBytes > 0) {
       const byteLen = Buffer.byteLength(episode.content, 'utf8')
@@ -441,6 +478,7 @@ export class TemporalStore {
 
   async writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
     this.requireNamespaceInit(link.namespace)
+    validateLinkInput(link)
     // Warn once per cross-namespace link pair (spec §Future: permitted but flagged)
     const fromA = this.assertionRepo.getById(link.fromId)
     const toA = this.assertionRepo.getById(link.toId)

@@ -2,7 +2,6 @@ import type { Database } from 'better-sqlite3'
 import type { SchemaExtensions, ColumnExtension, LibraryTable } from '../../domain/types.js'
 import { SchemaExtensionError } from '../../errors/index.js'
 import { LIBRARY_COLUMNS } from './columns.js'
-import { isReserved } from './reserved-words.js'
 import { quoteIdent } from '../../internal/sql-ident.js'
 
 interface PragmaTableInfoRow {
@@ -29,11 +28,9 @@ export class SchemaExtensionApplier {
           `Column "${col.column}" on ${col.table}: names starting with "trageti_" are reserved for library use`,
         )
       }
-      if (isReserved(col.column)) {
-        violations.push(
-          `Column "${col.column}" on ${col.table}: "${col.column}" is an SQLite reserved keyword`,
-        )
-      }
+      // No SQLite-reserved-keyword check: every identifier is `quoteIdent`-
+      // quoted before interpolation into DDL (spec §1044-1046 forbids only the
+      // `trageti_` prefix and library-column collisions).
       const libraryColumns = LIBRARY_COLUMNS[col.table]
       if (libraryColumns.includes(col.column.toLowerCase())) {
         violations.push(`Column "${col.column}" on ${col.table}: shadows a library-managed column`)
@@ -49,19 +46,13 @@ export class SchemaExtensionApplier {
       if (tbl.referencesNamespace && !tbl.namespaceColumn) {
         violations.push(`Table "${tbl.tableName}": referencesNamespace requires namespaceColumn`)
       }
-      // namespaceColumn is validated against the same identifier rules as
-      // extension columns (spec §1044-1046) — it is interpolated into DDL.
-      if (tbl.namespaceColumn) {
-        if (tbl.namespaceColumn.toLowerCase().startsWith('trageti_')) {
-          violations.push(
-            `Table "${tbl.tableName}": namespaceColumn "${tbl.namespaceColumn}" must not start with "trageti_" (reserved for library use)`,
-          )
-        }
-        if (isReserved(tbl.namespaceColumn)) {
-          violations.push(
-            `Table "${tbl.tableName}": namespaceColumn "${tbl.namespaceColumn}" is an SQLite reserved keyword`,
-          )
-        }
+      // namespaceColumn follows the same identifier rules as extension columns
+      // (spec §1044-1046): only the `trageti_` prefix is rejected — it is
+      // `quoteIdent`-quoted before interpolation into DDL.
+      if (tbl.namespaceColumn && tbl.namespaceColumn.toLowerCase().startsWith('trageti_')) {
+        violations.push(
+          `Table "${tbl.tableName}": namespaceColumn "${tbl.namespaceColumn}" must not start with "trageti_" (reserved for library use)`,
+        )
       }
     }
 

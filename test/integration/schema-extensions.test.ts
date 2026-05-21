@@ -34,13 +34,16 @@ describe('SchemaExtensionApplier.validate', () => {
     ).toThrow(SchemaExtensionError)
   })
 
-  it('rejects SQLite reserved keywords as column names', async () => {
+  it('accepts SQLite reserved keywords as column names (quoted in DDL)', async () => {
+    // R9 §4.5: identifiers are always quoteIdent-quoted, so a reserved keyword
+    // is a safe column name; only the trageti_ prefix / library collisions are
+    // rejected.
     const applier = new SchemaExtensionApplier()
     expect(() =>
       applier.validate({
         columns: [{ table: 'trageti_assertions', column: 'select', definition: 'TEXT' }],
       }),
-    ).toThrow(SchemaExtensionError)
+    ).not.toThrow()
   })
 
   it('rejects columns that shadow library columns', async () => {
@@ -74,7 +77,7 @@ describe('SchemaExtensionApplier.validate', () => {
       applier.validate({
         columns: [
           { table: 'trageti_assertions', column: 'trageti_bad', definition: 'TEXT' },
-          { table: 'trageti_assertions', column: 'select', definition: 'TEXT' },
+          { table: 'trageti_assertions', column: 'content', definition: 'TEXT' },
         ],
       })
     } catch (e) {

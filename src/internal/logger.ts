@@ -87,12 +87,27 @@ export function resetEmitOnceRegistry(): void {
   emittedOnce.clear()
 }
 
-// ─── Back-compat shim ───────────────────────────────────────────────────────
+// ─── Process-default logger ─────────────────────────────────────────────────
+//
+// Audit note (R9 §4.4): every store-internal log call routes through the
+// per-store `Logger` — `TemporalStore` threads `this.options.logger` into the
+// connection verifier (`verify(db, logger)`), the auto-installed
+// `DefaultAssertionValidator` (`{ logger }`), and all repository/pipeline code.
+// The process-default below is NOT a store fallback; it exists only for
+// default components constructed *standalone* (a `DefaultAssertionValidator` or
+// `DefaultConnectionVerifier` created directly without a `logger` option) and
+// for `MockEmbeddingProvider`, whose one-shot non-production warning fires at
+// module scope before any store exists. `TemporalStore`'s constructor still
+// calls `setDefaultLogger` so even those standalone fallbacks honor the most
+// recent store's logger. Known limitation: with multiple stores the
+// process-default reflects whichever was constructed last — acceptable, since
+// it only affects standalone default components, never plumbed store calls.
 
 let defaultLogger: Logger = new ConsoleLogger()
 
-/** Internal: replace the process-default logger. Used by TemporalStore so
- *  call sites that have not been plumbed yet still respect the user's choice. */
+/** Internal: replace the process-default logger. Called by every
+ *  `TemporalStore` constructor so standalone default components (see audit
+ *  note above) honor the user's chosen logger. */
 export function setDefaultLogger(logger: Logger): void {
   defaultLogger = logger
 }

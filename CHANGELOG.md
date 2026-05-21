@@ -120,6 +120,63 @@ validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
   warnings are removed (foreign keys are now enforced, and sqlite-vec is
   an optional peer dependency).
 
+### API-conformance remediation (R9)
+
+A pre-release code-review round reconciling the implementation with the
+v0.3 specification. See the dated "API-conformance remediation (R9)"
+amendment in `trageti-spec-v0.3.md`.
+
+- **BEHAVIOR CHANGE — `retrieve()` and `includeSuperseded`.** With the
+  default `includeSuperseded: false`, `retrieve()` now returns the
+  assertion version valid **at** `temporalAnchor` even when that version is
+  mid-chain (it both supersedes a predecessor and is itself closed by a
+  successor). A prior bug dropped such versions. With
+  `includeSuperseded: true`, `retrieve()` returns every assertion with
+  `validFrom <= temporalAnchor` regardless of `validUntil` — closed and
+  superseded versions included — and that flag now also propagates into
+  Step-6 graph expansion, so `retrieve({ expandLinks: true,
+includeSuperseded: true })` traverses closed links.
+- **Citation-excerpt policy is no longer bypassable.** `writeAssertion()`
+  enforces the inline-citation excerpt policy directly, so a replaced
+  `validators` array can no longer disable the regulated-domain
+  `requireCitationExcerpt` hard-fail or the `TRGT_CITATION_EXCERPT_MISSING`
+  warning. `DefaultAssertionValidator` gains an
+  `enforceCitationExcerptPolicy?: boolean` option (default `true`) so its
+  documented standalone behavior is unchanged.
+- **Graph option types.** `TraversalOptions` / `PathOptions` are the
+  store-facing types for `getConnected` / `findPath`
+  (`namespace` + source ids + `temporalAnchor` + optional `maxDepth` /
+  `linkTypes` / `includeSuperseded`). The `GraphQueryAdapter` extension
+  interface now takes the new `GraphAdapterTraversalOptions`. `CTEGraphAdapter`
+  implements `includeSuperseded` (include expired links) and `findPath`
+  `linkTypes` filtering. New exported type `TemporalSnapshotOptions` for
+  `getTemporalSnapshot`.
+- **New error codes** (all `RetrievalInputError`):
+  `RETRIEVAL_INVALID_TEMPORAL_WINDOW`, `RETRIEVAL_INVALID_CONFIDENCE`,
+  `RETRIEVAL_INVALID_TOKEN_BUDGET`, and `SCORER_BATCH_LENGTH_MISMATCH`
+  (a `scoreBatch()` length mismatch was previously a generic
+  `ValidationError`).
+- **`MigrationDescriptor.appliedAt`.** `getMigrations()` descriptors carry
+  `appliedAt: string | null` — the ISO-8601 apply timestamp, or `null` when
+  not yet applied.
+- **FTS5 tokenizer.** `FTS5TokenizerConfig` gains
+  `trustedCustomTokenizer?: boolean` to opt a registered custom tokenizer
+  out of the built-in allow-list. Supplying a different explicit tokenizer
+  when reopening a populated database fails closed with
+  `MigrationCompatibilityError`; an empty database rebuilds in place.
+- **Typed input validation.** `writeEpisode()` / `writeLink()` reject
+  malformed required fields with `ValidationError` before any SQLite write;
+  `reindexNamespace({ newDimension })` validates the dimension before vec0
+  DDL. Retrieval debug/explain steps are typed (`RetrievalStep` /
+  `RetrievalStepInfo`); emitted step names are `'semantic'` / `'keyword'`.
+- **Extension identifiers.** Extension column and `namespaceColumn` names
+  that collide with a SQLite reserved keyword are now accepted (every
+  identifier is quoted in DDL); only the `trageti_` prefix and
+  library-column collisions are rejected.
+- **Removed.** `RetrievalMeta.queryTextMode` is now `QueryTextMode | null`
+  (`null` for a no-`queryText` call); the unimplemented `Migration.down`
+  field is removed.
+
 ## 0.2.0
 
 ### Minor Changes

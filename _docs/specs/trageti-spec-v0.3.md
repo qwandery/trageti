@@ -120,6 +120,96 @@ case above.
 
 ---
 
+### v0.3 Amendment — 2026-05-20 — API-conformance remediation (R9)
+
+A sanctioned amendment, recorded here rather than applied as a silent rewrite.
+A post-implementation code review surfaced contract divergences between this
+specification and the implementation; this amendment reconciles them. Every
+item is either a clarification of intent or a deliberate, called-out contract
+change. No migration body changes.
+
+**1. `getTemporalSnapshot` is canonical in object-argument form.** The method
+is `getTemporalSnapshot(options: TemporalSnapshotOptions)`, consistent with
+`getConnected` / `findPath`. `TemporalSnapshotOptions` is an exported interface:
+`{ namespace; atPosition; entityTypes?; assertionTypes?; includeSuperseded? }`.
+Any positional-argument description elsewhere in this document is superseded
+by this object form.
+
+**2. Graph option types split three ways.** The single `TraversalOptions`
+shape could not serve both the store methods (single-source, namespaced) and
+the `GraphQueryAdapter` extension interface (multi-source, `namespace` /
+`fromIds` passed separately). Steady state:
+
+- **`GraphAdapterTraversalOptions`** (adapter-facing, new) =
+  `{ temporalAnchor; maxDepth; linkTypes?; includeSuperseded? }`.
+  `GraphQueryAdapter.findConnected` / `findPath` take this as their `options`
+  parameter. This is a deliberate, called-out rename of the extension
+  interface's option type — the field set is unchanged.
+- **`TraversalOptions`** (public, `store.getConnected`) =
+  `{ namespace; fromAssertionId; temporalAnchor; maxDepth?; linkTypes?;
+includeSuperseded? }`. `maxDepth` is **optional**; the store defaults it
+  (to the library traversal default) before building the adapter options.
+- **`PathOptions`** (public, `store.findPath`) = `TraversalOptions` plus
+  `toAssertionId`.
+
+`GraphAdapterTraversalOptions` and `TemporalSnapshotOptions` are exported from
+the package entry point alongside the existing `TraversalOptions` / `PathOptions`.
+
+**3. `MigrationDescriptor` carries `appliedAt` plus additive fields.** The
+descriptor returned by `getMigrations()` is
+`{ version; name; description; requiresForeignKeyToggle; appliedAt }`.
+`appliedAt` is `string | null` — the ISO-8601 timestamp recorded in
+`trageti_schema_version` for an applied migration, or `null` for one not yet
+applied. `name` / `description` / `requiresForeignKeyToggle` are an additive,
+documented superset over any narrower descriptor shape described elsewhere.
+
+**4. New error codes.** Added to the Error Model:
+
+- `RETRIEVAL_INVALID_TEMPORAL_WINDOW`, `RETRIEVAL_INVALID_CONFIDENCE`,
+  `RETRIEVAL_INVALID_TOKEN_BUDGET` — `RetrievalInputError` codes for invalid
+  retrieval / context-assembly inputs that were previously conflated under
+  `RETRIEVAL_INPUT_EMPTY`.
+- `SCORER_BATCH_LENGTH_MISMATCH` — `RetrievalInputError`, thrown when a
+  `RetrievalScorer.scoreBatch()` implementation returns a score array whose
+  length differs from the candidate batch (previously a generic
+  `ValidationError`).
+
+**5. `includeSuperseded` retrieval semantics — explicit.** By default
+(`includeSuperseded: false`) `retrieve()` returns, per assertion lineage, the
+single version valid **at** `temporalAnchor`: `valid_from <= anchor AND
+(valid_until IS NULL OR valid_until > anchor)`. This correctly includes a
+mid-chain version that both supersedes a predecessor and is itself closed by a
+successor. With `includeSuperseded: true`, `retrieve()` instead returns every
+assertion with `valid_from <= anchor` regardless of `valid_until` — closed and
+superseded versions included — subject to all other filters. This same
+`includeSuperseded` value propagates into the Step-6 graph-expansion
+traversal, so `retrieve({ expandLinks: true, includeSuperseded: true })`
+expands across closed links as well. (Prior implementation behavior dropped
+temporally-valid mid-chain assertions even at the default; that was a defect,
+not a contract.)
+
+**6. FTS5 tokenizer — `trustedCustomTokenizer`.** `FTS5TokenizerConfig` carries
+an optional `trustedCustomTokenizer?: boolean`. When `true`, the tokenizer
+name and arguments bypass the built-in allow-list and argument validation (the
+caller asserts the tokenizer is a trusted, registered extension). When absent
+or `false`, the tokenizer must be a built-in name and every argument must match
+`^[A-Za-z0-9_=-]+$`. Tokenizer validation throws `SchemaExtensionError` on the
+`init()` path and `MigrationCompatibilityError` from `rebuildFts()`.
+
+**7. Extension identifier rules — reserved keywords permitted.** Extension
+column names and `TableExtension.namespaceColumn` are rejected only for the
+`trageti_` prefix (and, for columns, library-column collisions). A name that
+happens to be a SQLite reserved keyword is **accepted** — every identifier is
+quoted before interpolation into DDL, so reserved keywords are safe. Earlier
+implementation behavior that rejected reserved keywords is removed.
+
+**8. `RetrievalMeta.queryTextMode` is nullable; `Migration.down` removed.**
+`RetrievalMeta.queryTextMode` is `QueryTextMode | null` — `null` when the call
+carried no `queryText`. The unimplemented `Migration.down` field is removed
+from the `Migration` interface (no down-migration runner exists in v0.3).
+
+---
+
 ### v0.3 — May 2026
 
 **Breaking changes are intentional.** The design goal is a professional-use
@@ -2795,15 +2885,19 @@ error type for "sqlite-vec not loaded" — there is no
 
 `RetrievalInputError` codes:
 
-| Code                              | Raised by                                                                                                                                            |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RETRIEVAL_INPUT_EMPTY`           | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy)                                                          |
-| `RETRIEVAL_REQUIRES_QUERY_TEXT`   | `retrievalStrategy: 'bm25'` with no `queryText`                                                                                                      |
-| `RETRIEVAL_REQUIRES_VECTOR_INPUT` | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)`                                                      |
-| `RETRIEVAL_DIMENSION_MISMATCH`    | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                    |
-| `RETRIEVAL_INVALID_LIMIT`         | `limit < 1` or non-integer                                                                                                                           |
-| `RETRIEVAL_INVALID_MAX_DEPTH`     | `maxDepth < 0` or non-integer                                                                                                                        |
-| `RETRIEVAL_NAMESPACE_VECTORLESS`  | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path |
+| Code                                | Raised by                                                                                                                                                  |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RETRIEVAL_INPUT_EMPTY`             | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy)                                                                |
+| `RETRIEVAL_REQUIRES_QUERY_TEXT`     | `retrievalStrategy: 'bm25'` with no `queryText`                                                                                                            |
+| `RETRIEVAL_REQUIRES_VECTOR_INPUT`   | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)`                                                            |
+| `RETRIEVAL_DIMENSION_MISMATCH`      | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                          |
+| `RETRIEVAL_INVALID_LIMIT`           | `limit < 1` or non-integer                                                                                                                                 |
+| `RETRIEVAL_INVALID_MAX_DEPTH`       | `maxDepth < 0` or non-integer                                                                                                                              |
+| `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `temporalWindow.from > temporalWindow.to`. _(Added by the R9 amendment.)_                                                                                  |
+| `RETRIEVAL_INVALID_CONFIDENCE`      | `minConfidence` outside `[0, 1]`. _(Added by the R9 amendment.)_                                                                                           |
+| `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `assembleContext()` with a non-positive-integer `tokenBudget`. _(Added by the R9 amendment.)_                                                              |
+| `SCORER_BATCH_LENGTH_MISMATCH`      | a `RetrievalScorer.scoreBatch()` implementation returns a score array whose length differs from the candidate-batch length. _(Added by the R9 amendment.)_ |
+| `RETRIEVAL_NAMESPACE_VECTORLESS`    | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path       |
 
 `IndexingError` codes:
 
