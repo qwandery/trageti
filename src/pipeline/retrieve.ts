@@ -11,13 +11,15 @@ import type {
   ScoredCandidate,
   QueryTextMode,
   RetrievalStrategy,
+  RetrievalStep,
+  RetrievalStepInfo,
 } from '../domain/types.js'
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js'
 import { buildCandidateJson } from '../db/candidates.js'
 import { quoteIdent } from '../internal/sql-ident.js'
 import { applyMiddleware } from './middleware.js'
-import { ErrorCode, RetrievalInputError, ValidationError, errorCodeOf } from '../errors/index.js'
+import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js'
 import { observe } from '../internal/logger.js'
 
@@ -43,8 +45,8 @@ interface RetrieveContext {
 function debugStep(
   query: RetrievalQuery,
   logger: Logger,
-  step: string,
-  info: Record<string, unknown>,
+  step: RetrievalStep,
+  info: RetrievalStepInfo,
 ): void {
   const hook = query.debug?.onStep
   if (!hook) return
@@ -188,7 +190,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const tw = query.temporalWindow
   if (tw?.from !== undefined && tw.to !== undefined && tw.from > tw.to) {
     throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW,
       `temporalWindow.from (${String(tw.from)}) must not exceed temporalWindow.to (${String(tw.to)})`,
     )
   }
@@ -196,14 +198,27 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   // minConfidence bounds.
   if (query.minConfidence !== undefined && (query.minConfidence < 0 || query.minConfidence > 1)) {
     throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      ErrorCode.RETRIEVAL_INVALID_CONFIDENCE,
       `minConfidence must be within [0, 1], got ${String(query.minConfidence)}`,
     )
   }
 
+  // Per-step wall-clock: each call returns the ms elapsed since the previous
+  // call, i.e. the duration of the step just completed.
+  let stepStart = Date.now()
+  const sinceStep = (): number => {
+    const now = Date.now()
+    const d = now - stepStart
+    stepStart = now
+    return d
+  }
+
   // Step 1: Temporal filter (applies in all strategies).
   const step1 = runStep1(db, query)
-  debugStep(query, ctx.logger, 'temporal-filter', { candidates: step1.length })
+  debugStep(query, ctx.logger, 'temporal-filter', {
+    candidateCount: step1.length,
+    tookMs: sinceStep(),
+  })
   if (step1.length === 0) {
     return {
       results: [],
@@ -225,7 +240,11 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     const rows = runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample)
     for (const r of rows) step2Rows.push(r)
   }
-  debugStep(query, ctx.logger, 'vector', { applied: applyVector, candidates: step2Rows.length })
+  debugStep(query, ctx.logger, 'semantic', {
+    applied: applyVector,
+    candidateCount: step2Rows.length,
+    tookMs: sinceStep(),
+  })
 
   // Step 3: BM25. When Step 2 (vector) ran, BM25 is a *re-scoring* step over
   // the vector-selected candidates only — it attaches keyword scores, it does
@@ -239,8 +258,11 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       ? buildCandidateJson(step2Rows.map((r) => r.assertion_id))
       : candidateJson
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText
+    // BM25-only (Step 2 skipped) selects candidates, so it is ordered + capped
+    // by relevance; the hybrid re-rank branch only attaches scores (no limit).
+    const bm25Limit = applyVector ? undefined : oversample
     try {
-      const step3 = runStep3(db, bm25CandidateJson, ftsText)
+      const step3 = runStep3(db, bm25CandidateJson, ftsText, bm25Limit)
       for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score)
     } catch (err) {
       // Malformed FTS5 input under raw mode bubbles up as RetrievalInputError;
@@ -255,7 +277,11 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     }
   }
 
-  debugStep(query, ctx.logger, 'bm25', { applied: applyBm25, candidates: bm25Map.size })
+  debugStep(query, ctx.logger, 'keyword', {
+    applied: applyBm25,
+    candidateCount: bm25Map.size,
+    tookMs: sinceStep(),
+  })
 
   // Build the candidate set. When Step 2 ran, the candidates are exactly the
   // vector-selected rows (BM25 only re-scored them) — a BM25-only hit never
@@ -315,9 +341,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       scoringContext,
     )
     if (scores.length !== candidates.length) {
-      throw new ValidationError([
+      throw new RetrievalInputError(
+        ErrorCode.SCORER_BATCH_LENGTH_MISMATCH,
         `RetrievalScorer.scoreBatch returned ${String(scores.length)} scores for ${String(candidates.length)} candidates`,
-      ])
+      )
     }
   } else {
     scores = candidates.map((c) => scorer.score(c.candidate, scoringContext))
@@ -396,7 +423,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     }
   }
 
-  debugStep(query, ctx.logger, 'rank', { returned: results.length, scored: candidates.length })
+  debugStep(query, ctx.logger, 'rank', {
+    candidateCount: results.length,
+    tookMs: sinceStep(),
+  })
 
   return {
     results,
@@ -471,13 +501,24 @@ function runStep2(
   return db.prepare<unknown[], Step2Row>(sql).all(vec, candidateJson, limit)
 }
 
-function runStep3(db: Database, candidateJson: string, queryText: string): Step3Row[] {
+function runStep3(
+  db: Database,
+  candidateJson: string,
+  queryText: string,
+  limit?: number,
+): Step3Row[] {
+  // When `limit` is given (BM25-only candidate selection), order by relevance
+  // and cap; the hybrid re-rank caller omits it and just attaches scores.
+  const tail = limit !== undefined ? 'ORDER BY bm25(trageti_fulltext) ASC LIMIT ?' : ''
   const sql = `
     SELECT a.id AS assertion_id, bm25(trageti_fulltext) AS bm25_score
     FROM trageti_fulltext
     JOIN trageti_assertions a ON a.rowid = trageti_fulltext.rowid
     WHERE trageti_fulltext MATCH ?
       AND a.id IN (SELECT value FROM json_each(?))
+    ${tail}
   `
-  return db.prepare<unknown[], Step3Row>(sql).all(queryText, candidateJson)
+  const params: unknown[] =
+    limit !== undefined ? [queryText, candidateJson, limit] : [queryText, candidateJson]
+  return db.prepare<unknown[], Step3Row>(sql).all(...params)
 }

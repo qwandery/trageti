@@ -289,7 +289,7 @@ describe('explain — vector routing', () => {
       temporalAnchor: 5,
     })
     expect(plan.wouldApplyVector).toBe(true)
-    expect(plan.steps.some((s) => s.step === 'vector')).toBe(true)
+    expect(plan.steps.some((s) => s.step === 'semantic')).toBe(true)
     await store.close()
   })
 })

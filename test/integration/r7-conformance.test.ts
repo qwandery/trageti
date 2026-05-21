@@ -270,7 +270,7 @@ describe('explain() models Step-0 provider routing', () => {
     await writeAssertion(store, 'ns', 'a-1', 'content')
     const plan = await store.explain({ namespace: 'ns', queryText: 'content', temporalAnchor: 5 })
     expect(plan.wouldApplyVector).toBe(true)
-    expect(plan.steps.some((s) => s.step === 'vector')).toBe(true)
+    expect(plan.steps.some((s) => s.step === 'semantic')).toBe(true)
     await store.close()
   })
 

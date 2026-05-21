@@ -21,7 +21,7 @@ export async function assembleContext(
   const tb = options.tokenBudget
   if (!Number.isFinite(tb) || tb <= 0) {
     throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      ErrorCode.RETRIEVAL_INVALID_TOKEN_BUDGET,
       `tokenBudget must be a positive finite number, got ${String(tb)}`,
     )
   }
@@ -47,13 +47,20 @@ export async function assembleContext(
   const formatter = options.formatter ?? options.globalFormatter
   const formatted = formatter.format(assertions, options)
 
+  // The assertions actually rendered into `text`. A formatter that reorders or
+  // regroups (e.g. StructuredFormatter) reports them via `includedAssertions`;
+  // for third-party formatters that omit it, fall back to the input prefix.
+  const renderedAssertions =
+    formatted.includedAssertions ??
+    (formatted.truncated ? assertions.slice(0, formatted.includedCount) : assertions)
+
   const positions = assertions.map((a) => a.validFrom)
   const from = positions.length > 0 ? Math.min(...positions) : options.temporalAnchor
   const to = positions.length > 0 ? Math.max(...positions) : options.temporalAnchor
 
   return {
     text: formatted.text,
-    assertions: formatted.truncated ? assertions.slice(0, formatted.includedCount) : assertions,
+    assertions: renderedAssertions,
     tokenEstimate: formatted.tokenEstimate,
     truncated: formatted.truncated,
     metadata: formatted.metadata,

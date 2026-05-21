@@ -59,6 +59,7 @@ export class JsonFormatter implements ContextFormatter {
       tokenEstimate,
       truncated,
       includedCount: included.length,
+      includedAssertions: included,
       metadata: { formatter: 'json', includedAssertions: included.length },
     }
   }

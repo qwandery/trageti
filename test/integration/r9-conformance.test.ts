@@ -2,13 +2,24 @@ import { describe, it, expect } from 'vitest'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
+import { StructuredFormatter } from '../../src/defaults/formatting/StructuredFormatter.js'
 import type {
   AssertionValidator,
+  ContextAssemblyOptions,
+  ContextFormatter,
+  FormattedContext,
   NormalizedNewAssertion,
+  RetrievalScorer,
+  RetrievedAssertion,
   ValidationResult,
 } from '../../src/domain/types.js'
 import type { Logger, LogFields } from '../../src/internal/logger.js'
-import { SchemaExtensionError, ValidationError } from '../../src/errors/index.js'
+import {
+  MigrationCompatibilityError,
+  SchemaExtensionError,
+  ValidationError,
+} from '../../src/errors/index.js'
+import type { TragetiError } from '../../src/errors/index.js'
 import { citationFor } from '../fixtures/scenario.js'
 
 const DIM = 4
@@ -366,5 +377,245 @@ describe('FTS5 tokenizer validation at init', () => {
       fts5Tokenizer: { tokenizer: 'not_a_real_tokenizer' },
     })
     await expect(store.init()).rejects.toThrow(SchemaExtensionError)
+  })
+})
+
+describe('FTS5 tokenizer change on reopen is never silently ignored', () => {
+  it('rebuilds silently when the database has no assertions', async () => {
+    const db = openTestDb()
+    const store1 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM })
+    await store1.init()
+    // Reopen with a different explicit tokenizer; the DB is empty → safe rebuild.
+    const store2 = new TemporalStore(db, {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      fts5Tokenizer: { tokenizer: 'porter' },
+    })
+    await store2.init()
+    const result = await store2.rebuildFts()
+    expect(result.newTokenizer.tokenizer).toBe('porter')
+    await store2.close()
+  })
+
+  it('throws MigrationCompatibilityError when assertions exist', async () => {
+    const db = openTestDb()
+    const store1 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM })
+    await store1.init()
+    await writeEpisode(store1, 'ns')
+    await store1.writeAssertion({
+      id: 'a-1',
+      namespace: 'ns',
+      type: 'fact',
+      content: 'content',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 0.9,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
+    const store2 = new TemporalStore(db, {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      fts5Tokenizer: { tokenizer: 'porter' },
+    })
+    await expect(store2.init()).rejects.toThrow(MigrationCompatibilityError)
+  })
+})
+
+describe('retrieval input validation uses dedicated error codes', () => {
+  async function seededStore(): Promise<TemporalStore> {
+    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: 'ns',
+      type: 'fact',
+      content: 'foxes and badgers',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 0.9,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
+    return store
+  }
+
+  const codeOf = async (p: Promise<unknown>): Promise<string> => {
+    try {
+      await p
+    } catch (err) {
+      return (err as TragetiError).code
+    }
+    throw new Error('expected a rejection')
+  }
+
+  it('bad temporalWindow → RETRIEVAL_INVALID_TEMPORAL_WINDOW', async () => {
+    const store = await seededStore()
+    expect(
+      await codeOf(
+        store.retrieve({
+          namespace: 'ns',
+          queryText: 'foxes',
+          retrievalStrategy: 'bm25',
+          temporalWindow: { from: 9, to: 1 },
+          temporalAnchor: 5,
+        }),
+      ),
+    ).toBe('RETRIEVAL_INVALID_TEMPORAL_WINDOW')
+    await store.close()
+  })
+
+  it('bad minConfidence → RETRIEVAL_INVALID_CONFIDENCE', async () => {
+    const store = await seededStore()
+    expect(
+      await codeOf(
+        store.retrieve({
+          namespace: 'ns',
+          queryText: 'foxes',
+          retrievalStrategy: 'bm25',
+          minConfidence: 2,
+          temporalAnchor: 5,
+        }),
+      ),
+    ).toBe('RETRIEVAL_INVALID_CONFIDENCE')
+    await store.close()
+  })
+
+  it('bad tokenBudget → RETRIEVAL_INVALID_TOKEN_BUDGET', async () => {
+    const store = await seededStore()
+    expect(
+      await codeOf(
+        store.assembleContext({
+          namespace: 'ns',
+          temporalAnchor: 5,
+          queryText: 'foxes',
+          retrievalStrategy: 'bm25',
+          tokenBudget: -1,
+        }),
+      ),
+    ).toBe('RETRIEVAL_INVALID_TOKEN_BUDGET')
+    await store.close()
+  })
+
+  it('scoreBatch length mismatch → SCORER_BATCH_LENGTH_MISMATCH', async () => {
+    const store = await seededStore()
+    const badScorer: RetrievalScorer = {
+      score: () => 1,
+      scoreBatch: () => [],
+    }
+    expect(
+      await codeOf(
+        store.retrieve({
+          namespace: 'ns',
+          queryText: 'foxes',
+          retrievalStrategy: 'bm25',
+          scorer: badScorer,
+          temporalAnchor: 5,
+        }),
+      ),
+    ).toBe('SCORER_BATCH_LENGTH_MISMATCH')
+    await store.close()
+  })
+})
+
+describe('AssembledContext.assertions matches the rendered text', () => {
+  it('StructuredFormatter truncation: every returned assertion is in the rendered text', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      defaultFormatter: new StructuredFormatter(),
+    })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    // Several assertions across two entity types — StructuredFormatter groups
+    // by entityType, so render order differs from insertion order.
+    let pos = 1
+    for (const [id, entityType] of [
+      ['a-1', 'alpha'],
+      ['a-2', 'beta'],
+      ['a-3', 'alpha'],
+      ['a-4', 'beta'],
+      ['a-5', 'alpha'],
+    ] as const) {
+      await store.writeAssertion({
+        id,
+        namespace: 'ns',
+        type: 'fact',
+        content: `searchterm assertion body ${id}`,
+        validFrom: pos++,
+        validUntil: null,
+        confidence: 0.9,
+        sourceEpisodeId: 'ep-1',
+        supersedesId: null,
+        entityId: null,
+        entityType,
+        citations: [citationFor(id, 'ep-1')],
+      })
+    }
+    const result = await store.assembleContext({
+      namespace: 'ns',
+      temporalAnchor: 10,
+      queryText: 'searchterm',
+      retrievalStrategy: 'bm25',
+      tokenBudget: 40,
+    })
+    expect(result.truncated).toBe(true)
+    expect(result.assertions.length).toBe(result.coverage.includedAssertions)
+    expect(result.assertions.length).toBeGreaterThan(0)
+    for (const a of result.assertions) {
+      expect(result.text).toContain(a.content)
+    }
+    await store.close()
+  })
+
+  it('falls back for a third-party formatter that omits includedAssertions', async () => {
+    const minimalFormatter: ContextFormatter = {
+      format(assertions: RetrievedAssertion[], _options: ContextAssemblyOptions): FormattedContext {
+        return {
+          text: assertions.map((a) => a.content).join('\n'),
+          tokenEstimate: 0,
+          truncated: false,
+          includedCount: assertions.length,
+          metadata: { formatter: 'minimal' },
+        }
+      },
+    }
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      defaultFormatter: minimalFormatter,
+    })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: 'ns',
+      type: 'fact',
+      content: 'searchterm body',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 0.9,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    })
+    const result = await store.assembleContext({
+      namespace: 'ns',
+      temporalAnchor: 5,
+      queryText: 'searchterm',
+      retrievalStrategy: 'bm25',
+      tokenBudget: 1000,
+    })
+    expect(result.assertions.map((a) => a.id)).toEqual(['a-1'])
+    await store.close()
   })
 })

@@ -56,6 +56,8 @@ export type {
   RetrievalExplainResult,
   RetrievalExplainStep,
   RetrievalDebug,
+  RetrievalStep,
+  RetrievalStepInfo,
   EmbeddingProvider,
   EmbedOptions,
   ValidationResult,

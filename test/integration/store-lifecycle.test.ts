@@ -210,7 +210,7 @@ describe('TemporalStore.explain()', () => {
     expect(plan.retrievalStrategy).toBe('bm25')
     expect(plan.wouldApplyVector).toBe(false)
     expect(plan.wouldApplyBm25).toBe(true)
-    expect(plan.steps.some((s) => s.step === 'bm25')).toBe(true)
+    expect(plan.steps.some((s) => s.step === 'keyword')).toBe(true)
     await store.close()
   })
 

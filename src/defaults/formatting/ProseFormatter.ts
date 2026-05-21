@@ -25,9 +25,9 @@ export class ProseFormatter implements ContextFormatter {
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext {
     const budget = options.tokenBudget
     const lines: string[] = []
+    const includedAssertions: RetrievedAssertion[] = []
     let tokenEstimate = 0
     let truncated = false
-    let included = 0
 
     for (const assertion of assertions) {
       const line = this.formatOne(assertion)
@@ -37,16 +37,17 @@ export class ProseFormatter implements ContextFormatter {
         break
       }
       lines.push(line)
+      includedAssertions.push(assertion)
       tokenEstimate += lineTokens
-      included++
     }
 
     return {
       text: lines.join('\n\n'),
       tokenEstimate,
       truncated,
-      includedCount: included,
-      metadata: { formatter: 'prose', includedAssertions: included },
+      includedCount: includedAssertions.length,
+      includedAssertions,
+      metadata: { formatter: 'prose', includedAssertions: includedAssertions.length },
     }
   }
 

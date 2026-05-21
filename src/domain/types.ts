@@ -155,8 +155,21 @@ export type RetrievalMode = 'snapshot' | 'trajectory'
 export type RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'
 export type QueryTextMode = 'phrase' | 'fts5'
 
+/** The pipeline steps a retrieval pass can report (debug hook + explain). */
+export type RetrievalStep = 'temporal-filter' | 'semantic' | 'keyword' | 'score' | 'rank'
+
+/** Per-step observability payload passed to `RetrievalDebug.onStep`. */
+export interface RetrievalStepInfo {
+  /** Candidate count produced by / surviving this step, when meaningful. */
+  candidateCount?: number
+  /** Wall-clock time spent in this step, in milliseconds. */
+  tookMs?: number
+  /** Whether the step's optional branch actually applied. */
+  applied?: boolean
+}
+
 export interface RetrievalDebug {
-  onStep?: (step: string, info: Record<string, unknown>) => void
+  onStep?: (step: RetrievalStep, info: RetrievalStepInfo) => void
 }
 
 export interface RetrievalQuery {
@@ -249,8 +262,8 @@ export interface RetrievalResult {
 }
 
 export interface RetrievalExplainStep {
-  /** Step identifier (e.g. 'temporal-filter', 'vector', 'bm25', 'score'). */
-  step: string
+  /** Pipeline step this entry describes. */
+  step: RetrievalStep
   /** SQL the step would execute, when applicable. */
   sql?: string
   /** SQLite query plan for `sql`, when introspected. */
@@ -338,6 +351,13 @@ export interface FormattedContext {
    *  (≤ the input count when truncated by token budget). An explicit field
    *  so context assembly never has to read a formatter-private metadata key. */
   includedCount: number
+  /** The assertions actually rendered into `text`, in render order. Optional
+   *  for third-party `ContextFormatter`s; when present, `assembleContext()`
+   *  uses it for `AssembledContext.assertions` so that field always matches
+   *  the rendered text — required for formatters that reorder/regroup (e.g.
+   *  `StructuredFormatter`). When absent, assembly falls back to the first
+   *  `includedCount` of the input order. */
+  includedAssertions?: RetrievedAssertion[]
   metadata: Record<string, unknown>
 }
 

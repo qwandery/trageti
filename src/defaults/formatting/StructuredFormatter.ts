@@ -37,9 +37,11 @@ export class StructuredFormatter implements ContextFormatter {
     }
 
     const sections: string[] = []
+    // The rendered set, in render order (grouped + sorted) — not the input
+    // order — so AssembledContext.assertions matches the rendered text.
+    const includedAssertions: RetrievedAssertion[] = []
     let tokenEstimate = 0
     let truncated = false
-    let included = 0
 
     for (const [entityType, items] of groups.entries()) {
       const header = `## ${entityType}`
@@ -58,8 +60,8 @@ export class StructuredFormatter implements ContextFormatter {
           break
         }
         bullets.push(bullet)
+        includedAssertions.push(item)
         tokenEstimate += bulletTokens
-        included++
       }
       tokenEstimate += headerTokens
       sections.push(`${header}\n${bullets.join('\n')}`)
@@ -70,8 +72,9 @@ export class StructuredFormatter implements ContextFormatter {
       text: sections.join('\n\n'),
       tokenEstimate,
       truncated,
-      includedCount: included,
-      metadata: { formatter: 'structured', includedAssertions: included },
+      includedCount: includedAssertions.length,
+      includedAssertions,
+      metadata: { formatter: 'structured', includedAssertions: includedAssertions.length },
     }
   }
 }

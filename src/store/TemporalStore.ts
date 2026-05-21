@@ -68,6 +68,7 @@ import {
   RetrievalInputError,
   EmbeddingProviderError,
   ReindexError,
+  MigrationCompatibilityError,
   TragetiError,
   ErrorCode,
   errorCodeOf,
@@ -113,6 +114,8 @@ export class TemporalStore {
     logger: NonNullable<TemporalStoreOptions['logger']>
   }
   private readonly closeDatabaseOnStoreClose: boolean
+  /** Whether the caller explicitly supplied `fts5Tokenizer` (vs the default). */
+  private readonly fts5TokenizerExplicit: boolean
 
   private migrationRunner!: MigrationRunner
   private extensionApplier!: SchemaExtensionApplier
@@ -170,6 +173,7 @@ export class TemporalStore {
       validation: options.validation,
     } as typeof this.options
     this.closeDatabaseOnStoreClose = internal.closeDatabaseOnStoreClose ?? false
+    this.fts5TokenizerExplicit = options.fts5Tokenizer !== undefined
     setDefaultLogger(this.options.logger)
   }
 
@@ -181,6 +185,9 @@ export class TemporalStore {
     // (b) migrations
     this.migrationRunner = new MigrationRunner(this.options.fts5Tokenizer)
     this.migrationRunner.applyMigrations(this.db)
+
+    // (b2) reconcile an explicitly-supplied tokenizer against the stored one
+    this.reconcileFtsTokenizer()
 
     // (c) schema extensions validate + apply
     this.extensionApplier = new SchemaExtensionApplier()
@@ -1202,13 +1209,13 @@ export class TemporalStore {
     ]
     if (wouldApplyVector) {
       steps.push({
-        step: 'vector',
+        step: 'semantic',
         vectorReady,
         sql: 'vec_distance_cosine over the namespace vec0 table',
       })
     }
     if (wouldApplyBm25) {
-      steps.push({ step: 'bm25', sql: 'bm25(trageti_fulltext) over the FTS5 index' })
+      steps.push({ step: 'keyword', sql: 'bm25(trageti_fulltext) over the FTS5 index' })
     }
     steps.push({ step: 'score' }, { step: 'rank' })
 
@@ -1406,6 +1413,76 @@ export class TemporalStore {
     } catch {
       return false
     }
+  }
+
+  /**
+   * Reconcile an explicitly-supplied `fts5Tokenizer` against the tokenizer
+   * already recorded in the database (spec — tokenizer changes are never
+   * silently ignored). No-op when the caller did not supply a tokenizer, or
+   * when it matches the stored one. When it differs:
+   *   - assertions exist → throw `MigrationCompatibilityError` (fail closed);
+   *     the caller must run `rebuildFts()` to re-tokenize the corpus.
+   *   - zero assertions → safely rebuild the empty FTS table under the new
+   *     tokenizer (nothing to re-tokenize).
+   */
+  private reconcileFtsTokenizer(): void {
+    if (!this.fts5TokenizerExplicit) return
+    const stored = this.readStoredTokenizer()
+    if (!stored) return
+    const want = this.options.fts5Tokenizer
+    const same =
+      stored.tokenizer === want.tokenizer &&
+      JSON.stringify(stored.tokenizerArgs ?? []) === JSON.stringify(want.tokenizerArgs ?? [])
+    if (same) return
+
+    const count =
+      this.db.prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM trageti_assertions').get()?.c ??
+      0
+    if (count > 0) {
+      throw new MigrationCompatibilityError(
+        'rebuild-fts',
+        `The database's FTS index is tokenized with "${stored.tokenizer}" but the store was ` +
+          `opened with fts5Tokenizer "${want.tokenizer}". Changing the tokenizer on a populated ` +
+          `database requires an explicit rebuild — call store.rebuildFts({ tokenizer }).`,
+        { command: 'store.rebuildFts({ tokenizer })', estimatedRows: count },
+      )
+    }
+    // Empty database — no corpus to re-tokenize, so adopt the new tokenizer.
+    this.applyFtsTokenizer(want)
+  }
+
+  /**
+   * Drop and recreate `trageti_fulltext` under `tokenizer`, repopulate from
+   * `trageti_assertions`, and record the tokenizer in `trageti_tokenizer` —
+   * all in one transaction. The sync triggers reference the table by name, so
+   * they survive the drop/recreate. Mirrors the DDL `rebuildFts()` runs.
+   */
+  private applyFtsTokenizer(tokenizer: FTS5TokenizerConfig): void {
+    const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
+    this.db.transaction(() => {
+      this.db.exec('DROP TABLE IF EXISTS trageti_fulltext')
+      this.db.exec(`
+        CREATE VIRTUAL TABLE trageti_fulltext USING fts5(
+          assertion_id UNINDEXED,
+          content,
+          content='trageti_assertions',
+          content_rowid='rowid',
+          tokenize='${tokenizeArg}'
+        );
+      `)
+      this.db.exec(
+        'INSERT INTO trageti_fulltext(rowid, assertion_id, content) SELECT rowid, id, content FROM trageti_assertions',
+      )
+      this.db
+        .prepare(
+          `INSERT INTO trageti_tokenizer (id, tokenizer, tokenizer_args, updated_at)
+           VALUES (1, ?, ?, datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET tokenizer = excluded.tokenizer,
+                                         tokenizer_args = excluded.tokenizer_args,
+                                         updated_at = excluded.updated_at`,
+        )
+        .run(tokenizer.tokenizer, JSON.stringify(tokenizer.tokenizerArgs ?? []))
+    })()
   }
 
   /**

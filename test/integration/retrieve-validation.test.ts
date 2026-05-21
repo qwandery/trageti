@@ -206,7 +206,7 @@ describe('retrieve — RetrievalDebug onStep hook', () => {
       debug: { onStep: (step) => steps.push(step) },
     })
     expect(steps).toContain('temporal-filter')
-    expect(steps).toContain('bm25')
+    expect(steps).toContain('keyword')
     expect(steps).toContain('rank')
   })
 
