@@ -8,8 +8,19 @@ import type { Logger } from '../../internal/logger.js'
 import { getDefaultLogger } from '../../internal/logger.js'
 
 export interface DefaultAssertionValidatorOptions {
-  /** When true, citations with null excerpt fail validation. Default false. */
+  /** When true, citations with null excerpt fail validation. Default false.
+   *  Only consulted when `enforceCitationExcerptPolicy` is not false. */
   requireCitationExcerpt?: boolean
+  /** When false, the validator skips citation-excerpt handling entirely
+   *  (neither the `requireCitationExcerpt` hard-fail nor the
+   *  `TRGT_CITATION_EXCERPT_MISSING` warning). Default true.
+   *
+   *  `TemporalStore` sets this false on the validator it auto-installs because
+   *  the store now owns excerpt policy (it enforces it in `writeAssertion()`
+   *  so a custom validators array cannot bypass it) — this prevents a double
+   *  warning/error. A `DefaultAssertionValidator` constructed directly keeps
+   *  the default `true` and its documented standalone behavior. */
+  enforceCitationExcerptPolicy?: boolean
   /** Store-scoped logger for TRGT_CITATION_EXCERPT_MISSING warnings.
    *  Falls back to the process-default logger when omitted. */
   logger?: Logger
@@ -29,11 +40,13 @@ export interface DefaultAssertionValidatorOptions {
 export class DefaultAssertionValidator implements AssertionValidator {
   private readonly db: Database
   private readonly requireCitationExcerpt: boolean
+  private readonly enforceCitationExcerptPolicy: boolean
   private readonly logger: Logger
 
   constructor(db: Database, options: DefaultAssertionValidatorOptions = {}) {
     this.db = db
     this.requireCitationExcerpt = options.requireCitationExcerpt ?? false
+    this.enforceCitationExcerptPolicy = options.enforceCitationExcerptPolicy ?? true
     this.logger = options.logger ?? getDefaultLogger()
   }
 
@@ -70,8 +83,9 @@ export class DefaultAssertionValidator implements AssertionValidator {
     }
 
     // Excerpt handling. v0.3: opt-in strict mode promotes null excerpts to
-    // validation failures; default behavior is to warn only.
-    if (errors.length === 0) {
+    // validation failures; default behavior is to warn only. Skipped entirely
+    // when enforceCitationExcerptPolicy is false (the store owns the policy).
+    if (errors.length === 0 && this.enforceCitationExcerptPolicy) {
       for (const cit of assertion.citations) {
         if (cit.excerpt === null) {
           if (this.requireCitationExcerpt) {

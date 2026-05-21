@@ -405,15 +405,19 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
 }
 
 function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
-  const conditions: string[] = [
-    'a.namespace = ?',
-    'a.valid_from <= ?',
-    '(a.valid_until IS NULL OR a.valid_until > ?)',
-  ]
-  const params: unknown[] = [query.namespace, query.temporalAnchor, query.temporalAnchor]
+  // `valid_from <= anchor` always applies. The upper bound
+  // `(valid_until IS NULL OR valid_until > anchor)` selects exactly the
+  // version valid AT the anchor — including the middle of a supersession
+  // chain. It is dropped only for includeSuperseded:true, which then returns
+  // every assertion that existed by the anchor (closed ones included).
+  // NOTE: there is intentionally no `(supersedes_id IS NULL OR valid_until IS
+  // NULL)` clause — that would wrongly drop a temporally-valid mid-chain row.
+  const conditions: string[] = ['a.namespace = ?', 'a.valid_from <= ?']
+  const params: unknown[] = [query.namespace, query.temporalAnchor]
 
   if (!query.includeSuperseded) {
-    conditions.push('(a.supersedes_id IS NULL OR a.valid_until IS NULL)')
+    conditions.push('(a.valid_until IS NULL OR a.valid_until > ?)')
+    params.push(query.temporalAnchor)
   }
   if (query.minConfidence !== undefined) {
     conditions.push('a.confidence >= ?')

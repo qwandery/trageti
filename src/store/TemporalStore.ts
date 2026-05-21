@@ -82,6 +82,19 @@ import { reindexNamespace as doReindex } from '../pipeline/reindex.js'
 
 const DEFAULT_MAX_EPISODE_CONTENT_BYTES = 8192
 
+/**
+ * Throws `ValidationError` unless `dimension` is a positive integer. Shared by
+ * namespace registration (`resolveVectorDimension`) and `reindexNamespace`
+ * (`newDimension`) so an invalid dimension fails before any vec0 DDL.
+ */
+function assertValidDimension(namespace: string, dimension: number): void {
+  if (!Number.isInteger(dimension) || dimension <= 0) {
+    throw new ValidationError([
+      `Namespace "${namespace}": embedding dimension must be a positive integer, got ${String(dimension)}`,
+    ])
+  }
+}
+
 export class TemporalStore {
   private readonly db: Database
   private readonly options: TemporalStoreOptions & {
@@ -197,12 +210,15 @@ export class TemporalStore {
     this.linkRepo = new LinkRepository(this.db)
     this.embeddingRepo = new EmbeddingRepository(this.db)
 
-    // Add default validators if none provided
+    // Add default validators if none provided. The store owns citation-excerpt
+    // policy (enforced in writeAssertion, so a custom validators array cannot
+    // bypass it), so the auto-installed validator skips its excerpt block to
+    // avoid a double warning/error.
     if (this.options.validators.length === 0) {
       this.options.validators.push(
         new DefaultAssertionValidator(this.db, {
           logger: this.options.logger,
-          requireCitationExcerpt: this.options.validation?.requireCitationExcerpt ?? false,
+          enforceCitationExcerptPolicy: false,
         }),
       )
     }
@@ -258,11 +274,7 @@ export class TemporalStore {
     }
     const resolved = explicit ?? fromProvider
     if (resolved === null) return null
-    if (!Number.isInteger(resolved) || resolved <= 0) {
-      throw new ValidationError([
-        `Namespace "${namespace}": embedding dimension must be a positive integer, got ${String(resolved)}`,
-      ])
-    }
+    assertValidDimension(namespace, resolved)
     return resolved
   }
 
@@ -303,6 +315,12 @@ export class TemporalStore {
     // structural checks pass; this avoids duplicate error messages on the same
     // field.
     this.enforceStructuralInvariants(assertion)
+
+    // ─── Citation-excerpt policy ─────────────────────────────────────────────
+    // Enforced here, NOT only in DefaultAssertionValidator — a custom
+    // validators array would otherwise silently disable the regulated-domain
+    // excerpt requirement.
+    this.enforceCitationExcerptPolicy(assertion)
 
     // ─── User-facing validators (replaceable) ───────────────────────────────
     const errors: string[] = []
@@ -958,6 +976,11 @@ export class TemporalStore {
 
   async reindexNamespace(namespace: string, options: ReindexOptions = {}): Promise<ReindexResult> {
     this.requireNamespaceInit(namespace)
+    // Validate newDimension before any vec0 DDL — a non-integer / non-positive
+    // value would otherwise surface as a raw SQLite error.
+    if (options.newDimension !== undefined) {
+      assertValidDimension(namespace, options.newDimension)
+    }
     // Effective provider: explicit override → per-namespace binding → store default.
     const provider = options.embeddingProvider ?? this.getNamespaceProvider(namespace)
     if (!provider) {
@@ -1278,6 +1301,31 @@ export class TemporalStore {
       }
     }
 
+    if (errors.length > 0) throw new ValidationError(errors)
+  }
+
+  /**
+   * Citation-excerpt policy, owned by the store so a replaced `validators`
+   * array cannot bypass it. Per inline citation with a null excerpt: collect a
+   * `ValidationError` under `validation.requireCitationExcerpt`, otherwise emit
+   * `TRGT_CITATION_EXCERPT_MISSING`. Mirrors `writeCitation()`'s late-citation
+   * check.
+   */
+  private enforceCitationExcerptPolicy(assertion: NormalizedNewAssertion): void {
+    const strict = this.options.validation?.requireCitationExcerpt ?? false
+    const errors: string[] = []
+    for (const cit of assertion.citations) {
+      if (cit.excerpt === null) {
+        if (strict) {
+          errors.push(`citation "${cit.id}" excerpt is required`)
+        } else {
+          this.options.logger.warn('TRGT_CITATION_EXCERPT_MISSING', {
+            assertionId: assertion.id,
+            citationId: cit.id,
+          })
+        }
+      }
+    }
     if (errors.length > 0) throw new ValidationError(errors)
   }
 
