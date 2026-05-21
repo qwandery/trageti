@@ -29,7 +29,7 @@ export class MigrationRunner {
   constructor(tokenizerConfig?: FTS5TokenizerConfig) {
     // Validate the tokenizer config before any migration DDL is built — a
     // rejected tokenizer must never reach a CREATE VIRTUAL TABLE string.
-    if (tokenizerConfig) validateTokenizer(tokenizerConfig)
+    if (tokenizerConfig) validateTokenizer(tokenizerConfig, 'init')
     this.migrations = getMigrations(tokenizerConfig)
   }
 
@@ -146,5 +146,20 @@ export class MigrationRunner {
 
   getMigrations(): readonly Migration[] {
     return this.migrations
+  }
+
+  /**
+   * Map of `version → applied_at` for every migration recorded in the
+   * schema-version table. Used to populate `MigrationDescriptor.appliedAt`.
+   */
+  getAppliedVersions(db: Database): Map<number, string> {
+    db.exec(BOOTSTRAP_DDL)
+    const rows = db
+      .prepare<
+        [],
+        { version: number; applied_at: string }
+      >(`SELECT version, applied_at FROM ${SCHEMA_VERSION_TABLE}`)
+      .all()
+    return new Map(rows.map((r) => [r.version, r.applied_at]))
   }
 }

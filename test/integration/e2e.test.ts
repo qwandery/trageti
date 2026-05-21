@@ -24,7 +24,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     // Verify writes
     const ep = await store.getEpisode('ep-1')
     expect(ep).not.toBeNull()
-    expect(ep.position).toBe(1)
+    expect(ep?.position).toBe(1)
 
     const assertions = await store.getAssertions(NS)
     expect(assertions.length).toBeGreaterThan(0)

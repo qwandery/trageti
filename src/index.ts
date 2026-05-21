@@ -29,6 +29,8 @@ export type {
   FormattedContext,
   TraversalOptions,
   PathOptions,
+  GraphAdapterTraversalOptions,
+  TemporalSnapshotOptions,
   LibraryTable,
   ColumnExtension,
   TableExtension,

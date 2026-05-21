@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
 import { RawVectorProvider } from '../../src/defaults/providers/RawVectorProvider.js'
 import { validateTokenizer } from '../../src/internal/tokenizer.js'
-import { EmbeddingProviderError, MigrationCompatibilityError } from '../../src/errors/index.js'
+import {
+  EmbeddingProviderError,
+  MigrationCompatibilityError,
+  SchemaExtensionError,
+} from '../../src/errors/index.js'
 
 describe('MockEmbeddingProvider', () => {
   it('defaults to dimension 384', () => {
@@ -71,28 +75,41 @@ describe('RawVectorProvider', () => {
 describe('validateTokenizer', () => {
   it('accepts every allow-listed tokenizer', () => {
     for (const tokenizer of ['unicode61', 'ascii', 'porter', 'trigram'] as const) {
-      expect(() => validateTokenizer({ tokenizer })).not.toThrow()
+      expect(() => validateTokenizer({ tokenizer }, 'init')).not.toThrow()
     }
   })
 
   it('accepts safe tokenizer args', () => {
     expect(() =>
-      validateTokenizer({ tokenizer: 'unicode61', tokenizerArgs: ['remove_diacritics', '1'] }),
+      validateTokenizer(
+        { tokenizer: 'unicode61', tokenizerArgs: ['remove_diacritics', '1'] },
+        'rebuild',
+      ),
     ).not.toThrow()
   })
 
-  it('rejects an unknown tokenizer name', () => {
-    expect(() => validateTokenizer({ tokenizer: 'evil' })).toThrow(MigrationCompatibilityError)
+  it('rejects an unknown tokenizer with SchemaExtensionError on the init path', () => {
+    expect(() => validateTokenizer({ tokenizer: 'evil' }, 'init')).toThrow(SchemaExtensionError)
+  })
+
+  it('rejects an unknown tokenizer with MigrationCompatibilityError on the rebuild path', () => {
+    expect(() => validateTokenizer({ tokenizer: 'evil' }, 'rebuild')).toThrow(
+      MigrationCompatibilityError,
+    )
   })
 
   it('rejects a tokenizer arg with unsafe characters', () => {
-    let thrown: unknown
-    try {
-      validateTokenizer({ tokenizer: 'unicode61', tokenizerArgs: ["1'; DROP TABLE x; --"] })
-    } catch (err) {
-      thrown = err
-    }
-    expect(thrown).toBeInstanceOf(MigrationCompatibilityError)
-    expect((thrown as MigrationCompatibilityError).kind).toBe('fts-tokenizer')
+    expect(() =>
+      validateTokenizer(
+        { tokenizer: 'unicode61', tokenizerArgs: ["1'; DROP TABLE x; --"] },
+        'rebuild',
+      ),
+    ).toThrow(MigrationCompatibilityError)
+  })
+
+  it('passes a custom tokenizer through unchecked when trustedCustomTokenizer is set', () => {
+    expect(() =>
+      validateTokenizer({ tokenizer: 'my_icu_tokenizer', trustedCustomTokenizer: true }, 'init'),
+    ).not.toThrow()
   })
 })

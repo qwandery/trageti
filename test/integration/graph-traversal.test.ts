@@ -126,9 +126,9 @@ describe('TemporalStore — graph traversal', () => {
       temporalAnchor: 10,
     })
     expect(path).not.toBeNull()
-    expect(path.length).toBeGreaterThan(0)
+    expect(path!.length).toBeGreaterThan(0)
     // Path should end at a-2
-    const lastLink = path[path.length - 1]!
+    const lastLink = path![path!.length - 1]!
     expect(lastLink.toId).toBe('a-2')
   })
 
@@ -154,13 +154,13 @@ describe('TemporalStore — graph traversal', () => {
       temporalAnchor: 10,
     })
     expect(path).not.toBeNull()
-    expect(path.length).toBe(2)
-    expect(path[0]!.fromId).toBe('a-1')
-    expect(path[0]!.toId).toBe('a-2')
-    expect(path[1]!.fromId).toBe('a-2')
-    expect(path[1]!.toId).toBe('a-4')
-    expect(path[0]!.id).toBe('l-1')
-    expect(path[1]!.id).toBe('l-3')
+    expect(path!.length).toBe(2)
+    expect(path![0]!.fromId).toBe('a-1')
+    expect(path![0]!.toId).toBe('a-2')
+    expect(path![1]!.fromId).toBe('a-2')
+    expect(path![1]!.toId).toBe('a-4')
+    expect(path![0]!.id).toBe('l-1')
+    expect(path![1]!.id).toBe('l-3')
   })
 
   it('findPath returns [] for zero-hop (same source and target)', async () => {
@@ -215,7 +215,7 @@ describe('TemporalStore — graph traversal', () => {
     })
     expect(valid).not.toBeNull()
     // Visited-set invariant: no assertion appears more than once in the path.
-    const assertions = [valid[0]!.fromId, ...valid.map((l) => l.toId)]
+    const assertions = [valid![0]!.fromId, ...valid!.map((l) => l.toId)]
     expect(new Set(assertions).size).toBe(assertions.length)
   })
 
@@ -273,9 +273,9 @@ describe('TemporalStore — graph traversal', () => {
     )
     for (const path of winners) {
       expect(path).not.toBeNull()
-      expect(path.length).toBe(2)
-      expect(path[0]!.id).toBe('l-1')
-      expect(path[1]!.id).toBe('l-3')
+      expect(path!.length).toBe(2)
+      expect(path![0]!.id).toBe('l-1')
+      expect(path![1]!.id).toBe('l-3')
     }
   })
 

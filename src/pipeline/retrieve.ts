@@ -355,12 +355,16 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     },
   }))
 
-  // Step 6: Graph expansion (optional)
+  // Step 6: Graph expansion (optional). `includeSuperseded` is a
+  // retrieval-wide option, so it propagates into link traversal too.
   if (query.expandLinks && results.length > 0) {
     const fromIds = results.map((r) => r.id)
     const links = ctx.graphAdapter.findConnected(db, query.namespace, fromIds, {
       temporalAnchor: query.temporalAnchor,
       maxDepth: query.maxDepth ?? 1,
+      ...(query.includeSuperseded !== undefined && {
+        includeSuperseded: query.includeSuperseded,
+      }),
     })
 
     const linkedById = new Map<string, Assertion[]>()

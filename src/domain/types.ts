@@ -343,16 +343,55 @@ export interface FormattedContext {
 
 // ─── Graph ────────────────────────────────────────────────────────────────────
 
-export interface TraversalOptions {
+/**
+ * Adapter-facing traversal tuning. `GraphQueryAdapter` methods receive
+ * `namespace` and the source ids as separate parameters, so this carries only
+ * the traversal knobs. `maxDepth` is required here — the store resolves its
+ * default before building this object.
+ */
+export interface GraphAdapterTraversalOptions {
   temporalAnchor: number
-  /** No hard cap; caller and adapter negotiate. */
+  /** Hop budget. */
   maxDepth: number
-  /** undefined = all types */
+  /** undefined = all link types */
+  linkTypes?: string[]
+  /** When true, expired links (valid_until <= temporalAnchor) are traversed. */
+  includeSuperseded?: boolean
+}
+
+/** Public options for `store.getConnected()`. */
+export interface TraversalOptions {
+  namespace: string
+  fromAssertionId: string
+  temporalAnchor: number
+  /** Hop budget. Optional — the store applies a documented default. */
+  maxDepth?: number
+  /** undefined = all link types */
   linkTypes?: string[]
   includeSuperseded?: boolean
 }
 
-export type PathOptions = TraversalOptions
+/** Public options for `store.findPath()`. */
+export interface PathOptions {
+  namespace: string
+  fromAssertionId: string
+  toAssertionId: string
+  temporalAnchor: number
+  /** Hop budget. Optional — the store applies a documented default. */
+  maxDepth?: number
+  /** undefined = all link types */
+  linkTypes?: string[]
+  includeSuperseded?: boolean
+}
+
+/** Public options for `store.getTemporalSnapshot()`. */
+export interface TemporalSnapshotOptions {
+  namespace: string
+  atPosition: number
+  entityTypes?: string[]
+  assertionTypes?: string[]
+  includeSuperseded?: boolean
+}
 
 // ─── Extension interfaces (contracts) ────────────────────────────────────────
 
@@ -361,7 +400,7 @@ export interface GraphQueryAdapter {
     db: Database,
     namespace: string,
     fromIds: string[],
-    options: TraversalOptions,
+    options: GraphAdapterTraversalOptions,
   ): AssertionLink[]
 
   findPath(
@@ -369,7 +408,7 @@ export interface GraphQueryAdapter {
     namespace: string,
     fromId: string,
     toId: string,
-    options: PathOptions,
+    options: GraphAdapterTraversalOptions,
   ): AssertionLink[] | null
 }
 
@@ -534,6 +573,9 @@ export interface MigrationDescriptor {
   name: string
   description: string
   requiresForeignKeyToggle: boolean
+  /** ISO-8601 timestamp recorded when the migration was applied to this
+   *  database, or `null` if it has not been applied yet. */
+  appliedAt: string | null
 }
 
 // ─── FTS5 tokenizer ───────────────────────────────────────────────────────────
@@ -541,6 +583,10 @@ export interface MigrationDescriptor {
 export interface FTS5TokenizerConfig {
   tokenizer: string
   tokenizerArgs?: string[]
+  /** Opt-out of the built-in-tokenizer allow-list and argument validation.
+   *  Set true only for a vetted custom FTS5 tokenizer the caller fully trusts —
+   *  the library then interpolates the name/args into DDL without checks. */
+  trustedCustomTokenizer?: boolean
 }
 
 // ─── Init options ─────────────────────────────────────────────────────────────

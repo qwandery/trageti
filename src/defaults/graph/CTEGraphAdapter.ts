@@ -2,8 +2,7 @@ import type { Database } from 'better-sqlite3'
 import type {
   GraphQueryAdapter,
   AssertionLink,
-  TraversalOptions,
-  PathOptions,
+  GraphAdapterTraversalOptions,
 } from '../../domain/types.js'
 
 interface LinkRow {
@@ -44,22 +43,25 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     db: Database,
     namespace: string,
     fromIds: string[],
-    options: TraversalOptions,
+    options: GraphAdapterTraversalOptions,
   ): AssertionLink[] {
     if (fromIds.length === 0) return []
 
-    const { temporalAnchor, maxDepth, linkTypes } = options
+    const { temporalAnchor, maxDepth, linkTypes, includeSuperseded } = options
     // maxDepth: 0 means no traversal — return zero links rather than the
     // one-hop base term of the recursive CTE (spec §2029).
     if (maxDepth <= 0) return []
 
-    // Build the link type filter snippet
     const linkTypeFilter =
       linkTypes && linkTypes.length > 0
         ? `AND l.link_type IN (${linkTypes.map(() => '?').join(',')})`
         : ''
-
     const linkTypeParams = linkTypes ?? []
+
+    // Link-validity predicate: omitted when includeSuperseded so traversal
+    // crosses expired links too. Its `?` param is therefore conditional.
+    const linkValidity = includeSuperseded ? '' : 'AND (l.valid_until IS NULL OR l.valid_until > ?)'
+    const validityParams: number[] = includeSuperseded ? [] : [temporalAnchor]
 
     // Recursive CTE BFS up to maxDepth hops. `visited` carries the set of
     // node ids already on the path so the recursive step never re-enters a
@@ -76,7 +78,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
         WHERE l.namespace = ?
           AND l.from_id IN (SELECT value FROM json_each(?))
           AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
+          ${linkValidity}
           ${linkTypeFilter}
 
         UNION ALL
@@ -89,7 +91,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
         JOIN traversal t ON l.from_id = t.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
+          ${linkValidity}
           ${linkTypeFilter}
           AND t.depth < ?
           AND NOT EXISTS (
@@ -106,11 +108,11 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       namespace,
       fromJson,
       temporalAnchor,
-      temporalAnchor,
+      ...validityParams,
       ...linkTypeParams,
       namespace,
       temporalAnchor,
-      temporalAnchor,
+      ...validityParams,
       ...linkTypeParams,
       maxDepth,
     ]
@@ -124,14 +126,22 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     namespace: string,
     fromId: string,
     toId: string,
-    options: PathOptions,
+    options: GraphAdapterTraversalOptions,
   ): AssertionLink[] | null {
     if (fromId === toId) return []
 
-    const { temporalAnchor, maxDepth } = options
+    const { temporalAnchor, maxDepth, linkTypes, includeSuperseded } = options
     // maxDepth: 0 permits only the zero-hop path (from === toId, handled
     // above); any from !== toId path needs at least one hop (spec §2029).
     if (maxDepth <= 0) return null
+
+    const linkTypeFilter =
+      linkTypes && linkTypes.length > 0
+        ? `AND l.link_type IN (${linkTypes.map(() => '?').join(',')})`
+        : ''
+    const linkTypeParams = linkTypes ?? []
+    const linkValidity = includeSuperseded ? '' : 'AND (l.valid_until IS NULL OR l.valid_until > ?)'
+    const validityParams: number[] = includeSuperseded ? [] : [temporalAnchor]
 
     const sql = `
       WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids) AS (
@@ -140,7 +150,8 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
         WHERE l.namespace = ?
           AND l.from_id = ?
           AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
+          ${linkValidity}
+          ${linkTypeFilter}
 
         UNION ALL
 
@@ -151,7 +162,8 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
         JOIN path_search p ON l.from_id = p.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
-          AND (l.valid_until IS NULL OR l.valid_until > ?)
+          ${linkValidity}
+          ${linkTypeFilter}
           AND p.depth < ?
           AND NOT EXISTS (
             SELECT 1 FROM json_each(p.visited_to_ids) WHERE value = l.to_id
@@ -160,19 +172,21 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       SELECT path_ids, depth FROM path_search WHERE to_id = ? ORDER BY depth ASC
     `
 
-    const rows = db
-      .prepare<unknown[], { path_ids: string; depth: number }>(sql)
-      .all(
-        namespace,
-        fromId,
-        temporalAnchor,
-        temporalAnchor,
-        namespace,
-        temporalAnchor,
-        temporalAnchor,
-        maxDepth,
-        toId,
-      )
+    const params: unknown[] = [
+      namespace,
+      fromId,
+      temporalAnchor,
+      ...validityParams,
+      ...linkTypeParams,
+      namespace,
+      temporalAnchor,
+      ...validityParams,
+      ...linkTypeParams,
+      maxDepth,
+      toId,
+    ]
+
+    const rows = db.prepare<unknown[], { path_ids: string; depth: number }>(sql).all(...params)
 
     if (rows.length === 0) return null
 

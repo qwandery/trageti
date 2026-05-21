@@ -10,7 +10,7 @@ import {
   incr,
   observe,
 } from '../../src/internal/logger.js'
-import type { Metrics } from '../../src/internal/logger.js'
+import type { Logger, Metrics } from '../../src/internal/logger.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -52,7 +52,7 @@ describe('ConsoleLogger', () => {
 describe('NoopLogger', () => {
   it('drops every level without writing to stderr', () => {
     const spy = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
-    const logger = new NoopLogger()
+    const logger: Logger = new NoopLogger()
     logger.debug('x')
     logger.info('x')
     logger.warn('x')

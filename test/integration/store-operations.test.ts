@@ -132,7 +132,7 @@ describe('indexBatch', () => {
       'NO_EMBEDDING_AND_NO_PROVIDER',
       'EMBEDDING_DIMENSION_MISMATCH',
     ])
-    expect(result.skipped.every((s) => s.errorCode.length > 0)).toBe(true)
+    expect(result.skipped.every((s) => (s.errorCode ?? '').length > 0)).toBe(true)
     await store.close()
   })
 

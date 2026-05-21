@@ -40,6 +40,9 @@ import type {
   EmbeddingProvider,
   InitNamespaceOptions,
   UpgradeNamespaceToVectorOptions,
+  TraversalOptions,
+  PathOptions,
+  TemporalSnapshotOptions,
 } from '../domain/types.js'
 import { MigrationRunner } from '../db/migrations/runner.js'
 import { SchemaExtensionApplier } from '../db/schema/extensions.js'
@@ -868,37 +871,19 @@ export class TemporalStore {
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────
 
-  async getTemporalSnapshot(options: {
-    namespace: string
-    atPosition: number
-    entityTypes?: string[]
-    assertionTypes?: string[]
-    includeSuperseded?: boolean
-  }): Promise<Assertion[]> {
+  async getTemporalSnapshot(options: TemporalSnapshotOptions): Promise<Assertion[]> {
     this.requireNamespaceInit(options.namespace)
     return getTemporalSnapshot(this.db, this.assertionRepo, options)
   }
 
   // ─── Graph ─────────────────────────────────────────────────────────────────
 
-  async getConnected(options: {
-    namespace: string
-    fromAssertionId: string
-    maxDepth?: number
-    linkTypes?: string[]
-    temporalAnchor: number
-  }): Promise<Assertion[]> {
+  async getConnected(options: TraversalOptions): Promise<Assertion[]> {
     this.requireNamespaceInit(options.namespace)
     return getConnected(this.db, this.assertionRepo, this.options.graphAdapter, options)
   }
 
-  async findPath(options: {
-    namespace: string
-    fromAssertionId: string
-    toAssertionId: string
-    maxDepth?: number
-    temporalAnchor: number
-  }): Promise<AssertionLink[] | null> {
+  async findPath(options: PathOptions): Promise<AssertionLink[] | null> {
     this.requireNamespaceInit(options.namespace)
     return findPath(this.db, this.options.graphAdapter, options)
   }
@@ -1042,11 +1027,13 @@ export class TemporalStore {
 
   async getMigrations(): Promise<readonly MigrationDescriptor[]> {
     this.requireInit()
+    const appliedAt = this.migrationRunner.getAppliedVersions(this.db)
     return this.migrationRunner.getMigrations().map((migration) => ({
       version: migration.version,
       name: migration.name ?? migration.description,
       description: migration.description,
       requiresForeignKeyToggle: migration.requiresForeignKeyToggle ?? false,
+      appliedAt: appliedAt.get(migration.version) ?? null,
     }))
   }
 
@@ -1073,7 +1060,7 @@ export class TemporalStore {
     // reset to the store's configured fts5Tokenizer (spec §2088-2099, §2350-2355).
     const tokenizer = options.tokenizer ?? this.readStoredTokenizer() ?? this.options.fts5Tokenizer
     // Reject an unsafe/unsupported tokenizer before generating any DDL.
-    validateTokenizer(tokenizer)
+    validateTokenizer(tokenizer, 'rebuild')
     const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ')
     const batchSize = options.batchSize ?? 1000
 

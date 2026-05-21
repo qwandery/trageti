@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
-import type { EmbeddingProvider, Logger, LogFields } from '../../src/domain/types.js'
+import type { EmbeddingProvider } from '../../src/domain/types.js'
+import type { Logger, LogFields } from '../../src/internal/logger.js'
 import {
   EmbeddingProviderError,
   IndexingError,
@@ -38,7 +39,7 @@ class EmptyProvider implements EmbeddingProvider {
 }
 
 class RecordingLogger implements Logger {
-  readonly records: Array<{ level: string; code: string; fields?: LogFields }> = []
+  readonly records: Array<{ level: string; code: string; fields: LogFields | undefined }> = []
   debug(code: string, fields?: LogFields): void {
     this.records.push({ level: 'debug', code, fields })
   }

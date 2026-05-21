@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
-import type { EmbeddingProvider, Logger, RetrievalMiddleware } from '../../src/domain/types.js'
+import type { EmbeddingProvider, RetrievalMiddleware } from '../../src/domain/types.js'
+import type { Logger } from '../../src/internal/logger.js'
 import {
   EmbeddingProviderError,
   IndexingError,

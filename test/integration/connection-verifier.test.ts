@@ -43,7 +43,7 @@ describe('DefaultConnectionVerifier', () => {
     // A connection where `PRAGMA foreign_keys` never reports enabled — e.g. a
     // SQLite build compiled without foreign-key support. Modelled with a thin
     // stub so the fail-closed path is exercised deterministically.
-    const stub: Pick<Database, 'pragma'> = {
+    const stub: Pick<Database.Database, 'pragma'> = {
       pragma(source: string, options?: { simple?: boolean }): unknown {
         if (source.startsWith('foreign_keys') && options?.simple) return 0
         if (source.startsWith('journal_mode') && options?.simple) return 'wal'
@@ -51,7 +51,8 @@ describe('DefaultConnectionVerifier', () => {
       },
     }
     const verifier = new DefaultConnectionVerifier()
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- intentional minimal test stub
-    expect(() => verifier.verify(stub as unknown as Database)).toThrow(ConnectionVerificationError)
+    expect(() => verifier.verify(stub as unknown as Database.Database)).toThrow(
+      ConnectionVerificationError,
+    )
   })
 })

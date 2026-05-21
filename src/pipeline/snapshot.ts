@@ -1,17 +1,11 @@
 import type { Database } from 'better-sqlite3'
-import type { Assertion } from '../domain/types.js'
+import type { Assertion, TemporalSnapshotOptions } from '../domain/types.js'
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
 
 export function getTemporalSnapshot(
   _db: Database,
   assertionRepo: AssertionRepository,
-  options: {
-    namespace: string
-    atPosition: number
-    entityTypes?: string[]
-    assertionTypes?: string[]
-    includeSuperseded?: boolean
-  },
+  options: TemporalSnapshotOptions,
 ): Assertion[] {
   let results = assertionRepo.query(options.namespace, {
     validAt: options.atPosition,
