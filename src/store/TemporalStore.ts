@@ -1262,14 +1262,15 @@ export class TemporalStore {
     if (wouldApplyBm25) {
       steps.push({ step: 'keyword', sql: 'bm25(trageti_fulltext) over the FTS5 index' })
     }
-    steps.push({ step: 'score' })
+    // `rank` follows `score` and precedes the optional graph / trajectory
+    // expansion steps — the same order the retrieval pipeline emits them in.
+    steps.push({ step: 'score' }, { step: 'rank' })
     if (query.expandLinks && (query.maxDepth ?? 1) > 0) {
       steps.push({ step: 'graph-expand' })
     }
     if ((query.mode ?? 'snapshot') === 'trajectory') {
       steps.push({ step: 'trajectory-expand' })
     }
-    steps.push({ step: 'rank' })
 
     return { query, retrievalStrategy: strategy, steps, wouldApplyVector, wouldApplyBm25, notes }
   }

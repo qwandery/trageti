@@ -296,9 +296,9 @@ describe('public type compile fixture', () => {
       'temporal-filter',
       'keyword',
       'score',
+      'rank',
       'graph-expand',
       'trajectory-expand',
-      'rank',
     ])
 
     // MigrationDescriptor carries appliedAt alongside the additive fields.

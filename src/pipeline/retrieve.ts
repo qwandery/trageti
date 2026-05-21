@@ -22,6 +22,7 @@ import { applyMiddleware } from './middleware.js'
 import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js'
 import { observe } from '../internal/logger.js'
+import { DEFAULT_RETRIEVAL_LIMIT, OVERSAMPLE_MULTIPLIER } from '../internal/retrieval-defaults.js'
 
 interface RetrieveContext {
   assertionRepo: AssertionRepository
@@ -123,14 +124,14 @@ function buildMeta(
 }
 
 function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
-  const limit = query.limit ?? 10
+  const limit = query.limit ?? DEFAULT_RETRIEVAL_LIMIT
   if (limit < 1 || !Number.isInteger(limit)) {
     throw new RetrievalInputError(
       ErrorCode.RETRIEVAL_INVALID_LIMIT,
       `limit must be a positive integer, got ${String(limit)}`,
     )
   }
-  const oversample = limit * 3
+  const oversample = limit * OVERSAMPLE_MULTIPLIER
   const mode = query.mode ?? 'snapshot'
   const strategy = query.retrievalStrategy ?? 'hybrid'
   const queryTextMode = query.queryTextMode ?? 'phrase'
@@ -274,12 +275,16 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       const step3 = runStep3(db, bm25CandidateJson, ftsText, bm25Limit)
       for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score)
     } catch (err) {
-      // Malformed FTS5 input under raw mode bubbles up as RetrievalInputError;
-      // under 'phrase' mode (the default) the escaping above prevents this.
+      // A malformed raw FTS5 expression surfaces as a SQLite parse error. Under
+      // 'phrase' mode the escaping above prevents this; under 'fts5' mode the
+      // caller's expression is at fault. Never echo the offending query text or
+      // the raw SQLite syntax fragment — both can carry caller content
+      // (spec Security Considerations: untrusted query text).
       if (queryTextMode === 'fts5') {
         throw new RetrievalInputError(
-          ErrorCode.RETRIEVAL_REQUIRES_QUERY_TEXT,
-          `FTS5 query failed: ${err instanceof Error ? err.message : String(err)}`,
+          ErrorCode.RETRIEVAL_INVALID_QUERY_TEXT,
+          "queryText is not a valid FTS5 expression for queryTextMode: 'fts5'. " +
+            "Use queryTextMode: 'phrase' for literal text, or correct the FTS5 query syntax.",
         )
       }
       throw err
@@ -395,6 +400,14 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     },
   }))
 
+  // `rank` reports the final ranked + truncated result set. It is emitted here
+  // — immediately after sort/truncate — so it precedes the optional graph and
+  // trajectory expansion steps, which decorate (never reorder) these results.
+  debugStep(query, ctx.logger, 'rank', {
+    candidateCount: results.length,
+    tookMs: sinceStep(),
+  })
+
   // Step 6: Graph expansion (optional). `includeSuperseded` is a
   // retrieval-wide option, so it propagates into link traversal too.
   let linkedCount = 0
@@ -447,11 +460,6 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   debugStep(query, ctx.logger, 'trajectory-expand', {
     applied: mode === 'trajectory',
     candidateCount: trajectoryCount,
-    tookMs: sinceStep(),
-  })
-
-  debugStep(query, ctx.logger, 'rank', {
-    candidateCount: results.length,
     tookMs: sinceStep(),
   })
 

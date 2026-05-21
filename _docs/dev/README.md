@@ -81,7 +81,7 @@ trageti/
 │   │   │   ├── LinkRepository.ts
 │   │   │   ├── EmbeddingRepository.ts
 │   │   │   └── NamespaceRepository.ts
-│   │   └── schema/             columns / extensions / reserved-words
+│   │   └── schema/             columns / extensions
 │   ├── pipeline/               Retrieval orchestration; no inline SQL outside retrieve
 │   │   ├── retrieve.ts         Multi-step retrieval → RetrievalResult envelope
 │   │   ├── assemble.ts         retrieve + format + coverage block
@@ -94,6 +94,7 @@ trageti/
 │   └── internal/               NOT exported from src/index.ts (except Logger types)
 │       ├── hash.ts             namespaceToEmbeddingTable (SHA-256 → 16 hex)
 │       ├── logger.ts           Logger / Metrics contracts + Console/Noop impls
+│       ├── retrieval-defaults.ts  Named retrieval / assembly / graph defaults
 │       ├── sql-ident.ts        quoteIdent for safe DDL interpolation
 │       └── tokenizer.ts        validateTokenizer — FTS5 tokenizer allow-list
 ├── test/
@@ -189,14 +190,16 @@ The pinned step order in `pipeline/retrieve.ts`:
                       ↳ skipped for retrievalStrategy:'bm25' or vectorless ns.
 3. FTS5 / BM25        SQL: trageti_fulltext MATCH …; raw BM25 score per candidate.
                       ↳ queryTextMode:'phrase' (default) quotes the query as a
-                        single FTS5 phrase; 'fts5' passes raw FTS5 syntax.
+                        single FTS5 phrase; 'fts5' passes raw FTS5 syntax — a
+                        malformed expression → RETRIEVAL_INVALID_QUERY_TEXT.
 4. Score              TS:  scorer.scoreBatch() — cross-candidate normalisation.
 5. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
+                      ↳ the `rank` step is emitted here, before graph/trajectory.
 6. Graph expand       SQL: recursive CTE through trageti_links at temporalAnchor.
 7. Trajectory         SQL: recursive CTE through supersedes_id; oldest-first.
 ```
 
-`retrievalStrategy` is `hybrid` (default), `vector`, or `bm25`. Each retrieval step can be observed via the `RetrievalDebug.onStep` hook; a throwing hook is caught and logged as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` (the hook never breaks retrieval).
+`retrievalStrategy` is `hybrid` (default), `vector`, or `bm25`. Each retrieval step can be observed via the `RetrievalDebug.onStep` hook; a throwing hook is caught and logged as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` (the hook never breaks retrieval). The `RetrievalStep` emission order is `validate → temporal-filter → semantic → keyword → score → rank → graph-expand → trajectory-expand`: `rank` reports the truncated result set, so it precedes the expansion steps that only decorate those results. Numeric defaults (retrieval `limit` 10, candidate oversample ×3, `assembleContext` limit 100, graph depths 3/5) live as named constants in `src/internal/retrieval-defaults.ts`.
 
 The funnel between SQL steps is `buildCandidateJson(ids)` — a JSON-serialised array bound as a single parameter, consumed via `json_each(?)`. This is the **only** mechanism for passing intermediate id sets between SQL stages. See [critical invariants](#critical-invariants).
 

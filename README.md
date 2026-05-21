@@ -94,7 +94,7 @@ const { results, meta } = await store.retrieve({
   queryEmbedding: embedding,
   queryText: 'storage solution',
   temporalAnchor: 1,
-  limit: 10,
+  limit: 10, // optional — defaults to 10
 })
 console.log(results.length, 'results via', meta.retrievalStrategy)
 
@@ -407,6 +407,8 @@ const path = await store.findPath({
 
 Links carry their own `validFrom` / `validUntil` — expired links are automatically excluded.
 
+`maxDepth` is optional: it defaults to `3` for `getConnected` and `5` for `findPath`. `getConnected` returns its neighborhood in a deterministic order (traversal depth, then link `createdAt`, then `id`), so repeated calls are reproducible.
+
 ## Temporal snapshots
 
 Get all assertions valid at a specific past position:
@@ -419,6 +421,8 @@ const snapshot = await store.getTemporalSnapshot({
   entityTypes: ['concept'], // optional
 })
 ```
+
+By default `getTemporalSnapshot` returns the single version of each assertion valid _at_ `atPosition`. Pass `includeSuperseded: true` to also get versions that were already closed by `atPosition` (every assertion with `validFrom <= atPosition`).
 
 ## Logging and metrics
 

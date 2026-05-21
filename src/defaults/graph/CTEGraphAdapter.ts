@@ -98,9 +98,14 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
             SELECT 1 FROM json_each(t.visited) WHERE value = l.to_id
           )
       )
-      SELECT DISTINCT id, namespace, from_id, to_id, link_type,
-                      valid_from, valid_until, source_episode_id, created_at
+      -- One row per distinct link (GROUP BY the link's primary key collapses
+      -- the same link reached at multiple depths). Deterministic ordering:
+      -- shallowest traversal depth first, then link created_at, then id.
+      SELECT id, namespace, from_id, to_id, link_type,
+             valid_from, valid_until, source_episode_id, created_at
       FROM traversal
+      GROUP BY id
+      ORDER BY MIN(depth) ASC, created_at ASC, id ASC
     `
 
     const fromJson = JSON.stringify(fromIds)

@@ -6,6 +6,7 @@ import type {
 } from '../domain/types.js'
 import type { TemporalStore } from '../store/TemporalStore.js'
 import { ErrorCode, RetrievalInputError } from '../errors/index.js'
+import { DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT } from '../internal/retrieval-defaults.js'
 
 interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter
@@ -29,7 +30,8 @@ export async function assembleContext(
   const query: RetrievalQuery = {
     namespace: options.namespace,
     temporalAnchor: options.temporalAnchor,
-    limit: 100, // large initial fetch; formatter truncates by token budget
+    // Large initial fetch; the formatter truncates by token budget.
+    limit: DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT,
   }
   if (options.queryEmbedding !== undefined) query.queryEmbedding = options.queryEmbedding
   if (options.queryText !== undefined) query.queryText = options.queryText

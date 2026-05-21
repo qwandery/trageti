@@ -210,6 +210,47 @@ from the `Migration` interface (no down-migration runner exists in v0.3).
 
 ---
 
+### v0.3 Amendment — 2026-05-21 — Retrieval & graph polish
+
+A sanctioned amendment recording a small follow-up polish round. One additive
+public error code; the rest are clarifications and determinism guarantees. No
+method signatures change and no migration body changes.
+
+**1. New error code `RETRIEVAL_INVALID_QUERY_TEXT`.** A `RetrievalInputError`
+code for a `queryTextMode: 'fts5'` call whose `queryText` is not a valid FTS5
+expression. Previously such input was reported under `RETRIEVAL_REQUIRES_QUERY_TEXT`
+(which now means strictly missing/blank query text) and the thrown message
+interpolated the raw SQLite parser error. The message is now generic: it never
+echoes the offending query text or a raw SQLite syntax fragment, per the
+Security Considerations rule that user query text is untrusted.
+
+**2. `getTemporalSnapshot` `includeSuperseded` is honored.** With
+`includeSuperseded: true`, `getTemporalSnapshot` returns every assertion with
+`validFrom <= atPosition` regardless of `validUntil` — versions closed before
+`atPosition` included — mirroring `retrieve()`'s temporal relaxation. The
+default (`includeSuperseded: false`) is unchanged: the single version valid at
+`atPosition`. A prior implementation ignored the flag on the snapshot path.
+
+**3. `RetrievalStep` order.** `rank` is emitted immediately after `score` and
+before the optional `graph-expand` / `trajectory-expand` steps — the order in
+which the pipeline produces them (rank truncates; expansion only decorates the
+ranked results). `store.explain()` lists the steps in the same order. The
+`RetrievalStep` value set is unchanged.
+
+**4. Documented retrieval / graph defaults.** The default `RetrievalQuery.limit`
+is **10**; retrieval over-fetches `limit × 3` candidates before scoring and
+truncation; `assembleContext()` issues its internal `retrieve()` with a limit
+of **100** (the formatter truncates to the token budget); `getConnected()`
+defaults `maxDepth` to **3** and `findPath()` to **5**. These are stable
+defaults, defined once as named internal constants.
+
+**5. Deterministic graph neighborhood order.** `GraphQueryAdapter.findConnected`
+(default `CTEGraphAdapter`) returns links in a stable order — shallowest
+traversal depth, then link `created_at`, then link `id` — so repeated calls
+over the same data produce reproducible link and result ordering.
+
+---
+
 ### v0.3 — May 2026
 
 **Breaking changes are intentional.** The design goal is a professional-use
@@ -2066,10 +2107,19 @@ formatter-private keys.
 ### Temporal Snapshot, Entity History, Trajectory
 
 ```typescript
-store.getTemporalSnapshot(namespace: string, temporalAnchor: number): Promise<Assertion[]>
+store.getTemporalSnapshot(options: TemporalSnapshotOptions): Promise<Assertion[]>
 store.getEntityHistory(namespace: string, entityId: string): Promise<Assertion[]>
 store.getEntityTrajectory(namespace: string, entityId: string): Promise<Assertion[]>
 ```
+
+`getTemporalSnapshot` takes a `TemporalSnapshotOptions` object —
+`{ namespace; atPosition; entityTypes?; assertionTypes?; includeSuperseded? }`
+(see the R9 amendment). By default it returns, per assertion lineage, the
+single version valid **at** `atPosition`. With `includeSuperseded: true` it
+returns every assertion with `validFrom <= atPosition` regardless of
+`validUntil` — versions closed before `atPosition` included — subject to the
+`entityTypes` / `assertionTypes` filters. This mirrors `retrieve()`'s
+`includeSuperseded` temporal relaxation.
 
 These return assertions valid at (or evolving through) the requested position.
 None call `ensureVectorReady()` — they are pure SQL paths over `trageti_assertions`
@@ -2119,6 +2169,12 @@ the default adapter returns the first deterministic shortest path within
 `maxDepth` using the same stable ordering as retrieval (`createdAt ASC`,
 `id ASC` for otherwise equal links); if no path is found within `maxDepth`, it
 returns `null`. This is inherited baseline behaviour shared with v0.2.
+
+`getConnected()` likewise returns its neighborhood in a deterministic order:
+the default adapter orders discovered links by shallowest traversal depth, then
+link `createdAt`, then link `id`, so repeated calls over unchanged data are
+reproducible. When `maxDepth` is omitted, the store defaults it to **3** for
+`getConnected()` and **5** for `findPath()`.
 
 ### Maintenance
 
@@ -2885,19 +2941,20 @@ error type for "sqlite-vec not loaded" — there is no
 
 `RetrievalInputError` codes:
 
-| Code                                | Raised by                                                                                                                                                  |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RETRIEVAL_INPUT_EMPTY`             | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy)                                                                |
-| `RETRIEVAL_REQUIRES_QUERY_TEXT`     | `retrievalStrategy: 'bm25'` with no `queryText`                                                                                                            |
-| `RETRIEVAL_REQUIRES_VECTOR_INPUT`   | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)`                                                            |
-| `RETRIEVAL_DIMENSION_MISMATCH`      | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                          |
-| `RETRIEVAL_INVALID_LIMIT`           | `limit < 1` or non-integer                                                                                                                                 |
-| `RETRIEVAL_INVALID_MAX_DEPTH`       | `maxDepth < 0` or non-integer                                                                                                                              |
-| `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `temporalWindow.from > temporalWindow.to`. _(Added by the R9 amendment.)_                                                                                  |
-| `RETRIEVAL_INVALID_CONFIDENCE`      | `minConfidence` outside `[0, 1]`. _(Added by the R9 amendment.)_                                                                                           |
-| `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `assembleContext()` with a non-positive-integer `tokenBudget`. _(Added by the R9 amendment.)_                                                              |
-| `SCORER_BATCH_LENGTH_MISMATCH`      | a `RetrievalScorer.scoreBatch()` implementation returns a score array whose length differs from the candidate-batch length. _(Added by the R9 amendment.)_ |
-| `RETRIEVAL_NAMESPACE_VECTORLESS`    | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path       |
+| Code                                | Raised by                                                                                                                                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RETRIEVAL_INPUT_EMPTY`             | retrieve() when no `queryEmbedding` and no non-empty `queryText` is supplied (any strategy)                                                                                                                            |
+| `RETRIEVAL_REQUIRES_QUERY_TEXT`     | `retrievalStrategy: 'bm25'` with no `queryText` (missing or blank only)                                                                                                                                                |
+| `RETRIEVAL_INVALID_QUERY_TEXT`      | `queryTextMode: 'fts5'` with a `queryText` that is not a valid FTS5 expression. The thrown message is generic — it never echoes the query text or a raw SQLite parser fragment. _(Added by the 2026-05-21 amendment.)_ |
+| `RETRIEVAL_REQUIRES_VECTOR_INPUT`   | `retrievalStrategy: 'vector'` with no `queryEmbedding` and no `(queryText + EmbeddingProvider)`                                                                                                                        |
+| `RETRIEVAL_DIMENSION_MISMATCH`      | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                                                                                      |
+| `RETRIEVAL_INVALID_LIMIT`           | `limit < 1` or non-integer                                                                                                                                                                                             |
+| `RETRIEVAL_INVALID_MAX_DEPTH`       | `maxDepth < 0` or non-integer                                                                                                                                                                                          |
+| `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `temporalWindow.from > temporalWindow.to`. _(Added by the R9 amendment.)_                                                                                                                                              |
+| `RETRIEVAL_INVALID_CONFIDENCE`      | `minConfidence` outside `[0, 1]`. _(Added by the R9 amendment.)_                                                                                                                                                       |
+| `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `assembleContext()` with a non-positive-integer `tokenBudget`. _(Added by the R9 amendment.)_                                                                                                                          |
+| `SCORER_BATCH_LENGTH_MISMATCH`      | a `RetrievalScorer.scoreBatch()` implementation returns a score array whose length differs from the candidate-batch length. _(Added by the R9 amendment.)_                                                             |
+| `RETRIEVAL_NAMESPACE_VECTORLESS`    | `retrievalStrategy: 'vector'` against a vectorless namespace, OR `ensureVectorReady()` invoked on a vectorless namespace from a vector-required path                                                                   |
 
 `IndexingError` codes:
 

@@ -177,6 +177,34 @@ includeSuperseded: true })` traverses closed links.
   (`null` for a no-`queryText` call); the unimplemented `Migration.down`
   field is removed.
 
+### Retrieval & graph polish
+
+A pre-release polish round. See the dated "Retrieval & graph polish"
+amendment in `trageti-spec-v0.3.md`.
+
+- **Snapshot `includeSuperseded`.** `getTemporalSnapshot({ includeSuperseded:
+true })` now returns every assertion with `validFrom <= atPosition` —
+  including versions closed before `atPosition` — instead of ignoring the
+  flag. The default (`includeSuperseded: false`) is unchanged: only the
+  version valid at `atPosition`.
+- **New error code `RETRIEVAL_INVALID_QUERY_TEXT`.** A malformed
+  `queryTextMode: 'fts5'` expression now throws `RetrievalInputError` with
+  this dedicated code instead of being reported under
+  `RETRIEVAL_REQUIRES_QUERY_TEXT`. The thrown message is generic — it never
+  echoes the offending query text or a raw SQLite parser fragment.
+  `RETRIEVAL_REQUIRES_QUERY_TEXT` now means strictly missing/blank query text.
+- **Debug/explain step order.** The `rank` retrieval step is emitted
+  immediately after `score` and before the optional `graph-expand` /
+  `trajectory-expand` steps, in both the `RetrievalDebug.onStep` hook and
+  `store.explain()`.
+- **Named, shared defaults.** Retrieval limit (10), candidate oversample
+  factor (×3), context-assembly retrieval limit (100), and graph traversal
+  depths (`getConnected` 3, `findPath` 5) are now defined once as named
+  internal constants.
+- **Deterministic graph neighborhood order.** `CTEGraphAdapter.findConnected`
+  returns links in a stable order (traversal depth, then link `createdAt`,
+  then `id`), so repeated `getConnected` calls are reproducible.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -108,9 +108,16 @@ export class AssertionRepository {
     const params: unknown[] = [namespace]
 
     if (options.validAt !== undefined) {
+      // `valid_from <= anchor` always applies. The upper bound selects exactly
+      // the version valid AT the anchor; it is dropped for
+      // `includeSuperseded: true`, which then also returns versions closed
+      // before the anchor — mirroring the retrieval Step-1 temporal relaxation.
       conditions.push('valid_from <= ?')
-      conditions.push('(valid_until IS NULL OR valid_until > ?)')
-      params.push(options.validAt, options.validAt)
+      params.push(options.validAt)
+      if (!options.includeSuperseded) {
+        conditions.push('(valid_until IS NULL OR valid_until > ?)')
+        params.push(options.validAt)
+      }
     } else if (!options.includeSuperseded) {
       // Without a temporal anchor, default to only active (never-superseded) assertions
       conditions.push('valid_until IS NULL')

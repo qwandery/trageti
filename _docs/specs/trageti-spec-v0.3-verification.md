@@ -1,8 +1,8 @@
 # trageti v0.3 — Verification Matrix
 
-This document maps the v0.3 specification at [trageti-spec-v0.3.md](trageti-spec-v0.3.md) — including the dated **Table-naming overhaul** and **API-conformance remediation (R9)** amendments — to the implementation and test evidence in this repository. Every MUST-level invariant, public API surface, error code, schema-migration behavior, and required test class has a row pointing at concrete code and a test.
+This document maps the v0.3 specification at [trageti-spec-v0.3.md](trageti-spec-v0.3.md) — including the dated **Table-naming overhaul**, **API-conformance remediation (R9)**, and **Retrieval & graph polish** amendments — to the implementation and test evidence in this repository. Every MUST-level invariant, public API surface, error code, schema-migration behavior, and required test class has a row pointing at concrete code and a test.
 
-Updated through the v0.3 remediation (phases R1–R9). R7 closed 16 code-review findings; R8 closed a follow-up review — reindex never converts a vectorless namespace, dimension/provider agreement is validated at registration/upgrade, and provider error messages no longer leak the raw cause. R9 reconciled the remaining contract divergences (mid-chain temporal retrieval, citation-excerpt bypass, graph option types, new error codes, tokenizer reopen semantics) and added the dated R9 spec amendment. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (354 tests), and `test:coverage` at 95/95/95/85.
+Updated through the v0.3 remediation (phases R1–R9) and the 2026-05-21 retrieval/graph polish round. R7 closed 16 code-review findings; R8 closed a follow-up review — reindex never converts a vectorless namespace, dimension/provider agreement is validated at registration/upgrade, and provider error messages no longer leak the raw cause. R9 reconciled the remaining contract divergences (mid-chain temporal retrieval, citation-excerpt bypass, graph option types, new error codes, tokenizer reopen semantics) and added the dated R9 spec amendment. The polish round made snapshot `includeSuperseded` meaningful, hardened raw FTS5 error handling, fixed debug/explain step ordering, named the shared retrieval/graph defaults, and made graph neighborhood ordering deterministic. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (366 tests), and `test:coverage` at 95/95/95/85.
 
 ## Public API surface
 
@@ -29,34 +29,35 @@ Updated through the v0.3 remediation (phases R1–R9). R7 closed 16 code-review 
 
 ## Error model
 
-| Spec code                           | Class                                  | Where thrown                                                 | Tests                                                     |
-| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------- |
-| `STORE_CLOSED`                      | `StoreClosedError`                     | `requireNotClosed`                                           | `store-lifecycle`                                         |
-| `NAMESPACE_DIMENSION_MISMATCH`      | `NamespaceDimensionMismatchError`      | `NamespaceRepository.upsert`                                 | `store-lifecycle` (reopen matrix)                         |
-| `MIGRATION_COMPATIBILITY`           | `MigrationCompatibilityError`          | v003 tokenizer conflict / `validateTokenizer`                | `migration-internals`, `providers-tokenizer`              |
-| `REFERENCED_EXTENSION_TABLE`        | `ReferencedExtensionTableError`        | `deleteNamespace` cascade gate                               | `vectorless-namespace` (cascade)                          |
-| `MISSING_PEER_DEPENDENCY`           | `MissingPeerDependencyError`           | `prepareDatabase` / `ensureVectorReady`                      | `no-sqlite-vec`                                           |
-| `ASSERTION_NOT_FOUND`               | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                      | `store-operations`                                        |
-| `INDEXING_NAMESPACE_VECTORLESS`     | `IndexingError`                        | `ensureVectorReady(_,'indexing')`                            | `vectorless-namespace`                                    |
-| `NO_EMBEDDING_AND_NO_PROVIDER`      | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                      | `store-operations`                                        |
-| `EMBEDDING_DIMENSION_MISMATCH`      | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                      | `store-operations`                                        |
-| `RETRIEVAL_INPUT_EMPTY`             | `RetrievalInputError`                  | `retrieveCore` input validation                              | `retrieve-validation`                                     |
-| `RETRIEVAL_REQUIRES_QUERY_TEXT`     | `RetrievalInputError`                  | bm25-strategy guard                                          | `retrieve-validation`                                     |
-| `RETRIEVAL_REQUIRES_VECTOR_INPUT`   | `RetrievalInputError`                  | vector-strategy guard                                        | `retrieve-validation`, `store-operations`                 |
-| `RETRIEVAL_INVALID_LIMIT`           | `RetrievalInputError`                  | `retrieveCore` input validation                              | `retrieve-validation`                                     |
-| `RETRIEVAL_INVALID_MAX_DEPTH`       | `RetrievalInputError`                  | `retrieveCore` input validation                              | `retrieve-validation`                                     |
-| `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `RetrievalInputError`                  | `retrieveCore` input validation (`temporalWindow.from > to`) | `r9-conformance`                                          |
-| `RETRIEVAL_INVALID_CONFIDENCE`      | `RetrievalInputError`                  | `retrieveCore` input validation (`minConfidence` ∉ [0,1])    | `r9-conformance`                                          |
-| `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `RetrievalInputError`                  | `assembleContext` input validation                           | `r9-conformance`                                          |
-| `SCORER_BATCH_LENGTH_MISMATCH`      | `RetrievalInputError`                  | `scoreBatch()` returns a wrong-length score array            | `r9-conformance`                                          |
-| `RETRIEVAL_DIMENSION_MISMATCH`      | `RetrievalInputError`                  | `retrieveCore` input validation                              | `retrieve-validation`                                     |
-| `RETRIEVAL_NAMESPACE_VECTORLESS`    | `RetrievalInputError`                  | `ensureVectorReady(_,'retrieval')`                           | `vectorless-namespace`                                    |
-| `SCORER_INVALID_OUTPUT`             | `RetrievalInputError`                  | scorer finiteness check in `retrieve.ts`                     | `retrieve-validation`                                     |
-| `SCORER_NO_USABLE_SIGNAL`           | `TragetiError`                         | `DefaultScorer` both-signals-null                            | `test/unit/scorer-edge.test.ts`                           |
-| `EMBEDDING_PROVIDER_ERROR`          | `EmbeddingProviderError`               | `indexBatch` fail-fast path / Step-0 provider failure        | `store-operations`, `store-edge-cases`, `r7-conformance`  |
-| `REINDEX_ERROR`                     | `ReindexError`                         | reindex failure boundary                                     | `store-operations`, `store-edge-cases`, `reindex-options` |
-| `REINDEX_PARTIAL_REJECTED`          | `ReindexError` (`.skipped`, `.advice`) | staging-swap skip build rejected without `allowPartialSwap`  | `reindex-options`                                         |
-| `INTERNAL_INVARIANT`                | `TragetiError`                         | "should never happen" guards (row absent after self-insert)  | defensive — unreachable in correct use                    |
+| Spec code                           | Class                                  | Where thrown                                                                | Tests                                                     |
+| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `STORE_CLOSED`                      | `StoreClosedError`                     | `requireNotClosed`                                                          | `store-lifecycle`                                         |
+| `NAMESPACE_DIMENSION_MISMATCH`      | `NamespaceDimensionMismatchError`      | `NamespaceRepository.upsert`                                                | `store-lifecycle` (reopen matrix)                         |
+| `MIGRATION_COMPATIBILITY`           | `MigrationCompatibilityError`          | v003 tokenizer conflict / `validateTokenizer`                               | `migration-internals`, `providers-tokenizer`              |
+| `REFERENCED_EXTENSION_TABLE`        | `ReferencedExtensionTableError`        | `deleteNamespace` cascade gate                                              | `vectorless-namespace` (cascade)                          |
+| `MISSING_PEER_DEPENDENCY`           | `MissingPeerDependencyError`           | `prepareDatabase` / `ensureVectorReady`                                     | `no-sqlite-vec`                                           |
+| `ASSERTION_NOT_FOUND`               | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                                     | `store-operations`                                        |
+| `INDEXING_NAMESPACE_VECTORLESS`     | `IndexingError`                        | `ensureVectorReady(_,'indexing')`                                           | `vectorless-namespace`                                    |
+| `NO_EMBEDDING_AND_NO_PROVIDER`      | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                                     | `store-operations`                                        |
+| `EMBEDDING_DIMENSION_MISMATCH`      | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                                     | `store-operations`                                        |
+| `RETRIEVAL_INPUT_EMPTY`             | `RetrievalInputError`                  | `retrieveCore` input validation                                             | `retrieve-validation`                                     |
+| `RETRIEVAL_REQUIRES_QUERY_TEXT`     | `RetrievalInputError`                  | bm25-strategy guard (missing/blank query text only)                         | `retrieve-validation`, `v03-polish`                       |
+| `RETRIEVAL_INVALID_QUERY_TEXT`      | `RetrievalInputError`                  | malformed `queryTextMode: 'fts5'` expression (generic, non-leaking message) | `v03-polish`                                              |
+| `RETRIEVAL_REQUIRES_VECTOR_INPUT`   | `RetrievalInputError`                  | vector-strategy guard                                                       | `retrieve-validation`, `store-operations`                 |
+| `RETRIEVAL_INVALID_LIMIT`           | `RetrievalInputError`                  | `retrieveCore` input validation                                             | `retrieve-validation`                                     |
+| `RETRIEVAL_INVALID_MAX_DEPTH`       | `RetrievalInputError`                  | `retrieveCore` input validation                                             | `retrieve-validation`                                     |
+| `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `RetrievalInputError`                  | `retrieveCore` input validation (`temporalWindow.from > to`)                | `r9-conformance`                                          |
+| `RETRIEVAL_INVALID_CONFIDENCE`      | `RetrievalInputError`                  | `retrieveCore` input validation (`minConfidence` ∉ [0,1])                   | `r9-conformance`                                          |
+| `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `RetrievalInputError`                  | `assembleContext` input validation                                          | `r9-conformance`                                          |
+| `SCORER_BATCH_LENGTH_MISMATCH`      | `RetrievalInputError`                  | `scoreBatch()` returns a wrong-length score array                           | `r9-conformance`                                          |
+| `RETRIEVAL_DIMENSION_MISMATCH`      | `RetrievalInputError`                  | `retrieveCore` input validation                                             | `retrieve-validation`                                     |
+| `RETRIEVAL_NAMESPACE_VECTORLESS`    | `RetrievalInputError`                  | `ensureVectorReady(_,'retrieval')`                                          | `vectorless-namespace`                                    |
+| `SCORER_INVALID_OUTPUT`             | `RetrievalInputError`                  | scorer finiteness check in `retrieve.ts`                                    | `retrieve-validation`                                     |
+| `SCORER_NO_USABLE_SIGNAL`           | `TragetiError`                         | `DefaultScorer` both-signals-null                                           | `test/unit/scorer-edge.test.ts`                           |
+| `EMBEDDING_PROVIDER_ERROR`          | `EmbeddingProviderError`               | `indexBatch` fail-fast path / Step-0 provider failure                       | `store-operations`, `store-edge-cases`, `r7-conformance`  |
+| `REINDEX_ERROR`                     | `ReindexError`                         | reindex failure boundary                                                    | `store-operations`, `store-edge-cases`, `reindex-options` |
+| `REINDEX_PARTIAL_REJECTED`          | `ReindexError` (`.skipped`, `.advice`) | staging-swap skip build rejected without `allowPartialSwap`                 | `reindex-options`                                         |
+| `INTERNAL_INVARIANT`                | `TragetiError`                         | "should never happen" guards (row absent after self-insert)                 | defensive — unreachable in correct use                    |
 
 ## Schema migrations
 
@@ -149,6 +150,18 @@ amendment** of `trageti-spec-v0.3.md`.
 | `RetrievalMeta.queryTextMode` is `QueryTextMode \| null` (null when no `queryText`)                                                    | R9 §8             | `retrieve.ts` `buildMeta`                                                              | `r9d-conformance.test.ts`                                |
 | Typed required-field validation in `writeEpisode()`/`writeLink()` before SQLite                                                        | R9 §4             | `validateEpisodeInput` / `validateLinkInput`                                           | `r9d-conformance.test.ts`                                |
 | Extension column / `namespaceColumn` reserved-keyword rejection removed (quoted in DDL)                                                | §1044-1046, R9 §7 | `src/db/schema/extensions.ts`                                                          | `schema-extensions.test.ts`, `r7-conformance.test.ts`    |
+
+## Retrieval & graph polish (2026-05-21)
+
+Recorded in the dated **Retrieval & graph polish** amendment of `trageti-spec-v0.3.md`.
+
+| Finding                                                                                                       | Spec (amended) | Implementation                                                               | Tests                                           |
+| ------------------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- |
+| `getTemporalSnapshot({ includeSuperseded: true })` returns rows closed before `atPosition`; default unchanged | Polish §2      | `AssertionRepository.query` (`validAt` + `includeSuperseded`)                | `v03-polish.test.ts`                            |
+| Malformed `queryTextMode: 'fts5'` text → `RETRIEVAL_INVALID_QUERY_TEXT`; generic, non-leaking message         | Polish §1      | `src/pipeline/retrieve.ts` Step-3 catch; `src/errors/index.ts`               | `v03-polish.test.ts`                            |
+| `rank` debug/explain step emitted after `score`, before `graph-expand` / `trajectory-expand`                  | Polish §3      | `retrieve.ts` `debugStep` order; `TemporalStore.explain`                     | `v03-polish.test.ts`, `r9d-conformance.test.ts` |
+| Named shared defaults (retrieval limit 10, oversample ×3, assembly limit 100, graph depths 3/5)               | Polish §4      | `src/internal/retrieval-defaults.ts`; `retrieve.ts`/`assemble.ts`/`graph.ts` | `v03-polish.test.ts` (via behavior)             |
+| Deterministic `CTEGraphAdapter.findConnected` order (depth, link `created_at`, `id`)                          | Polish §5      | `src/defaults/graph/CTEGraphAdapter.ts`                                      | `v03-polish.test.ts`                            |
 
 ## Documentation
 

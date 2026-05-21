@@ -8,9 +8,10 @@ import type {
   TraversalOptions,
 } from '../domain/types.js'
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
-
-const DEFAULT_CONNECTED_DEPTH = 3
-const DEFAULT_PATH_DEPTH = 5
+import {
+  DEFAULT_GRAPH_CONNECTED_DEPTH,
+  DEFAULT_GRAPH_PATH_DEPTH,
+} from '../internal/retrieval-defaults.js'
 
 /** Build the adapter-facing options from public store options, defaulting maxDepth. */
 function toAdapterOptions(
@@ -37,7 +38,7 @@ export function getConnected(
     db,
     options.namespace,
     [options.fromAssertionId],
-    toAdapterOptions(options, DEFAULT_CONNECTED_DEPTH),
+    toAdapterOptions(options, DEFAULT_GRAPH_CONNECTED_DEPTH),
   )
 
   // Collect the distinct destination assertions reached by traversal — the
@@ -57,6 +58,6 @@ export function findPath(
     options.namespace,
     options.fromAssertionId,
     options.toAssertionId,
-    toAdapterOptions(options, DEFAULT_PATH_DEPTH),
+    toAdapterOptions(options, DEFAULT_GRAPH_PATH_DEPTH),
   )
 }
