@@ -56,6 +56,7 @@ import { DefaultScorer } from '../defaults/scoring/DefaultScorer.js'
 import { ProseFormatter } from '../defaults/formatting/ProseFormatter.js'
 import {
   NamespaceNotInitializedError,
+  NamespaceDimensionMismatchError,
   StoreClosedError,
   ValidationError,
   IndexingError,
@@ -172,8 +173,11 @@ export class TemporalStore {
 
     // (d) namespace registration
     this.namespaceRepo = new NamespaceRepository(this.db)
-    const dimension =
-      this.options.embeddingDimension ?? this.options.embeddingProvider?.dimension ?? null
+    const dimension = this.resolveVectorDimension(
+      this.options.namespace,
+      this.options.embeddingDimension,
+      this.options.embeddingProvider,
+    )
     this.namespaceRepo.upsert(this.options.namespace, dimension)
 
     // (e) warm extension column cache
@@ -220,7 +224,11 @@ export class TemporalStore {
     options: InitNamespaceOptions = {},
   ): Promise<NamespaceConfig> {
     this.requireInit()
-    const dimension = options.embeddingDimension ?? options.embeddingProvider?.dimension ?? null
+    const dimension = this.resolveVectorDimension(
+      namespace,
+      options.embeddingDimension,
+      options.embeddingProvider,
+    )
     this.namespaceRepo.upsert(namespace, dimension, options.config ?? {})
     if (options.embeddingProvider) {
       this.namespaceProviders.set(namespace, options.embeddingProvider)
@@ -228,6 +236,34 @@ export class TemporalStore {
     const stored = this.namespaceRepo.get(namespace)
     if (!stored) throw new NamespaceNotInitializedError(namespace)
     return stored
+  }
+
+  /**
+   * Resolve and validate the embedding dimension for a namespace from the
+   * caller-supplied `embeddingDimension` and/or `embeddingProvider`:
+   *   - neither supplied → `null` (vectorless)
+   *   - both supplied → they MUST agree, else `NamespaceDimensionMismatchError`
+   *   - either alone → that value
+   * A non-null resolved dimension MUST be a positive integer.
+   */
+  private resolveVectorDimension(
+    namespace: string,
+    embeddingDimension: number | undefined,
+    embeddingProvider: EmbeddingProvider | undefined,
+  ): number | null {
+    const explicit = embeddingDimension ?? null
+    const fromProvider = embeddingProvider ? embeddingProvider.dimension : null
+    if (explicit !== null && fromProvider !== null && explicit !== fromProvider) {
+      throw new NamespaceDimensionMismatchError(namespace, explicit, fromProvider)
+    }
+    const resolved = explicit ?? fromProvider
+    if (resolved === null) return null
+    if (!Number.isInteger(resolved) || resolved <= 0) {
+      throw new ValidationError([
+        `Namespace "${namespace}": embedding dimension must be a positive integer, got ${String(resolved)}`,
+      ])
+    }
+    return resolved
   }
 
   /**
@@ -1073,9 +1109,19 @@ export class TemporalStore {
           'Use reindexNamespace() to change the dimension.',
       ])
     }
+    const dimension = this.resolveVectorDimension(
+      namespace,
+      options.embeddingDimension,
+      options.embeddingProvider,
+    )
+    if (dimension === null) {
+      throw new ValidationError([
+        `upgradeNamespaceToVector("${namespace}") requires an embeddingDimension or an embeddingProvider`,
+      ])
+    }
     const table = namespaceToEmbeddingTable(namespace)
     this.db.transaction(() => {
-      this.namespaceRepo.updateEmbeddingDimension(namespace, options.embeddingDimension, table)
+      this.namespaceRepo.updateEmbeddingDimension(namespace, dimension, table)
       this.embeddingTableCache.set(namespace, table)
     })()
     if (options.embeddingProvider) {
@@ -1083,7 +1129,7 @@ export class TemporalStore {
     }
     this.options.logger.info('TRGT_NAMESPACE_VECTOR_UPGRADED', {
       namespace,
-      embeddingDimension: options.embeddingDimension,
+      embeddingDimension: dimension,
     })
   }
 

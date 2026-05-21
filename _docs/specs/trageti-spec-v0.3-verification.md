@@ -2,7 +2,7 @@
 
 This document maps the v0.3 specification at [trageti-spec-v0.3.md](trageti-spec-v0.3.md) — including the dated **Table-naming overhaul** amendment — to the implementation and test evidence in this repository. Every MUST-level invariant, public API surface, error code, schema-migration behavior, and required test class has a row pointing at concrete code and a test.
 
-Updated through the v0.3 remediation (phases R1–R7). R7 closed 16 code-review findings — full `ReindexOptions` semantics, per-namespace provider routing for indexing, hybrid Step-3 candidate narrowing, `explain()` Step-0 routing, `rebuildFts()` tokenizer preservation, `getStats()` diagnostics, the vectorless-reopen error type, debug-hook log sanitization, and Step-0 provider-error propagation. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (318 tests), and `test:coverage` at 95/95/95/85.
+Updated through the v0.3 remediation (phases R1–R8). R7 closed 16 code-review findings; R8 closed a follow-up review — reindex never converts a vectorless namespace, dimension/provider agreement is validated at registration/upgrade, and provider error messages no longer leak the raw cause. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (326 tests), and `test:coverage` at 95/95/95/85.
 
 ## Public API surface
 
@@ -114,6 +114,14 @@ Updated through the v0.3 remediation (phases R1–R7). R7 closed 16 code-review 
 | `indexBatch`/reindex skip `errorCode` derives from the thrown error (`UNKNOWN` for a plain `Error`) | §1143-1147, §2074-2078 | `errorCodeOf`                                                                               | `store-operations.test.ts`, `r7-conformance.test.ts`    |
 | `namespaceColumn` identifier validation                                                             | §1044-1046             | `SchemaExtensionApplier.validate`                                                           | `r7-conformance.test.ts`                                |
 | Internal-invariant guards throw `TragetiError`                                                      | §2821-2824             | `ErrorCode.INTERNAL_INVARIANT` in store + repositories                                      | defensive (unreachable)                                 |
+
+## R8 — follow-up review conformance fixes
+
+| Finding                                                                                                                                      | Spec                   | Implementation                                                                  | Tests                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------- | ------------------------------------------- |
+| `reindexNamespace()` never converts a vectorless namespace (upgrade is exclusive to `upgradeNamespaceToVector()`)                            | §1681, §2296           | `src/pipeline/reindex.ts` vectorless guard                                      | `r7-conformance.test.ts`                    |
+| Dimension / provider agreement validated at registration & upgrade; invalid dimensions rejected; provider-only upgrade derives the dimension | §1254-1257, §2146-2168 | `TemporalStore.resolveVectorDimension`; `UpgradeNamespaceToVectorOptions` union | `r7-conformance.test.ts`                    |
+| Provider error messages omit the raw cause (no content / secret leak)                                                                        | §2817                  | `EmbeddingProviderError` / `ReindexError` use `errorCodeOf(cause)`              | `r7-conformance.test.ts`, `reindex.test.ts` |
 
 ## Documentation
 

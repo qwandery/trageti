@@ -605,10 +605,25 @@ export interface PrepareDatabaseOptions {
   betterSqlite3?: BetterSqlite3Options
 }
 
-export interface UpgradeNamespaceToVectorOptions {
-  embeddingDimension: number
-  embeddingProvider?: EmbeddingProvider
-}
+/**
+ * A vectorless namespace is upgraded by supplying a dimension, a provider, or
+ * both. When both are supplied, `embeddingProvider.dimension` MUST match
+ * `embeddingDimension`. When only a provider is supplied, the provider's
+ * dimension becomes the namespace dimension.
+ */
+export type UpgradeNamespaceToVectorOptions =
+  | {
+      /** Dimension for the new vector configuration. */
+      embeddingDimension: number
+      /** Optional provider to attach; when supplied, `provider.dimension`
+       *  MUST match `embeddingDimension`. */
+      embeddingProvider?: EmbeddingProvider
+    }
+  | {
+      /** Provider to attach. Its dimension becomes the namespace dimension. */
+      embeddingProvider: EmbeddingProvider
+      embeddingDimension?: never
+    }
 
 export interface InitNamespaceOptions {
   /** Embedding dimension. Omit for a vectorless namespace. On reopen of an

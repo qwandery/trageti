@@ -261,11 +261,12 @@ export class ReindexError extends TragetiError {
     cause: unknown,
     options?: { code?: string; skipped?: readonly SkippedEntry[]; advice?: string },
   ) {
+    // A string `cause` is library-generated (safe); a raw Error from a
+    // provider may carry sensitive payloads, so only its stable code is shown.
+    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`
     super(
       options?.code ?? ErrorCode.REINDEX_ERROR,
-      `Reindex failed for namespace "${namespace}" after indexing ${indexed} rows: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`,
+      `Reindex failed for namespace "${namespace}" after indexing ${indexed} rows: ${detail}`,
       { cause },
     )
     this.name = 'ReindexError'
@@ -282,11 +283,13 @@ export class EmbeddingProviderError extends TragetiError {
 
   constructor(providerName: string, indexed: number, cause: unknown, extraMessage?: string) {
     const tail = extraMessage ? ` ${extraMessage}` : ''
+    // A raw provider Error message may carry remote payloads, prompt
+    // fragments, query text, request IDs, or secrets — never interpolate it.
+    // A string `cause` is library-generated (safe by construction).
+    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`
     super(
       ErrorCode.EMBEDDING_PROVIDER_ERROR,
-      `Embedding provider "${providerName}" failed after ${indexed} rows: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }.${tail}`,
+      `Embedding provider "${providerName}" failed after ${indexed} rows: ${detail}.${tail}`,
       { cause },
     )
     this.name = 'EmbeddingProviderError'

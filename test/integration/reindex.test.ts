@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import type { EmbeddingProvider } from '../../src/domain/types.js'
+import { ReindexError } from '../../src/errors/index.js'
 import { citationFor } from '../fixtures/scenario.js'
 
 const NS = 'test-ns'
@@ -102,9 +103,15 @@ describe('TemporalStore — reindexNamespace (staging-swap)', () => {
       },
     }
 
-    await expect(
-      store.reindexNamespace(NS, { newDimension: DIM_NEW, embeddingProvider: throwing }),
-    ).rejects.toThrow(/Embedding service unavailable/)
+    // The thrown ReindexError must not leak the raw provider message.
+    let thrown: unknown
+    try {
+      await store.reindexNamespace(NS, { newDimension: DIM_NEW, embeddingProvider: throwing })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(ReindexError)
+    expect((thrown as ReindexError).message).not.toContain('Embedding service unavailable')
 
     // The previous index is intact — all three are still indexed at dim 4.
     expect((await store.getStats(NS)).indexedCount).toBe(3)
@@ -136,13 +143,15 @@ describe('TemporalStore — reindexNamespace (staging-swap)', () => {
   })
 
   it('reindexNamespace uses the store-configured provider when none is passed', async () => {
+    // Store dimension and provider dimension must agree (spec §1254-1257).
     const storeWithProvider = new TemporalStore(db, {
       namespace: NS,
       embeddingDimension: DIM_INIT,
-      embeddingProvider: makeProvider(DIM_NEW),
+      embeddingProvider: makeProvider(DIM_INIT),
     })
     await storeWithProvider.init()
-    const result = await storeWithProvider.reindexNamespace(NS, { newDimension: DIM_NEW })
+    // No provider passed to reindex → falls back to the store-configured one.
+    const result = await storeWithProvider.reindexNamespace(NS, {})
     expect(result.reindexed).toBe(3)
   })
 })

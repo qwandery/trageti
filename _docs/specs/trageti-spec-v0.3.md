@@ -186,8 +186,8 @@ actual v0.2 source):
   Migration note: callers do not have to persist the namespace dimension to
   reopen, but if they DO supply one, it must match the stored value.
 - **Namespace deletion is database-authoritative.** `deleteNamespace()` must
-  look up the namespace's embedding table from `trl_namespaces`, not only from
-  an in-memory cache, before dropping vector storage.
+  look up the namespace's embedding table from `trageti_namespaces`, not only
+  from an in-memory cache, before dropping vector storage.
   Migration note: no API change; behavior becomes more complete.
 - **`indexBatch()` reports all outcomes.** Silent skipping of unknown assertion
   IDs is removed. The method returns an `IndexBatchResult`, or throws when

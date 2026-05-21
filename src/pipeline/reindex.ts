@@ -52,14 +52,17 @@ export async function reindexNamespace(
   const current = namespaceRepo.get(namespace)
   const oldTable = namespaceRepo.getEmbeddingTable(namespace)
   const currentDimension = current?.embeddingDimension ?? null
-  const newDimension = options.newDimension ?? currentDimension
-  if (newDimension === null) {
+  if (currentDimension === null) {
+    // reindex never converts a vectorless namespace — that is the exclusive
+    // job of upgradeNamespaceToVector(). Supplying `newDimension` here would
+    // otherwise silently bypass the only sanctioned upgrade path.
     throw new ReindexError(
       namespace,
       0,
-      'reindexNamespace requires a dimension (the namespace is vectorless)',
+      'reindexNamespace cannot convert a vectorless namespace; call upgradeNamespaceToVector() first',
     )
   }
+  const newDimension = options.newDimension ?? currentDimension
 
   // Resolve the target vec0 table per strategy.
   let targetTable: string

@@ -10,9 +10,12 @@ import type { EmbeddingProvider, Logger, LogFields } from '../../src/domain/type
 import {
   EmbeddingProviderError,
   IndexingError,
+  NamespaceDimensionMismatchError,
+  ReindexError,
   RetrievalInputError,
   SchemaExtensionError,
   TragetiError,
+  ValidationError,
 } from '../../src/errors/index.js'
 import { citationFor } from '../fixtures/scenario.js'
 
@@ -554,5 +557,125 @@ describe('namespaceColumn identifier validation', () => {
       },
     })
     await expect(store.init()).rejects.toThrow(SchemaExtensionError)
+  })
+})
+
+describe('reindexNamespace never converts a vectorless namespace', () => {
+  it('rejects reindex of a vectorless namespace even with newDimension', async () => {
+    const store = new TemporalStore(openTestDb(), { namespace: 'vl' })
+    await store.init()
+    await expect(
+      store.reindexNamespace('vl', {
+        newDimension: DIM,
+        embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
+      }),
+    ).rejects.toThrow(ReindexError)
+    // The namespace is still vectorless — the upgrade path was not bypassed.
+    expect((await store.getStats('vl')).embeddingDimension).toBeNull()
+    await store.close()
+  })
+})
+
+describe('dimension / provider agreement is validated', () => {
+  it('the constructor rejects a dimension that disagrees with the provider', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: 4,
+      embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
+    })
+    await expect(store.init()).rejects.toThrow(NamespaceDimensionMismatchError)
+  })
+
+  it('initNamespace rejects a dimension that disagrees with the provider', async () => {
+    const store = new TemporalStore(openTestDb(), { namespace: 'base' })
+    await store.init()
+    await expect(
+      store.initNamespace('mismatch', {
+        embeddingDimension: 4,
+        embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
+      }),
+    ).rejects.toThrow(NamespaceDimensionMismatchError)
+    await store.close()
+  })
+
+  it('upgradeNamespaceToVector rejects a dimension that disagrees with the provider', async () => {
+    const store = new TemporalStore(openTestDb(), { namespace: 'base' })
+    await store.init()
+    await store.initNamespace('vl')
+    await expect(
+      store.upgradeNamespaceToVector('vl', {
+        embeddingDimension: 4,
+        embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
+      }),
+    ).rejects.toThrow(NamespaceDimensionMismatchError)
+    await store.close()
+  })
+
+  it('upgradeNamespaceToVector accepts a provider-only upgrade and derives the dimension', async () => {
+    const store = new TemporalStore(openTestDb(), { namespace: 'base' })
+    await store.init()
+    await store.initNamespace('vl')
+    await store.upgradeNamespaceToVector('vl', {
+      embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
+    })
+    expect((await store.getStats('vl')).embeddingDimension).toBe(8)
+    await store.close()
+  })
+
+  it('rejects an invalid (non-positive / non-integer) embedding dimension', async () => {
+    for (const bad of [0, -4, 2.5]) {
+      const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: bad })
+      await expect(store.init()).rejects.toThrow(ValidationError)
+    }
+  })
+})
+
+describe('provider error messages do not leak the raw cause', () => {
+  class SecretLeakProvider implements EmbeddingProvider {
+    readonly name = 'secret-leak'
+    readonly dimension = DIM
+    embed(): Promise<Float32Array[]> {
+      return Promise.reject(new Error('remote response: SECRET-PAYLOAD-xyz'))
+    }
+  }
+
+  it('indexBatch fail-fast EmbeddingProviderError omits the raw provider message', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      embeddingProvider: new SecretLeakProvider(),
+    })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await writeAssertion(store, 'ns', 'a-1', 'content')
+    let thrown: unknown
+    try {
+      await store.indexBatch([{ assertionId: 'a-1' }])
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(EmbeddingProviderError)
+    expect((thrown as EmbeddingProviderError).message).not.toContain('SECRET-PAYLOAD')
+    await store.close()
+  })
+
+  it('Step-0 retrieve EmbeddingProviderError omits the raw provider message', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      embeddingProvider: new SecretLeakProvider(),
+    })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await writeAssertion(store, 'ns', 'a-1', 'content')
+    let thrown: unknown
+    try {
+      await store.retrieve({ namespace: 'ns', queryText: 'content', temporalAnchor: 5 })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(EmbeddingProviderError)
+    expect((thrown as EmbeddingProviderError).message).not.toContain('SECRET-PAYLOAD')
+    await store.close()
   })
 })
