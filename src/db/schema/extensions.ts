@@ -49,6 +49,20 @@ export class SchemaExtensionApplier {
       if (tbl.referencesNamespace && !tbl.namespaceColumn) {
         violations.push(`Table "${tbl.tableName}": referencesNamespace requires namespaceColumn`)
       }
+      // namespaceColumn is validated against the same identifier rules as
+      // extension columns (spec §1044-1046) — it is interpolated into DDL.
+      if (tbl.namespaceColumn) {
+        if (tbl.namespaceColumn.toLowerCase().startsWith('trageti_')) {
+          violations.push(
+            `Table "${tbl.tableName}": namespaceColumn "${tbl.namespaceColumn}" must not start with "trageti_" (reserved for library use)`,
+          )
+        }
+        if (isReserved(tbl.namespaceColumn)) {
+          violations.push(
+            `Table "${tbl.tableName}": namespaceColumn "${tbl.namespaceColumn}" is an SQLite reserved keyword`,
+          )
+        }
+      }
     }
 
     if (violations.length > 0) {

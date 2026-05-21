@@ -2349,7 +2349,7 @@ the new tokenizer fails the v0.3 allow-list.
 
 **Tokenizer config metadata.** The "current tokenizer config" referenced
 by `RebuildFtsOptions.tokenizer` defaults is read from library-managed
-metadata (a dedicated `trageti_fulltext_config` row inserted by the v001 migration
+metadata (the dedicated `trageti_tokenizer` row inserted by the v003 migration
 and updated by every `rebuildFts()` call), NOT parsed from `sqlite_master`'s
 stored CREATE statement — SQL DDL parsing is brittle and version-dependent.
 The persisted metadata is the source of truth for "what is `trageti_fulltext`
@@ -2825,10 +2825,11 @@ contract (they may appear in caller stack traces and SHOULD be filtered
 on `.code` rather than instance-of), even though they should be
 unreachable in correctly-used library code:
 
-| Code                                     | Raised by                                                                                                                                                                                                                             |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SCORER_NO_USABLE_SIGNAL`                | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5. |
-| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trageti_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt.                               |
+| Code                                     | Raised by                                                                                                                                                                                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCORER_NO_USABLE_SIGNAL`                | `DefaultScorer` (and any custom scorer following the same contract) when a candidate reaches scoring with both `semanticDistance` and `bm25Score` null — indicates the pipeline failed to filter unscorable candidates before Step 5.                                           |
+| `NAMESPACE_VECTOR_METADATA_INCONSISTENT` | `ensureVectorReady` when `trageti_namespaces.embedding_dimension` is set but `embedding_table` is NULL (or vice versa) — the v003 schema CHECK should prevent this; if encountered, the row is corrupt.                                                                         |
+| `INTERNAL_INVARIANT`                     | A generic "this should never happen" guard tripped — e.g. a row not found immediately after the library itself inserted it within the same transaction. Indicates a library bug or external interference with library tables. _(Added by the v0.3 Table-naming Amendment, R7.)_ |
 
 ---
 
@@ -2963,7 +2964,7 @@ Required test classes:
   `{ ..., vectorReady: false, embeddingDimension: null, ... }`).
 - **FTS tokenizer metadata round-trip.** `prepareDatabase` → `initNamespace` →
   write assertions → `rebuildFts({ tokenizer })` → close → reopen → confirm
-  the tokenizer config readable from the library-managed `trageti_fulltext_config`
+  the tokenizer config readable from the library-managed `trageti_tokenizer`
   row matches the post-rebuild config (NOT parsed from `sqlite_master`).
 - **FK verifier fail-closed.** A `ConnectionVerifier` against a DB where
   `PRAGMA foreign_keys = ON` cannot be enabled throws

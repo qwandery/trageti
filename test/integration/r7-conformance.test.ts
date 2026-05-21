@@ -7,7 +7,13 @@ import { openTestDb } from '../helpers/openTestDb.js'
 import { TemporalStore } from '../../src/store/TemporalStore.js'
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js'
 import type { EmbeddingProvider, Logger, LogFields } from '../../src/domain/types.js'
-import { EmbeddingProviderError, IndexingError, TragetiError } from '../../src/errors/index.js'
+import {
+  EmbeddingProviderError,
+  IndexingError,
+  RetrievalInputError,
+  SchemaExtensionError,
+  TragetiError,
+} from '../../src/errors/index.js'
 import { citationFor } from '../fixtures/scenario.js'
 
 const DIM = 4
@@ -385,5 +391,168 @@ describe('debug hook failures log a stable code, never a raw message', () => {
     )
     expect(plainHookErrors.length).toBeGreaterThan(0)
     await store.close()
+  })
+})
+
+describe('assembleContext() validates tokenBudget', () => {
+  it('rejects a negative or non-finite tokenBudget', async () => {
+    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await writeAssertion(store, 'ns', 'a-1', 'content')
+    await expect(
+      store.assembleContext({
+        namespace: 'ns',
+        temporalAnchor: 5,
+        queryText: 'content',
+        retrievalStrategy: 'bm25',
+        tokenBudget: -10,
+      }),
+    ).rejects.toThrow(RetrievalInputError)
+    await expect(
+      store.assembleContext({
+        namespace: 'ns',
+        temporalAnchor: 5,
+        queryText: 'content',
+        retrievalStrategy: 'bm25',
+        tokenBudget: Number.NaN,
+      }),
+    ).rejects.toThrow(RetrievalInputError)
+    await store.close()
+  })
+})
+
+describe('maxDepth: 0 means no graph traversal', () => {
+  async function graphStore(): Promise<TemporalStore> {
+    const store = new TemporalStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM })
+    await store.init()
+    await writeEpisode(store, 'g')
+    await writeAssertion(store, 'g', 'a-1', 'first', 1)
+    await writeAssertion(store, 'g', 'a-2', 'second', 2)
+    await store.writeLink({
+      id: 'l-1',
+      namespace: 'g',
+      fromId: 'a-1',
+      toId: 'a-2',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-g',
+    })
+    return store
+  }
+
+  it('getConnected with maxDepth: 0 returns no links', async () => {
+    const store = await graphStore()
+    expect(
+      await store.getConnected({
+        namespace: 'g',
+        fromAssertionId: 'a-1',
+        maxDepth: 0,
+        temporalAnchor: 5,
+      }),
+    ).toEqual([])
+    // Sanity: maxDepth 1 reaches a-2.
+    const reached = await store.getConnected({
+      namespace: 'g',
+      fromAssertionId: 'a-1',
+      maxDepth: 1,
+      temporalAnchor: 5,
+    })
+    expect(reached.map((a) => a.id)).toEqual(['a-2'])
+    await store.close()
+  })
+
+  it('findPath with maxDepth: 0 returns null for distinct endpoints', async () => {
+    const store = await graphStore()
+    expect(
+      await store.findPath({
+        namespace: 'g',
+        fromAssertionId: 'a-1',
+        toAssertionId: 'a-2',
+        maxDepth: 0,
+        temporalAnchor: 5,
+      }),
+    ).toBeNull()
+    await store.close()
+  })
+
+  it('retrieve expandLinks with maxDepth: 0 attaches no linked assertions', async () => {
+    const store = await graphStore()
+    const { results } = await store.retrieve({
+      namespace: 'g',
+      queryText: 'first',
+      retrievalStrategy: 'bm25',
+      expandLinks: true,
+      maxDepth: 0,
+      temporalAnchor: 5,
+    })
+    for (const r of results) {
+      expect(r.linkedAssertions).toBeUndefined()
+    }
+    await store.close()
+  })
+})
+
+describe('indexBatch skip-mode errorCode derives from the thrown error', () => {
+  class CodedFailProvider implements EmbeddingProvider {
+    readonly name = 'coded-fail'
+    readonly dimension = DIM
+    embed(): Promise<Float32Array[]> {
+      return Promise.reject(new TragetiError('CUSTOM_PROVIDER_CODE', 'provider down'))
+    }
+  }
+
+  it('uses the thrown TragetiError code as the skipped[] errorCode', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      embeddingProvider: new CodedFailProvider(),
+    })
+    await store.init()
+    await writeEpisode(store, 'ns')
+    await writeAssertion(store, 'ns', 'a-1', 'content')
+    const result = await store.indexBatch([{ assertionId: 'a-1' }], { onProviderError: 'skip' })
+    expect(result.skipped[0]?.errorCode).toBe('CUSTOM_PROVIDER_CODE')
+    await store.close()
+  })
+})
+
+describe('namespaceColumn identifier validation', () => {
+  it('rejects a reserved-word namespaceColumn', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      schemaExtensions: {
+        tables: [
+          {
+            tableName: 'app_audit',
+            createSQL: 'CREATE TABLE IF NOT EXISTS app_audit (id TEXT PRIMARY KEY, "select" TEXT)',
+            referencesNamespace: true,
+            namespaceColumn: 'select',
+          },
+        ],
+      },
+    })
+    await expect(store.init()).rejects.toThrow(SchemaExtensionError)
+  })
+
+  it('rejects a trageti_-prefixed namespaceColumn', async () => {
+    const store = new TemporalStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      schemaExtensions: {
+        tables: [
+          {
+            tableName: 'app_audit',
+            createSQL:
+              'CREATE TABLE IF NOT EXISTS app_audit (id TEXT PRIMARY KEY, trageti_ns TEXT)',
+            referencesNamespace: true,
+            namespaceColumn: 'trageti_ns',
+          },
+        ],
+      },
+    })
+    await expect(store.init()).rejects.toThrow(SchemaExtensionError)
   })
 })

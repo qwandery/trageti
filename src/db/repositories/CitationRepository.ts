@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { AssertionCitation, NewAssertionCitation } from '../../domain/types.js'
 import { buildCandidateJson } from '../candidates.js'
+import { ErrorCode, TragetiError } from '../../errors/index.js'
 
 interface CitationRow {
   id: string
@@ -86,7 +87,12 @@ export class CitationRepository {
     const row = this.db
       .prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE id = ?')
       .get(citation.id)
-    if (!row) throw new Error(`Citation "${citation.id}" not found after insert`)
+    if (!row) {
+      throw new TragetiError(
+        ErrorCode.INTERNAL_INVARIANT,
+        `Citation "${citation.id}" not found after insert`,
+      )
+    }
     return rowToCitation(row)
   }
 

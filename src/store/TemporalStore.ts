@@ -64,6 +64,7 @@ import {
   RetrievalInputError,
   EmbeddingProviderError,
   ReindexError,
+  TragetiError,
   ErrorCode,
   errorCodeOf,
 } from '../errors/index.js'
@@ -283,7 +284,12 @@ export class TemporalStore {
         this.assertionRepo.supersedeAssertion(assertion.supersedesId, assertion.validFrom)
       }
       const inserted = this.assertionRepo.getById(assertion.id)
-      if (!inserted) throw new Error(`Assertion "${assertion.id}" not found after insert`)
+      if (!inserted) {
+        throw new TragetiError(
+          ErrorCode.INTERNAL_INVARIANT,
+          `Assertion "${assertion.id}" not found after insert`,
+        )
+      }
       // getById already populates citations; pass through without re-fetching
       return { ...inserted, citations }
     })()

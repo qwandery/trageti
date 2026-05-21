@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import type { AssertionLink } from '../../domain/types.js'
+import { ErrorCode, TragetiError } from '../../errors/index.js'
 
 interface LinkRow {
   id: string
@@ -54,7 +55,12 @@ export class LinkRepository {
     const row = this.db
       .prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id = ?')
       .get(link.id)
-    if (!row) throw new Error(`Link "${link.id}" not found after insert`)
+    if (!row) {
+      throw new TragetiError(
+        ErrorCode.INTERNAL_INVARIANT,
+        `Link "${link.id}" not found after insert`,
+      )
+    }
     return rowToLink(row)
   }
 

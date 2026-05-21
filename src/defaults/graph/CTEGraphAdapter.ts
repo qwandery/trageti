@@ -49,6 +49,9 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     if (fromIds.length === 0) return []
 
     const { temporalAnchor, maxDepth, linkTypes } = options
+    // maxDepth: 0 means no traversal — return zero links rather than the
+    // one-hop base term of the recursive CTE (spec §2029).
+    if (maxDepth <= 0) return []
 
     // Build the link type filter snippet
     const linkTypeFilter =
@@ -126,6 +129,9 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     if (fromId === toId) return []
 
     const { temporalAnchor, maxDepth } = options
+    // maxDepth: 0 permits only the zero-hop path (from === toId, handled
+    // above); any from !== toId path needs at least one hop (spec §2029).
+    if (maxDepth <= 0) return null
 
     const sql = `
       WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids) AS (

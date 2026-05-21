@@ -2,7 +2,7 @@
 
 This document maps the v0.3 specification at [trageti-spec-v0.3.md](trageti-spec-v0.3.md) — including the dated **Table-naming overhaul** amendment — to the implementation and test evidence in this repository. Every MUST-level invariant, public API surface, error code, schema-migration behavior, and required test class has a row pointing at concrete code and a test.
 
-Updated through the v0.3 remediation (phases R1–R6). The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (289 tests), and `test:coverage` at 95/95/95/85.
+Updated through the v0.3 remediation (phases R1–R7). R7 closed 16 code-review findings — full `ReindexOptions` semantics, per-namespace provider routing for indexing, hybrid Step-3 candidate narrowing, `explain()` Step-0 routing, `rebuildFts()` tokenizer preservation, `getStats()` diagnostics, the vectorless-reopen error type, debug-hook log sanitization, and Step-0 provider-error propagation. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (318 tests), and `test:coverage` at 95/95/95/85.
 
 ## Public API surface
 
@@ -29,28 +29,30 @@ Updated through the v0.3 remediation (phases R1–R6). The release gate is green
 
 ## Error model
 
-| Spec code                         | Class                             | Where thrown                                  | Tests                                        |
-| --------------------------------- | --------------------------------- | --------------------------------------------- | -------------------------------------------- |
-| `STORE_CLOSED`                    | `StoreClosedError`                | `requireNotClosed`                            | `store-lifecycle`                            |
-| `NAMESPACE_DIMENSION_MISMATCH`    | `NamespaceDimensionMismatchError` | `NamespaceRepository.upsert`                  | `store-lifecycle` (reopen matrix)            |
-| `MIGRATION_COMPATIBILITY`         | `MigrationCompatibilityError`     | v003 tokenizer conflict / `validateTokenizer` | `migration-internals`, `providers-tokenizer` |
-| `REFERENCED_EXTENSION_TABLE`      | `ReferencedExtensionTableError`   | `deleteNamespace` cascade gate                | `vectorless-namespace` (cascade)             |
-| `MISSING_PEER_DEPENDENCY`         | `MissingPeerDependencyError`      | `prepareDatabase` / `ensureVectorReady`       | `no-sqlite-vec`                              |
-| `ASSERTION_NOT_FOUND`             | `IndexingError`                   | `indexAssertion` / `indexBatch.skipped`       | `store-operations`                           |
-| `INDEXING_NAMESPACE_VECTORLESS`   | `IndexingError`                   | `ensureVectorReady(_,'indexing')`             | `vectorless-namespace`                       |
-| `NO_EMBEDDING_AND_NO_PROVIDER`    | `IndexingError`                   | `indexAssertion` / `indexBatch.skipped`       | `store-operations`                           |
-| `EMBEDDING_DIMENSION_MISMATCH`    | `IndexingError`                   | `indexAssertion` / `indexBatch.skipped`       | `store-operations`                           |
-| `RETRIEVAL_INPUT_EMPTY`           | `RetrievalInputError`             | `retrieveCore` input validation               | `retrieve-validation`                        |
-| `RETRIEVAL_REQUIRES_QUERY_TEXT`   | `RetrievalInputError`             | bm25-strategy guard                           | `retrieve-validation`                        |
-| `RETRIEVAL_REQUIRES_VECTOR_INPUT` | `RetrievalInputError`             | vector-strategy guard                         | `retrieve-validation`, `store-operations`    |
-| `RETRIEVAL_INVALID_LIMIT`         | `RetrievalInputError`             | `retrieveCore` input validation               | `retrieve-validation`                        |
-| `RETRIEVAL_INVALID_MAX_DEPTH`     | `RetrievalInputError`             | `retrieveCore` input validation               | `retrieve-validation`                        |
-| `RETRIEVAL_DIMENSION_MISMATCH`    | `RetrievalInputError`             | `retrieveCore` input validation               | `retrieve-validation`                        |
-| `RETRIEVAL_NAMESPACE_VECTORLESS`  | `RetrievalInputError`             | `ensureVectorReady(_,'retrieval')`            | `vectorless-namespace`                       |
-| `SCORER_INVALID_OUTPUT`           | `RetrievalInputError`             | scorer finiteness check in `retrieve.ts`      | `retrieve-validation`                        |
-| `SCORER_NO_USABLE_SIGNAL`         | `TragetiError`                    | `DefaultScorer` both-signals-null             | `test/unit/scorer-edge.test.ts`              |
-| `EMBEDDING_PROVIDER_ERROR`        | `EmbeddingProviderError`          | `indexBatch` fail-fast path                   | `store-operations`, `store-edge-cases`       |
-| `REINDEX_ERROR`                   | `ReindexError`                    | reindex failure boundary                      | `store-operations`, `store-edge-cases`       |
+| Spec code                         | Class                                  | Where thrown                                                | Tests                                                     |
+| --------------------------------- | -------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------- |
+| `STORE_CLOSED`                    | `StoreClosedError`                     | `requireNotClosed`                                          | `store-lifecycle`                                         |
+| `NAMESPACE_DIMENSION_MISMATCH`    | `NamespaceDimensionMismatchError`      | `NamespaceRepository.upsert`                                | `store-lifecycle` (reopen matrix)                         |
+| `MIGRATION_COMPATIBILITY`         | `MigrationCompatibilityError`          | v003 tokenizer conflict / `validateTokenizer`               | `migration-internals`, `providers-tokenizer`              |
+| `REFERENCED_EXTENSION_TABLE`      | `ReferencedExtensionTableError`        | `deleteNamespace` cascade gate                              | `vectorless-namespace` (cascade)                          |
+| `MISSING_PEER_DEPENDENCY`         | `MissingPeerDependencyError`           | `prepareDatabase` / `ensureVectorReady`                     | `no-sqlite-vec`                                           |
+| `ASSERTION_NOT_FOUND`             | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                     | `store-operations`                                        |
+| `INDEXING_NAMESPACE_VECTORLESS`   | `IndexingError`                        | `ensureVectorReady(_,'indexing')`                           | `vectorless-namespace`                                    |
+| `NO_EMBEDDING_AND_NO_PROVIDER`    | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                     | `store-operations`                                        |
+| `EMBEDDING_DIMENSION_MISMATCH`    | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                     | `store-operations`                                        |
+| `RETRIEVAL_INPUT_EMPTY`           | `RetrievalInputError`                  | `retrieveCore` input validation                             | `retrieve-validation`                                     |
+| `RETRIEVAL_REQUIRES_QUERY_TEXT`   | `RetrievalInputError`                  | bm25-strategy guard                                         | `retrieve-validation`                                     |
+| `RETRIEVAL_REQUIRES_VECTOR_INPUT` | `RetrievalInputError`                  | vector-strategy guard                                       | `retrieve-validation`, `store-operations`                 |
+| `RETRIEVAL_INVALID_LIMIT`         | `RetrievalInputError`                  | `retrieveCore` input validation                             | `retrieve-validation`                                     |
+| `RETRIEVAL_INVALID_MAX_DEPTH`     | `RetrievalInputError`                  | `retrieveCore` input validation                             | `retrieve-validation`                                     |
+| `RETRIEVAL_DIMENSION_MISMATCH`    | `RetrievalInputError`                  | `retrieveCore` input validation                             | `retrieve-validation`                                     |
+| `RETRIEVAL_NAMESPACE_VECTORLESS`  | `RetrievalInputError`                  | `ensureVectorReady(_,'retrieval')`                          | `vectorless-namespace`                                    |
+| `SCORER_INVALID_OUTPUT`           | `RetrievalInputError`                  | scorer finiteness check in `retrieve.ts`                    | `retrieve-validation`                                     |
+| `SCORER_NO_USABLE_SIGNAL`         | `TragetiError`                         | `DefaultScorer` both-signals-null                           | `test/unit/scorer-edge.test.ts`                           |
+| `EMBEDDING_PROVIDER_ERROR`        | `EmbeddingProviderError`               | `indexBatch` fail-fast path / Step-0 provider failure       | `store-operations`, `store-edge-cases`, `r7-conformance`  |
+| `REINDEX_ERROR`                   | `ReindexError`                         | reindex failure boundary                                    | `store-operations`, `store-edge-cases`, `reindex-options` |
+| `REINDEX_PARTIAL_REJECTED`        | `ReindexError` (`.skipped`, `.advice`) | staging-swap skip build rejected without `allowPartialSwap` | `reindex-options`                                         |
+| `INTERNAL_INVARIANT`              | `TragetiError`                         | "should never happen" guards (row absent after self-insert) | defensive — unreachable in correct use                    |
 
 ## Schema migrations
 
@@ -93,6 +95,25 @@ Updated through the v0.3 remediation (phases R1–R6). The release gate is green
 | `initNamespace` reopen matrix + per-namespace providers           | **covered** | `store-lifecycle.test.ts`                               |
 | Realistic temporal-drift E2E scenario                             | **covered** | `e2e.test.ts`                                           |
 | v005 embedding-table copy-swap (vectors survive the rename)       | **covered** | `migration-internals.test.ts`                           |
+
+## R7 — code-review conformance fixes
+
+| Finding                                                                                             | Spec                   | Implementation                                                                              | Tests                                                   |
+| --------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Full `ReindexOptions` (skip / allowPartialSwap / in-place / in-place+newDimension / signal)         | §1156-1183, §2044-2085 | `src/pipeline/reindex.ts`                                                                   | `reindex-options.test.ts`                               |
+| Per-namespace provider drives indexing / reindexing                                                 | §1252-1257, §2279      | `TemporalStore` `indexAssertion`/`indexBatch`/`reindexNamespace` via `getNamespaceProvider` | `r7-conformance.test.ts`                                |
+| Hybrid Step-3 BM25 re-scores vector-selected candidates only                                        | §2581-2582, §2661-2665 | `src/pipeline/retrieve.ts` candidate-set assembly                                           | `r7-conformance.test.ts`                                |
+| `explain()` models Step-0 provider routing                                                          | §2232-2245             | `TemporalStore.explain`                                                                     | `r7-conformance.test.ts`, `store-lifecycle.test.ts`     |
+| `rebuildFts()` preserves the stored tokenizer                                                       | §2088-2099, §2350-2355 | `TemporalStore.rebuildFts` + `readStoredTokenizer`                                          | `r7-conformance.test.ts`                                |
+| `getStats()` emits `TRGT_STATS_VEC_NOT_INTROSPECTED`                                                | §2133, §2404           | `TemporalStore.getStats`                                                                    | `r7-conformance.test.ts`                                |
+| Vectorless reopen throws `NamespaceDimensionMismatchError`                                          | §1685-1687, §2287-2289 | `NamespaceRepository.upsert`                                                                | `store-lifecycle.test.ts`                               |
+| Debug hook logs a stable code, never a raw message                                                  | §2733                  | `src/pipeline/retrieve.ts` `debugStep` + `errorCodeOf`                                      | `r7-conformance.test.ts`                                |
+| Step-0 provider failures propagate as `EmbeddingProviderError`                                      | §2569, §2589           | `TemporalStore.resolveQueryEmbedding`                                                       | `r7-conformance.test.ts`                                |
+| `assembleContext()` validates `tokenBudget`                                                         | §200-202               | `src/pipeline/assemble.ts`                                                                  | `r7-conformance.test.ts`                                |
+| `maxDepth: 0` valid + zero-hop graph behavior                                                       | §2029, §2805           | `retrieve.ts` guard + `CTEGraphAdapter` short-circuit                                       | `retrieve-validation.test.ts`, `r7-conformance.test.ts` |
+| `indexBatch`/reindex skip `errorCode` derives from the thrown error (`UNKNOWN` for a plain `Error`) | §1143-1147, §2074-2078 | `errorCodeOf`                                                                               | `store-operations.test.ts`, `r7-conformance.test.ts`    |
+| `namespaceColumn` identifier validation                                                             | §1044-1046             | `SchemaExtensionApplier.validate`                                                           | `r7-conformance.test.ts`                                |
+| Internal-invariant guards throw `TragetiError`                                                      | §2821-2824             | `ErrorCode.INTERNAL_INVARIANT` in store + repositories                                      | defensive (unreachable)                                 |
 
 ## Documentation
 

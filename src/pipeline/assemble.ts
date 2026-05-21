@@ -5,6 +5,7 @@ import type {
   RetrievalQuery,
 } from '../domain/types.js'
 import type { TemporalStore } from '../store/TemporalStore.js'
+import { ErrorCode, RetrievalInputError } from '../errors/index.js'
 
 interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter
@@ -14,6 +15,17 @@ export async function assembleContext(
   store: TemporalStore,
   options: AssembleOptions,
 ): Promise<AssembledContext> {
+  // Public-input validation before any SQLite execution (spec §200-202).
+  // tokenBudget is a soft cap; project decision: a valid value is a positive
+  // finite number.
+  const tb = options.tokenBudget
+  if (!Number.isFinite(tb) || tb <= 0) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INPUT_EMPTY,
+      `tokenBudget must be a positive finite number, got ${String(tb)}`,
+    )
+  }
+
   const query: RetrievalQuery = {
     namespace: options.namespace,
     temporalAnchor: options.temporalAnchor,

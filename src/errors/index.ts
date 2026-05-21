@@ -52,6 +52,9 @@ export const ErrorCode = {
 
   SCORER_NO_USABLE_SIGNAL: 'SCORER_NO_USABLE_SIGNAL',
   SCORER_INVALID_OUTPUT: 'SCORER_INVALID_OUTPUT',
+
+  // Internal-invariant violations — a "this should never happen" guard tripped.
+  INTERNAL_INVARIANT: 'INTERNAL_INVARIANT',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

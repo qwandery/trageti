@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import type { Episode } from '../../domain/types.js'
-import { ValidationError } from '../../errors/index.js'
+import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js'
 
 interface EpisodeRow {
   id: string
@@ -53,7 +53,12 @@ export class EpisodeRepository {
       const row = this.db
         .prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?')
         .get(episode.id)
-      if (!row) throw new Error(`Episode "${episode.id}" not found after insert`)
+      if (!row) {
+        throw new TragetiError(
+          ErrorCode.INTERNAL_INVARIANT,
+          `Episode "${episode.id}" not found after insert`,
+        )
+      }
       return this.rowToEpisode(row)
     })()
   }

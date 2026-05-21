@@ -72,10 +72,21 @@ describe('retrieve input validation — typed RetrievalInputError codes', () => 
     ).rejects.toThrow(RetrievalInputError)
   })
 
-  it('RETRIEVAL_INVALID_MAX_DEPTH for an out-of-range maxDepth', async () => {
+  it('RETRIEVAL_INVALID_MAX_DEPTH for a negative maxDepth', async () => {
     await expect(
-      store.retrieve({ namespace: NS, queryText: 'foxes', maxDepth: 0, temporalAnchor: 5 }),
+      store.retrieve({ namespace: NS, queryText: 'foxes', maxDepth: -1, temporalAnchor: 5 }),
     ).rejects.toThrow(RetrievalInputError)
+  })
+
+  it('accepts maxDepth: 0 (valid — no graph expansion)', async () => {
+    const { results } = await store.retrieve({
+      namespace: NS,
+      queryText: 'foxes',
+      retrievalStrategy: 'bm25',
+      maxDepth: 0,
+      temporalAnchor: 5,
+    })
+    expect(results.length).toBeGreaterThan(0)
   })
 
   it('RETRIEVAL_DIMENSION_MISMATCH when queryEmbedding length ≠ namespace dimension', async () => {

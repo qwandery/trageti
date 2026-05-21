@@ -164,10 +164,12 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   }
 
   // maxDepth (only meaningful with expandLinks, but validate whenever supplied).
-  if (query.maxDepth !== undefined && (!Number.isInteger(query.maxDepth) || query.maxDepth < 1)) {
+  // Spec §2805: only `maxDepth < 0` or a non-integer is invalid — `0` is valid
+  // and means "no graph expansion".
+  if (query.maxDepth !== undefined && (!Number.isInteger(query.maxDepth) || query.maxDepth < 0)) {
     throw new RetrievalInputError(
       ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH,
-      `maxDepth must be a positive integer, got ${String(query.maxDepth)}`,
+      `maxDepth must be a non-negative integer, got ${String(query.maxDepth)}`,
     )
   }
 
