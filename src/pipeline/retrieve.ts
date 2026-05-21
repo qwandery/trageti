@@ -46,12 +46,12 @@ function debugStep(
   query: RetrievalQuery,
   logger: Logger,
   step: RetrievalStep,
-  info: RetrievalStepInfo,
+  info: Omit<RetrievalStepInfo, 'step'>,
 ): void {
   const hook = query.debug?.onStep
   if (!hook) return
   try {
-    hook(step, info)
+    hook(step, { step, ...info })
   } catch (err) {
     // Never log the raw error — it may carry caller content, query text, or
     // secrets. Only the thrown error's stable code (or 'UNKNOWN') is recorded.
@@ -149,6 +149,16 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       bm25Applied,
     })
 
+  // Per-step wall-clock: each call returns the ms elapsed since the previous
+  // call, i.e. the duration of the step just completed.
+  let stepStart = Date.now()
+  const sinceStep = (): number => {
+    const now = Date.now()
+    const d = now - stepStart
+    stepStart = now
+    return d
+  }
+
   // Strategy-specific input validation.
   if (strategy === 'vector' && !hasQueryEmbedding) {
     throw new RetrievalInputError(
@@ -207,15 +217,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     )
   }
 
-  // Per-step wall-clock: each call returns the ms elapsed since the previous
-  // call, i.e. the duration of the step just completed.
-  let stepStart = Date.now()
-  const sinceStep = (): number => {
-    const now = Date.now()
-    const d = now - stepStart
-    stepStart = now
-    return d
-  }
+  debugStep(query, ctx.logger, 'validate', {
+    candidateCount: 0,
+    tookMs: sinceStep(),
+  })
 
   // Step 1: Temporal filter (applies in all strategies).
   const step1 = runStep1(db, query)
@@ -362,6 +367,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       )
     }
   }
+  debugStep(query, ctx.logger, 'score', {
+    candidateCount: candidates.length,
+    tookMs: sinceStep(),
+  })
 
   // Step 5: Rank + truncate with deterministic tie-breaking
   //   (score DESC, validFrom DESC, createdAt ASC, id ASC).
@@ -388,6 +397,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
 
   // Step 6: Graph expansion (optional). `includeSuperseded` is a
   // retrieval-wide option, so it propagates into link traversal too.
+  let linkedCount = 0
   if (query.expandLinks && results.length > 0) {
     const fromIds = results.map((r) => r.id)
     const links = ctx.graphAdapter.findConnected(db, query.namespace, fromIds, {
@@ -413,19 +423,32 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       const linked = linkedById.get(result.id)
       if (linked && linked.length > 0) {
         result.linkedAssertions = linked
+        linkedCount += linked.length
       }
     }
   }
+  debugStep(query, ctx.logger, 'graph-expand', {
+    applied: Boolean(query.expandLinks && results.length > 0),
+    candidateCount: linkedCount,
+    tookMs: sinceStep(),
+  })
 
   // Step 7: Trajectory expansion (v0.2). Always populate supersessionChain
   // when mode === 'trajectory' (using [] when there are no predecessors);
   // omit it entirely otherwise.
+  let trajectoryCount = 0
   if (mode === 'trajectory') {
     for (const result of results) {
       const chain = ctx.assertionRepo.getSupersessionChain(result.id)
       result.supersessionChain = chain.length > 0 ? chain.slice(0, -1) : []
+      trajectoryCount += result.supersessionChain.length
     }
   }
+  debugStep(query, ctx.logger, 'trajectory-expand', {
+    applied: mode === 'trajectory',
+    candidateCount: trajectoryCount,
+    tookMs: sinceStep(),
+  })
 
   debugStep(query, ctx.logger, 'rank', {
     candidateCount: results.length,

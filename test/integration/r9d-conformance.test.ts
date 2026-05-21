@@ -171,6 +171,14 @@ describe('writeLink rejects malformed input with ValidationError before SQLite',
     await s.close()
   })
 
+  it('rejects a validUntil that is not greater than validFrom', async () => {
+    const s = await linkStore()
+    await expect(s.writeLink({ ...base, id: 'l-1', validUntil: 1 })).rejects.toThrow(
+      ValidationError,
+    )
+    await s.close()
+  })
+
   it('accepts a well-formed link', async () => {
     const s = await linkStore()
     const link = await s.writeLink({ ...base, id: 'l-ok' })
@@ -256,9 +264,11 @@ describe('public type compile fixture', () => {
     const seen: RetrievalStep[] = []
     const onStep = (step: RetrievalStep, info: RetrievalStepInfo): void => {
       seen.push(step)
+      expect(info.step).toBe(step)
       void info.candidateCount
       void info.tookMs
       void info.applied
+      void info.notes
     }
     await store.retrieve({
       namespace: 'g',
@@ -268,6 +278,8 @@ describe('public type compile fixture', () => {
       debug: { onStep },
     })
     expect(seen).toContain('keyword')
+    expect(seen).toContain('validate')
+    expect(seen).toContain('score')
 
     // RetrievalExplainStep.step is a RetrievalStep.
     const plan = await store.explain({
@@ -275,9 +287,19 @@ describe('public type compile fixture', () => {
       queryText: 'searchterm',
       retrievalStrategy: 'bm25',
       temporalAnchor: 10,
+      expandLinks: true,
+      mode: 'trajectory',
     })
     const planSteps: RetrievalStep[] = plan.steps.map((s) => s.step)
-    expect(planSteps.length).toBeGreaterThan(0)
+    expect(planSteps).toEqual([
+      'validate',
+      'temporal-filter',
+      'keyword',
+      'score',
+      'graph-expand',
+      'trajectory-expand',
+      'rank',
+    ])
 
     // MigrationDescriptor carries appliedAt alongside the additive fields.
     const migrations: readonly MigrationDescriptor[] = await store.getMigrations()

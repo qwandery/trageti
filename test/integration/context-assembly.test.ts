@@ -6,6 +6,7 @@ import { ProseFormatter } from '../../src/defaults/formatting/ProseFormatter.js'
 import { StructuredFormatter } from '../../src/defaults/formatting/StructuredFormatter.js'
 import { JsonFormatter } from '../../src/defaults/formatting/JsonFormatter.js'
 import { citationFor } from '../fixtures/scenario.js'
+import type { EmbedOptions, EmbeddingProvider, RetrievalStep } from '../../src/index.js'
 
 const NS = 'test-ns'
 const DIM = 4
@@ -139,6 +140,50 @@ describe('TemporalStore — context assembly', () => {
     expect(ctx.coverage.positionRange.from).toBeGreaterThanOrEqual(1)
     expect(ctx.coverage.positionRange.to).toBeLessThanOrEqual(3)
     expect(ctx.coverage.positionRange.from).toBeLessThanOrEqual(ctx.coverage.positionRange.to)
+  })
+
+  it('forwards debug hooks to retrieval', async () => {
+    const steps: RetrievalStep[] = []
+    await store.assembleContext({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 3,
+      tokenBudget: 2000,
+      debug: {
+        onStep: (step, info) => {
+          steps.push(step)
+          expect(info.step).toBe(step)
+        },
+      },
+    })
+
+    expect(steps).toContain('validate')
+    expect(steps).toContain('temporal-filter')
+    expect(steps).toContain('rank')
+  })
+
+  it('forwards AbortSignal to provider-derived query embedding', async () => {
+    let observedSignal: AbortSignal | undefined
+    const provider: EmbeddingProvider = {
+      name: 'signal-spy',
+      dimension: DIM,
+      async embed(_texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]> {
+        observedSignal = options?.signal
+        return [VEC]
+      },
+    }
+    const signal = new AbortController().signal
+    await store.initNamespace(NS, { embeddingProvider: provider })
+
+    await store.assembleContext({
+      namespace: NS,
+      queryText: 'Alpha',
+      temporalAnchor: 3,
+      tokenBudget: 2000,
+      signal,
+    })
+
+    expect(observedSignal).toBe(signal)
   })
 
   it('token budget truncation sets truncated=true and limits assertions', async () => {

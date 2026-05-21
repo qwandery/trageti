@@ -132,6 +132,12 @@ function validateLinkInput(link: Omit<AssertionLink, 'createdAt'>): void {
     errors.push(`link.validFrom must be a finite number, got ${String(link.validFrom)}`)
   if (link.validUntil !== null && !Number.isFinite(link.validUntil))
     errors.push(`link.validUntil must be null or a finite number, got ${String(link.validUntil)}`)
+  if (
+    link.validUntil !== null &&
+    Number.isFinite(link.validUntil) &&
+    link.validUntil <= link.validFrom
+  )
+    errors.push('link.validUntil must be greater than link.validFrom')
   if (errors.length > 0) throw new ValidationError(errors)
 }
 
@@ -1240,6 +1246,7 @@ export class TemporalStore {
     const wouldApplyBm25 = strategy !== 'vector' && hasQueryText
 
     const steps: RetrievalExplainResult['steps'] = [
+      { step: 'validate', notes: ['validates strategy-specific retrieval inputs'] },
       {
         step: 'temporal-filter',
         notes: ['filters trageti_assertions by namespace + temporal anchor'],
@@ -1255,7 +1262,14 @@ export class TemporalStore {
     if (wouldApplyBm25) {
       steps.push({ step: 'keyword', sql: 'bm25(trageti_fulltext) over the FTS5 index' })
     }
-    steps.push({ step: 'score' }, { step: 'rank' })
+    steps.push({ step: 'score' })
+    if (query.expandLinks && (query.maxDepth ?? 1) > 0) {
+      steps.push({ step: 'graph-expand' })
+    }
+    if ((query.mode ?? 'snapshot') === 'trajectory') {
+      steps.push({ step: 'trajectory-expand' })
+    }
+    steps.push({ step: 'rank' })
 
     return { query, retrievalStrategy: strategy, steps, wouldApplyVector, wouldApplyBm25, notes }
   }

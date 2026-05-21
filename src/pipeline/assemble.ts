@@ -40,6 +40,8 @@ export async function assembleContext(
   if (options.scorer !== undefined) query.scorer = options.scorer
   if (options.middleware !== undefined) query.middleware = options.middleware
   if (options.retrievalStrategy !== undefined) query.retrievalStrategy = options.retrievalStrategy
+  if (options.debug !== undefined) query.debug = options.debug
+  if (options.signal !== undefined) query.signal = options.signal
 
   const retrieval = await store.retrieve(query)
   const assertions = retrieval.results

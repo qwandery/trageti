@@ -156,14 +156,26 @@ export type RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'
 export type QueryTextMode = 'phrase' | 'fts5'
 
 /** The pipeline steps a retrieval pass can report (debug hook + explain). */
-export type RetrievalStep = 'temporal-filter' | 'semantic' | 'keyword' | 'score' | 'rank'
+export type RetrievalStep =
+  | 'validate'
+  | 'temporal-filter'
+  | 'semantic'
+  | 'keyword'
+  | 'score'
+  | 'rank'
+  | 'graph-expand'
+  | 'trajectory-expand'
 
 /** Per-step observability payload passed to `RetrievalDebug.onStep`. */
 export interface RetrievalStepInfo {
-  /** Candidate count produced by / surviving this step, when meaningful. */
-  candidateCount?: number
+  /** Pipeline step this payload describes. */
+  step: RetrievalStep
+  /** Candidate count produced by / surviving this step. */
+  candidateCount: number
   /** Wall-clock time spent in this step, in milliseconds. */
-  tookMs?: number
+  tookMs: number
+  /** Additional step-specific details. */
+  notes?: Record<string, unknown>
   /** Whether the step's optional branch actually applied. */
   applied?: boolean
 }
@@ -549,7 +561,7 @@ export type LibraryTable = 'trageti_assertions' | 'trageti_episodes' | 'trageti_
 
 export interface ColumnExtension {
   table: LibraryTable
-  /** Must not start with 'trageti_', shadow any library column, or be a reserved keyword. */
+  /** Must not start with 'trageti_' or shadow any library column. */
   column: string
   /** SQL column definition: type + optional DEFAULT + optional CHECK. */
   definition: string
