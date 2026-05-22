@@ -49,6 +49,17 @@ export default tseslint.config(
     },
   },
   {
+    files: ['examples/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unnecessary-condition': 'off',
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.*', '.changeset/'],
   },
 )
