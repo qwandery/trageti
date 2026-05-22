@@ -1,8 +1,8 @@
 # trageti Examples
 ## Specification v0.1
 
-**Status:** Design specification  
-**Date:** May 2026  
+**Status:** Design specification
+**Date:** May 2026
 **Depends on:** trageti v0.3
 
 ---
@@ -327,7 +327,7 @@ The example prints annotated results for each query: the query text, the retriev
 
 Alex is a home cook in their mid-20s who attended culinary school for just over a year before having to drop out. The reasons are never fully explained in the journal — there are glancing references to Alex's father, to a period where "everything stopped," to bills that couldn't wait. The journal begins several months after, when Alex has decided to make up the difference on their own. They're going to learn what school would have taught them, and more, through relentless experimentation, reading, and practice. The ambition isn't casual — Alex wants to open something someday, or at least cook professionally. "Someday. Eventually."
 
-The data source is Alex's personal journal — a food diary that's mostly about cooking but doesn't always stay there, because humans don't separate their ambitions from their grief, their sourdough from their self-doubt, their ramen broth from the memory of a father who made the best Sunday stock. The entries are informal, raw, sometimes breathless with excitement about a technique that finally clicked, sometimes quiet and uncertain. The timing is irregular — clusters of entries around dinner parties or when Alex's mother-in-law visits, gaps when life gets in the way.
+The data source is Alex's personal journal — a food diary that's mostly about cooking but doesn't always stay there, because humans don't separate their ambitions from their frustrations, their sourdough from their dinner plans, their ramen broth from the memory of a father who made the best Sunday stock. The entries are informal, raw, sometimes breathless with excitement about a technique that finally clicked, sometimes quiet and uncertain. The timing is irregular — clusters of entries around dinner parties or when Jordan's mother visits, gaps when life gets in the way.
 
 This is not a structured recipe log. It's a person's attempt to organize their own learning, written for themselves, not for an audience.
 
@@ -345,7 +345,7 @@ The journal format is the perfect ingestion challenge for temporal RAG because i
 
 **Sam** — friend, dinner party regular. Has strong opinions about bread and isn't shy about sharing them. Says Alex's sourdough is "too sour" at the first dinner party. This bothers Alex more than they let on. When Sam says it's "perfect" three months later, Alex writes about it for half a page.
 
-**Priya** — friend, trained pastry chef who pivoted to software. Gives technically precise feedback that Alex learns more from in ten minutes than from a week of YouTube videos. Priya's offhand comment about caramelization chemistry sends Alex to Harold McGee. Appears at dinner parties and once in a phone call about tempering chocolate.
+**Priya** — friend, trained pastry chef who pivoted to software. Gives technically precise feedback that Alex learns more from in ten minutes than from a week of YouTube videos. Priya's offhand comment about browning chemistry sends Alex to a food-science reference. Appears at dinner parties and once in a phone call about tempering chocolate.
 
 ### Source Material Format
 
@@ -353,9 +353,9 @@ The primary data is a single markdown document — `alex.md` — containing Alex
 
 The journal is supplemented by a small set of reference documents that Alex reads and references in their entries:
 
-- An excerpt from Chad Robertson's *Tartine Bread* on fermentation timing (referenced in Alex's sourdough arc)
-- A Serious Eats article by J. Kenji López-Alt on emulsification in ramen broth (referenced in the ramen arc)
-- A Harold McGee excerpt on the Maillard reaction (referenced after Priya's feedback)
+- A fictional excerpt from Mara Field's *Sourdough Notes* on fermentation timing (referenced in Alex's sourdough arc)
+- A fictional article by Ren Ito on paitan-style broth emulsions (referenced in the ramen arc)
+- A fictional food-science excerpt on Maillard browning (referenced after Priya's feedback)
 - A knife skills class handout (referenced once, then revised by a YouTube discovery)
 
 These supplementary documents are ingested as their own episodes at the position where Alex encounters them. Their assertions `contextualize` or `deepen` assertions from Alex's experimental entries.
@@ -370,7 +370,7 @@ These supplementary documents are ingested as their own episodes at the position
 |---|---|---|
 | "Started the starter today" | 1 | Optimistic, slightly nervous. Alex describes mixing flour and water and feeling silly about how excited they are. Mentions this is one of the first things they were working on at school before they left. |
 | "First real bake" | 3 | Disappointed but analytical. Dense crumb, way too sour. Alex lists everything they think went wrong. Suspects the cold retard was too long but isn't sure. "I know it's supposed to take time. I just want it to work." |
-| Robertson fermentation chapter | 5 | (Supplementary document) Alex reads this after the failed bake. The journal entry around it is excited — "I think I've been doing cold retard wrong this whole time. Robertson says the sourness comes from extended cold fermentation, not from the starter being too active. This changes everything." |
+| Field fermentation chapter | 5 | (Supplementary document) Alex reads this after the failed bake. The journal entry around it is excited — "I think I've been letting the cold retard run too long with a too-mature levain. Field says acidity comes from the whole fermentation schedule — starter maturity, inoculation, time, temperature. This changes everything." |
 | "Room temp proof bake" | 8 | Triumphant. Abandoned cold retard entirely. Open crumb, mild flavor, best bake yet. Alex is almost giddy. "If Dad could see this loaf he'd pretend he wasn't impressed and then eat half of it." One line, dropped casually, then Alex moves on to talk about hydration percentages. |
 | "Tried whole wheat today" | 12 | Frustrated. The whole wheat flour wrecked everything — dense, gummy, wouldn't rise properly. Alex knows it's about hydration but can't dial it in. "Back to square one. Except it's not really square one because I know more now. Square two." |
 | "Cracked the whole wheat" | 15 | Relieved. 80% hydration works for whole wheat. But the technique only works with this flour — Alex's bread flour method doesn't transfer. "So now I have two techniques. That's fine. That's actually how it works, I think." |
@@ -381,25 +381,25 @@ These supplementary documents are ingested as their own episodes at the position
 
 | Entry | Position | Tone & Content |
 |---|---|---|
-| "Ate at Kintaro tonight" | 6 | Reverent. Alex and Jordan went to a ramen shop and Alex can't stop thinking about the broth. "Milky, almost creamy, but not heavy. The fat was emulsified, I'm sure of it. I need to figure out how they did this." Detailed sensory notes — Alex is already reverse-engineering in their head. |
-| "First attempt: disaster" | 9 | Honest, slightly humorous. "The broth was thin and cloudy but not the right kind of cloudy. Jordan said it tasted like 'pork water.' Not wrong." Alex lists what they used and suspects the bones weren't blanched properly. |
-| Kenji emulsification article | 11 | (Supplementary document) Alex reads this and has a revelation. Journal entry: "It's the BOIL. The vigorous boil is what emulsifies the fat into the broth. Kintaro wasn't doing it wrong with the cloudiness — they were doing it RIGHT. My broth wasn't cloudy enough." |
+| "Ate at Kintaro tonight" | 6 | Reverent. Alex and Jordan went to a ramen shop and Alex can't stop thinking about the broth. "Milky, almost creamy, but not heavy. Fat and gelatin suspended all through it, I'm sure of it. I need to figure out how they did this." Detailed sensory notes — Alex is already reverse-engineering in their head. |
+| "First attempt: disaster" | 9 | Honest, slightly humorous. "The broth was thin and cloudy but not the right kind of cloudy. Jordan said it tasted like 'pork water.' Not wrong." Alex lists what they used and suspects the cook was too short, the water ratio was off, and the boil never got vigorous enough. |
+| Ito paitan article | 11 | (Supplementary document) Alex reads this and has a revelation. Journal entry: "It's the BOIL. The vigorous boil forces fat, gelatin, and tiny solids into suspension. Kintaro wasn't doing it wrong with the cloudiness — they were doing it RIGHT. My broth wasn't cloudy enough." |
 | "Second attempt: holy s***" | 14 | All-caps energy. Rolling boil for 8 hours. "The broth is WHITE. It's THICK. It coats the back of a spoon. I literally called Jordan over to look at it and they said 'it looks like milk' and I said EXACTLY." Still not quite Kintaro-level but dramatically closer. |
-| "Noodle experiment" | 18 | Mixed results. Broth technique is dialed now but the noodles were wrong — Alex used baking soda instead of kansui water. "The online recipe said baking soda was a fine substitute. It is not a fine substitute. The texture was rubbery and the flavor was slightly metallic." |
-| "Mrs. Park's tare trick" | 23 | Mrs. Park watches Alex make the tare and says, gently, "Toast the miso first." Alex tries it. "I don't know how to describe the difference except that the flavor went from flat to... dimensional? Like it suddenly had a front and a back." Alex connects this to the McGee chapter on Maillard reactions they'd read earlier. |
+| "Noodle experiment" | 18 | Mixed results. Broth technique is dialed now but the noodles were wrong — Alex used baking soda instead of kansui water. "The online recipe said baking soda could substitute. Maybe it can if you do it right, but the way I did it was not right. The texture was rubbery and the flavor was slightly metallic." |
+| "Mrs. Park's tare trick" | 23 | Mrs. Park watches Alex make the tare and says, gently, "Toast the miso first." Alex tries it. "I don't know how to describe the difference except that the flavor went from flat to... dimensional? Like it suddenly had a front and a back." Alex connects this to the browning-chemistry reference they'd read earlier. |
 
 **Knife skills (2 entries)**
 
 | Entry | Position | Tone & Content |
 |---|---|---|
-| "Took the knife class" | 7 | Enthusiastic but self-conscious. Alex describes the instructor's pinch grip and rocking technique. "The claw grip felt wrong in my hand, like I was fighting the knife instead of guiding it. But everyone else seemed fine with it so I didn't say anything." |
-| YouTube discovery | 10 | Relieved, almost vindicated. Alex finds a video explaining that the instructor's technique was for German chef's knives. Alex uses a santoku. "Different blade, different motion. I've been trying to use my knife like it's someone else's knife. No wonder it felt wrong." |
+| "Took the knife class" | 7 | Enthusiastic but self-conscious. Alex describes the instructor's pinch grip, claw hand, and high rocking technique. "The grip makes sense, but the rocking motion felt wrong with my knife, like I was fighting the blade instead of guiding it. But everyone else seemed fine with it so I didn't say anything." |
+| YouTube discovery | 10 | Relieved, almost vindicated. Alex finds a video explaining that a santoku's flatter profile often works better with push cuts, chops, and shorter slicing motions than with a high rock. "Different blade, different motion. I've been trying to use my knife like it's someone else's knife. No wonder it felt wrong." |
 
 **Dinner parties (3 entries)**
 
 | Entry | Position | Tone & Content |
 |---|---|---|
-| First dinner party | 20 | Long entry, mixed emotions. Alex cooked for Sam, Priya, Jordan. Sourdough, a roasted chicken, a salad. Priya's feedback on the caramelization technique is a highlight — she explains the chemistry offhand and Alex is taking mental notes. Sam says the bread is "a little sour for me" and Alex tries not to care and clearly does. Jordan says the salad dressing was the best thing on the table. "I spent six hours on that chicken and the DRESSING is the best thing." Small moment of self-awareness: "Maybe Jordan's been right this whole time about keeping it simple." |
+| First dinner party | 20 | Long entry, mixed emotions. Alex cooked for Sam, Priya, Jordan. Sourdough, a roasted chicken, a salad. Priya's feedback on browning technique is a highlight — she explains Maillard chemistry offhand and Alex is taking mental notes. Sam says the bread is "a little sour for me" and Alex tries not to care and clearly does. Jordan says the salad dressing was the best thing on the table. "I spent six hours on that chicken and the DRESSING is the best thing." Small moment of self-awareness: "Maybe Jordan's been right this whole time about keeping it simple." |
 | Second dinner — Mrs. Park's visit | 22 | Alex makes kimchi jjigae for Mrs. Park. It doesn't go badly, exactly, but Alex can tell Mrs. Park is being polite. Later, Mrs. Park says the recipe Alex used has too much sugar and not enough gochugaru. "She said it like it was nothing, like she was telling me the weather. But I could tell — that recipe I've been following is wrong. Not wrong for someone's version of it, but wrong for what this dish is supposed to be." Alex spends the next two weeks researching traditional kimchi jjigae preparation. "The aged kimchi is the base, not a garnish. I had it backwards." |
 | Third dinner party | 24 | Triumphant. Sam says the sourdough is perfect. Alex writes about it for half a page. Priya notices Alex's knife work has improved and says so. Jordan makes the salad dressing this time. "The food was good tonight. I think it might have been actually good, not just good-for-me good. For the first time I could see it — the restaurant, the kitchen, whatever it ends up being. It felt possible. Not close. But possible. Someday. Eventually." |
 
@@ -407,15 +407,15 @@ These supplementary documents are ingested as their own episodes at the position
 
 | Position | Source | How Alex encounters it |
 |---|---|---|
-| 5 | Robertson — fermentation chapter | After failed sourdough bake |
-| 11 | Kenji López-Alt — emulsification | After failed ramen attempt |
-| 16 | Harold McGee — Maillard reaction | After Priya's caramelization comment at first dinner party |
+| 5 | Field — fermentation chapter | After failed sourdough bake |
+| 11 | Ito — paitan broth emulsions | After failed ramen attempt |
+| 16 | Food-science excerpt — Maillard browning | After Priya's browning comment at first dinner party |
 
 **Commercial product tasting (1 entry)**
 
 | Position | Tone & Content |
 |---|---|
-| 13 | Alex buys a Sun Noodle fresh ramen kit from the grocery store. "The noodles are exactly the texture I want. Springy, slightly alkaline. If Sun Noodle can do this commercially then it's a technique problem, not an ingredient problem. I need kansui." Short entry, purely analytical. |
+| 13 | Alex buys a fresh ramen kit from the grocery store. "The noodles are exactly the texture I want. Springy, slightly alkaline. If a grocery kit can do this, then kansui is probably part of what I'm missing — but it can't be the whole thing. Flour, hydration, sheeting, resting. Technique problem." Short entry, purely analytical. |
 
 ### Expected Assertion Totals
 
@@ -454,7 +454,7 @@ These supplementary documents are ingested as their own episodes at the position
 
 **"What did my guests think of the bread at the first dinner?"** — temporal snapshot at position 20. Should return Sam's "too sour" feedback.
 
-**"What food science explains my cloudy broth?"** — retrieve with `expandLinks: true` and `maxDepth: 2`. Should walk from the cloudy broth observation (position 9) → via `contextualizes` link to the Kenji emulsification assertion (position 11) → via `deepens` link to the second ramen attempt where the technique was successfully applied (position 14). This is a genuine multi-hop traversal: the query starts at a problem, walks through the explanation, and arrives at the solution. The output should show each hop and the link type connecting them.
+**"What food science explains my cloudy broth?"** — retrieve with `expandLinks: true` and `maxDepth: 2`. Should walk from the cloudy broth observation (position 9) → via `contextualizes` link to the Ito paitan assertion (position 11) → via `deepens` link to the second ramen attempt where the technique was successfully applied (position 14). This is a genuine multi-hop traversal: the query starts at a problem, walks through the explanation, and arrives at the solution. The output should show each hop and the link type connecting them.
 
 **"What have I tried that didn't work?"** — retrieve superseded assertions (`includeSuperseded: true`). Should return abandoned techniques: cold retard, baking soda noodles, the online kimchi jjigae recipe.
 
@@ -507,7 +507,7 @@ examples/
         ├── fixtures.ts        — pre-generated LLM extraction output
         ├── embeddings.ts      — pre-computed embedding vectors per assertion
         ├── alex.md            — Alex's full journal (all entries, chronological)
-        └── references/        — supplementary documents (Robertson, Kenji, McGee excerpts)
+        └── references/        — supplementary fictional food-science documents
 ```
 
 ---
@@ -545,7 +545,7 @@ The journal entries in `alex.md` are the creative heart of this example and need
 
 **Inconsistency is realistic.** Some entries are detailed and analytical. Some are three sentences. The gap between entries varies — sometimes daily during an intense cooking stretch, sometimes two weeks of silence. Alex doesn't always explain why. The reader can infer.
 
-**The father.** He appears only through Alex's offhand references. Never a dedicated entry, never a direct explanation of what happened. A phrase here and there: "Dad's Sunday stock," "before everything," "he would have liked this one." The extraction system should pick up these references as low-confidence assertions with the entity ID `alex-father` — and the "What would Dad think?" query should correctly return very little, because Alex doesn't write about this directly. The restraint is the point, both narratively and as a demonstration that the system doesn't over-extract.
+**The father.** He appears only through Alex's offhand references. Never a dedicated entry, never a direct explanation. A phrase here and there: "Dad's Sunday stock," "he would have liked this one." The extraction system should pick up these references as low-confidence assertions with the entity ID `alex-father` — and the "What would Dad think?" query should correctly return very little, because Alex doesn't write about this directly. The restraint is the point, both narratively and as a demonstration that the system doesn't over-extract.
 
 **Culinary school.** Similarly oblique. Alex mentions "school" a few times, always in passing. "This is what we were working on before I left." "Chef Morales used to say..." Never a full account of why Alex left or what happened. The journal is forward-looking; Alex is building toward something, not relitigating the past.
 
@@ -561,7 +561,7 @@ The journal entries in `alex.md` are the creative heart of this example and need
 
 **Narrative synthesis.** The prose summary at the end of Alex's Place is a nice touch but requires either a live LLM or a pre-written fixture. If fixture-only, it should be clearly labeled as pre-written. If live, it demonstrates a genuine downstream use case but adds another LLM call.
 
-**Reference document sourcing.** The Robertson, Kenji López-Alt, and McGee excerpts referenced in Alex's journal need to be either (a) sufficiently paraphrased to avoid copyright issues, (b) replaced with fictional food science content that makes the same points, or (c) omitted and represented only through Alex's journal descriptions of what they learned. Option (c) is the safest and may be sufficient — the extraction system can pull assertions from Alex's description of what they read without needing the source text.
+**Reference document sourcing.** The Alex example should use fictional food-science documents that make the same culinary points without reproducing real published excerpts. The extraction system can also pull assertions from Alex's description of what they learned without needing source text from real books or articles.
 
 **Additional examples.** The following scenarios were considered and deferred. They remain candidates for future additions:
 
