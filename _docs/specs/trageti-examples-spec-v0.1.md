@@ -166,22 +166,103 @@ This example uses trageti to build a temporal knowledge base over the library's 
 
 The tagline: "The only temporal RAG library that can explain its own history to you."
 
-### Data
+### Data: Keyframe Commits
 
-Episodes are the primary documents from trageti's development. Each is a source text at a specific position in the project's evolution:
+Rather than ingesting hand-curated spec documents, this example works directly from the repository's git history. A hand-curated manifest defines "keyframe" commits — moments of significant architectural change. The ingestion script processes each adjacent pair of keyframes, using git operations and two LLM calls per pair to produce episodes and assertions grounded in what actually changed in the codebase.
 
-| Position | Episode | Source |
-|---|---|---|
-| 1 | Spec v0.1 | `trageti-spec-v0.1.md` (archived) |
-| 2 | Spec v0.2 | `trageti-spec-v0.2.md` (archived) |
-| 3 | Spec v0.3 draft | `trageti-spec-v0.3-DRAFT.md` |
-| 4 | Spec v0.3 final | `trageti-spec-v0.3.md` |
-| 5 | v0.2.1 CHANGELOG entry | Extracted from CHANGELOG.md |
-| 6 | Design discussion excerpts | Curated excerpts from design conversations capturing rationale for key decisions |
+The manifest is a small, hand-maintained file:
 
-The spec files are long documents. The ingestion utility does not chunk — it sends the full document to the LLM. For specs that exceed a model's context limit, the example pre-segments them by section header and ingests each section as a sub-episode with a fractional position (e.g., 4.1, 4.2, 4.3 for sections of the v0.3 final spec).
+```typescript
+// examples/know-thyself/data/keyframes.ts
 
-Expected assertion count: 40–60 across all episodes, with rich supersession chains (the scoring model evolved three times, the citation requirement went from absent to optional to mandatory, the case formulation concept was introduced and then demoted).
+export const keyframes: Keyframe[] = [
+  {
+    hash: 'abc1234',
+    position: 1,
+    label: 'v0.1 initial spec',
+    date: '2026-04-15',
+  },
+  {
+    hash: 'def5678',
+    position: 2,
+    label: 'v0.2 citations + trajectory',
+    date: '2026-05-01',
+  },
+  {
+    hash: 'ghi9012',
+    position: 3,
+    label: 'v0.2.1 correctness patches',
+    date: '2026-05-10',
+  },
+  // ... 8–12 keyframes covering v0.1 through v0.3
+]
+```
+
+Adding a keyframe is the only manual curation required. Everything else is derived from git.
+
+### Ingestion: The generate-episodes Script
+
+The script processes each adjacent keyframe pair with two LLM calls and several git operations:
+
+```
+npx tsx examples/know-thyself/generate-episodes.ts [--context-length 8192]
+```
+
+**Per keyframe pair (prev, curr):**
+
+```
+1. git log curr -1 --format='%B'              → commit message
+2. git diff --stat prev curr                   → file change list with line counts
+3. git diff prev curr                          → full unified diff, truncated to fit
+                                                 within --context-length budget
+                                                 (default: 8192 tokens, roughly
+                                                 estimated at 0.25 tokens/char)
+4. LLM call 1 (aggregation):
+     Input: commit message + diff stat + truncated full diff
+     Prompt: "Summarize what materially changed between these two
+              commits. Focus on architectural and design-level
+              changes, not line-by-line code changes."
+     Output: plain-language summary of what changed and why
+
+5. LLM call 2 (extraction):
+     Input: commit message + diff stat + summary from step 4
+     Prompt: standard extraction prompt (assertions + links + citations)
+     Output: assertions, links, citations
+```
+
+Steps 1–3 are pure git operations. Steps 4–5 are LLM calls. The `--context-length` parameter controls how much of the full diff is included in step 3 — larger values produce more complete aggregation summaries at the cost of more tokens. This lets the same script work with a small local model (4K–8K) and a large cloud model (32K+) without code changes.
+
+**For the first keyframe** (no previous commit to diff against), the script uses the full content of the keyframe commit itself: `git show <hash>:<file>` for the key files (spec, types, schema, README), truncated to the context budget. The aggregation call summarizes the initial state rather than a diff.
+
+### Committed Artifacts
+
+Everything generated is committed so the example runs offline:
+
+```
+data/
+├── keyframes.ts          — hand-curated manifest (the only manual input)
+├── episodes.ts           — generated episode objects with summaries
+├── aggregations.ts       — raw LLM aggregation outputs per keyframe pair
+└── fixtures.ts           — extraction output (assertions, links, citations)
+```
+
+The `aggregations.ts` file is committed separately because it’s useful for debugging — if the extraction output looks wrong, you can check whether the aggregation summary captured the relevant changes before blaming the extraction prompt.
+
+### Regeneration Workflow
+
+```
+# After adding a new keyframe to keyframes.ts:
+npx tsx examples/know-thyself/generate-episodes.ts --context-length 32000
+npx tsx examples/know-thyself/generate-fixtures.ts
+git add examples/know-thyself/data/
+git commit -m "chore: regenerate know-thyself episodes and fixtures"
+```
+
+Both scripts use the same extractor resolution chain as all other examples (Anthropic → OpenAI-compatible → fixtures). Regeneration is a deliberate act, not an automatic process.
+
+### Expected Assertion Count
+
+40–60 assertions across 8–12 keyframe pairs, with rich supersession chains (the scoring model evolved three times, the citation requirement went from absent to optional to mandatory, the temporal model was renamed and generalized) and accumulation links (each spec version deepens core concepts without replacing them).
 
 ### What It Exercises
 
@@ -381,11 +462,13 @@ examples/
 │   ├── README.md              — description, setup, annotated output
 │   ├── index.ts               — main entry point
 │   ├── queries.ts             — query set with annotations
-│   ├── generate-fixtures.ts   — regenerate fixtures from live LLM
+│   ├── generate-episodes.ts   — build episodes from git keyframes (requires git history)
+│   ├── generate-fixtures.ts   — run extraction over episodes (requires LLM)
 │   └── data/
-│       ├── episodes.ts        — episode definitions with document paths
-│       ├── fixtures.ts        — pre-generated LLM extraction output
-│       └── docs/              — source documents (spec excerpts, changelog entries)
+│       ├── keyframes.ts       — hand-curated commit manifest (only manual input)
+│       ├── episodes.ts        — generated episode objects with summaries
+│       ├── aggregations.ts    — raw LLM aggregation outputs per keyframe pair
+│       └── fixtures.ts        — extraction output (assertions, links, citations)
 └── alex-place/
     ├── README.md
     ├── index.ts
@@ -446,7 +529,7 @@ The journal entries in `alex.md` are the creative heart of this example and need
 
 **Extraction quality variance.** The shared extraction prompt produces good results with Claude and acceptable results with larger Ollama models. Smaller local models may produce unparseable JSON or miss supersession relationships. The fixture path makes this a non-issue for the examples themselves, but the README should be honest about extraction quality being model-dependent.
 
-**Spec document length.** The trageti v0.3 spec is ~3,200 lines. Sending the full document to an LLM in a single extraction call may exceed context limits for smaller models. The sub-episode segmentation approach (splitting by section header, using fractional positions) is specified but adds complexity to the Know Thyself ingestion script.
+**Context length vs. diff accuracy.** The `--context-length` parameter on `generate-episodes.ts` controls how much of the full diff is included in the aggregation call. With a small budget (4K–8K), large diffs between keyframes will be truncated and the aggregation summary may miss changes at the tail end. With a large budget (32K+), most diffs fit entirely but the LLM call is more expensive. The default (8192) is conservative; the README should recommend higher values when using cloud models.
 
 **Narrative synthesis.** The prose summary at the end of Alex's Place is a nice touch but requires either a live LLM or a pre-written fixture. If fixture-only, it should be clearly labeled as pre-written. If live, it demonstrates a genuine downstream use case but adds another LLM call.
 
