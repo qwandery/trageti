@@ -2,9 +2,9 @@
 
 ## Package Specification v0.2
 
-**Status:** Design specification — initial prototype exists; v0.2 introduces breaking changes  
-**Date:** May 2026  
-**License intent:** MIT  
+**Status:** Design specification — initial prototype exists; v0.2 introduces breaking changes
+**Date:** May 2026
+**License intent:** MIT
 **Target runtime:** Node.js 18+ / TypeScript 5+
 
 ---
@@ -218,7 +218,7 @@ interface AssertionCitation {
   assertionId: string // FK → trl_assertions.id
   episodeId: string // FK → trl_episodes.id — required; validated at write time
   sourceRef: string // required, non-empty — caller-defined reference string
-  // format is opaque to the library; examples:
+  // format is opaque to the library; e.g.:
   //   "chunk:3"
   //   "0:08:14-0:12:30"
   //   "page:47:paragraph:2"

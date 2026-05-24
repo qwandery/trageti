@@ -1,4 +1,4 @@
-// Committed episode stand-ins for the alex-place skeleton. In the full example
+// Committed episode stand-ins for the alex-place skeleton. In the full demo
 // these would be derived from alex.md by a chunking/segmentation step; for the
 // skeleton they are hand-written and short.
 

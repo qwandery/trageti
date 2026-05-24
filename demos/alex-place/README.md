@@ -4,8 +4,8 @@
 determined record of someone teaching themselves what culinary school didn't
 have time to finish.*
 
-This is a **skeleton smoke test** of the full example described in
-`_docs/specs/trageti-examples-spec-v0.1.md`. The full spec calls for ~25
+This is a **skeleton smoke test** of the full demo described in
+`_docs/specs/trageti-demos-spec-v0.1.md`. The full spec calls for ~25
 journal entries across six months; the skeleton ships 4 entries plus one
 fictional reference document — enough to exercise the full ingestion +
 indexing + retrieval pipeline without writing a novella.
@@ -51,7 +51,7 @@ mode returns a clearly labelled pre-written paragraph; live mode runs a real
 LLM synthesis call. This is the canonical assembled-context → LLM pattern
 trageti is built for.
 
-## Skeleton scope vs. the full example
+## Skeleton scope vs. the full demo
 
 | | Skeleton | Full spec |
 |---|---|---|
@@ -71,7 +71,7 @@ is arbitrary until `generate-fixtures.ts` runs against a real embedder.
 ## Run
 
 ```pwsh
-npx tsx examples/alex-place/index.ts
+npx tsx demos/alex-place/index.ts
 ```
 
 Exits 0; prints annotated output for each query, then the narrative.

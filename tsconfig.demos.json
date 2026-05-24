@@ -8,6 +8,6 @@
       "trageti": ["./src/index.ts"]
     }
   },
-  "include": ["examples/**/*.ts", "src"],
+  "include": ["demos/**/*.ts", "src"],
   "exclude": ["node_modules", "dist"]
 }

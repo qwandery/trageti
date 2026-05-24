@@ -2,7 +2,7 @@
 // extractor, and run the resolved live embedder over every assertion content
 // + every query text. Writes data/fixtures.ts and data/embeddings.ts.
 //
-// Usage: npx tsx examples/know-thyself/generate-fixtures.ts
+// Usage: npx tsx demos/know-thyself/generate-fixtures.ts
 // Requires a live extractor env var AND a live embedder env var (paired).
 
 import { writeFileSync } from 'node:fs'
@@ -77,8 +77,8 @@ async function main(): Promise<void> {
     queryEmbeddings[t] = Array.from(v)
   }
 
-  const fixturesPath = resolve('examples/know-thyself/data/fixtures.ts')
-  const embeddingsPath = resolve('examples/know-thyself/data/embeddings.ts')
+  const fixturesPath = resolve('demos/know-thyself/data/fixtures.ts')
+  const embeddingsPath = resolve('demos/know-thyself/data/embeddings.ts')
   console.log(`-> would write ${fixturesPath} (${String(Object.keys(fixtures).length)} entries)`)
   console.log(`-> would write ${embeddingsPath} (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`)
   console.log('(file writing left to the operator — review LLM output before committing)')

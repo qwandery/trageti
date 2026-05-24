@@ -1,4 +1,4 @@
-# trageti Examples
+# trageti Demos
 ## Specification v0.1
 
 **Status:** Design specification
@@ -9,19 +9,19 @@
 
 ## Purpose
 
-The examples directory serves two audiences simultaneously. For developers evaluating the library, the examples are the first thing they'll read after the README — they need to demonstrate that trageti solves real problems, not toy ones. For developers already using the library, the examples are reference implementations of common patterns: ingestion, extraction, temporal querying, trajectory reconstruction, and link traversal.
+The demos directory serves two audiences simultaneously. For developers evaluating the library, the demos are the first thing they'll read after the README — they need to demonstrate that trageti solves real problems, not toy ones. For developers already using the library, the demos are reference implementations of common patterns: ingestion, extraction, temporal querying, trajectory reconstruction, and link traversal.
 
-Each example is a self-contained mini-application with realistic data, a functional ingestion pipeline, and a curated query set that exercises a specific slice of the library's capabilities. Each one runs standalone with `npx tsx examples/<name>/index.ts` and produces meaningful, annotated output. Each one works offline via pre-generated extraction fixtures, with an optional live LLM path for regeneration.
+Each demo is a self-contained mini-application with realistic data, a functional ingestion pipeline, and a curated query set that exercises a specific slice of the library's capabilities. Each one runs standalone with `npx tsx demos/<name>/index.ts` and produces meaningful, annotated output. Each one works offline via pre-generated extraction fixtures, with an optional live LLM path for regeneration.
 
 ---
 
 ## Shared Ingestion Infrastructure
 
-All examples share a minimal ingestion utility that lives in `examples/shared/`. This utility is explicitly not a published package — it is example-scoped infrastructure that demonstrates how consuming applications can build their own ingestion pipelines on top of trageti's write API.
+All demos share a minimal ingestion utility that lives in `demos/shared/`. This utility is explicitly not a published package — it is demo-scoped infrastructure that demonstrates how consuming applications can build their own ingestion pipelines on top of trageti's write API.
 
 ### Design Constraints
 
-The shared infrastructure must remain under 250 lines total. It must not introduce dependencies beyond trageti itself and `fetch`. It must not implement chunking, retry logic, approval workflows, or model abstraction — those are application concerns that belong in consuming projects, not in examples.
+The shared infrastructure must remain under 250 lines total. It must not introduce dependencies beyond trageti itself and `fetch`. It must not implement chunking, retry logic, approval workflows, or model abstraction — those are application concerns that belong in consuming projects, not in demos.
 
 ### `ingest()`
 
@@ -76,10 +76,10 @@ Three extractor implementations, selected per-environment:
 
 **`openaiExtractor(options)`** — calls any OpenAI-compatible API. This covers OpenAI itself, OpenRouter, Ollama (which exposes an OpenAI-compatible endpoint at `http://localhost:11434/v1`), llama.cpp server, LM Studio, LocalAI, and any other provider that implements the `/v1/chat/completions` interface. Takes `baseUrl`, `apiKey`, and `model` as parameters.
 
-**`fixtureExtractor(fixtures)`** — reads from a pre-generated fixture map keyed by episode ID. For offline execution, CI, and deterministic README output. The fixtures are generated once by running the example with a live extractor and committing the output.
+**`fixtureExtractor(fixtures)`** — reads from a pre-generated fixture map keyed by episode ID. For offline execution, CI, and deterministic README output. The fixtures are generated once by running the demo with a live extractor and committing the output.
 
 ```typescript
-// examples/shared/extractors.ts
+// demos/shared/extractors.ts
 
 /** Anthropic Messages API — different request format from OpenAI standard */
 function anthropicExtractor(apiKey: string): (prompt: string) => Promise<string> {
@@ -142,56 +142,56 @@ function fixtureExtractor(
 }
 ```
 
-Each example resolves an extractor by checking environment variables in order: `ANTHROPIC_API_KEY` selects Anthropic; `OPENAI_API_KEY` or `OPENROUTER_API_KEY` (with their respective base URLs) selects the OpenAI-compatible extractor; `OLLAMA_HOST` (defaulting to `http://localhost:11434/v1`) selects the OpenAI-compatible extractor pointed at a local Ollama instance. If none are available, fixtures are used. This means `npx tsx examples/<name>/index.ts` always works regardless of what's installed.
+Each demo resolves an extractor by checking environment variables in order: `ANTHROPIC_API_KEY` selects Anthropic; `OPENAI_API_KEY` or `OPENROUTER_API_KEY` (with their respective base URLs) selects the OpenAI-compatible extractor; `OLLAMA_HOST` (defaulting to `http://localhost:11434/v1`) selects the OpenAI-compatible extractor pointed at a local Ollama instance. If none are available, fixtures are used. This means `npx tsx demos/<name>/index.ts` always works regardless of what's installed.
 
 ### Embedding Providers
 
-Both examples use real, semantically meaningful embeddings via sqlite-vec. The embedding provider follows the same resolution pattern as the extractors:
+Both demos use real, semantically meaningful embeddings via sqlite-vec. The embedding provider follows the same resolution pattern as the extractors:
 
-**Live mode:** The example resolves an `EmbeddingProvider` based on available environment variables. Ollama's `/api/embeddings` endpoint and any OpenAI-compatible `/v1/embeddings` endpoint are supported. The provider is used both for indexing assertions at ingestion time and for embedding queries at retrieval time.
+**Live mode:** The demo resolves an `EmbeddingProvider` based on available environment variables. Ollama's `/api/embeddings` endpoint and any OpenAI-compatible `/v1/embeddings` endpoint are supported. The provider is used both for indexing assertions at ingestion time and for embedding queries at retrieval time.
 
 **Fixture mode:** Pre-computed embedding vectors (generated during fixture generation by a live provider) are loaded from `embeddings.ts` and supplied via `RawVectorProvider` — trageti's passthrough provider for caller-supplied vectors. The vectors are semantically meaningful (they were generated by a real model) even though no live model is running. sqlite-vec is exercised with real vector data in either mode.
 
-This means both examples demonstrate genuine hybrid retrieval: semantic similarity finds conceptually related assertions that keyword matching alone would miss, BM25 handles exact terminology, and the composite score shows the interaction between the two signals. Query output annotates `scoreComponents` for each result, making it visible which signal contributed to each retrieval.
+This means both demos demonstrate genuine hybrid retrieval: semantic similarity finds conceptually related assertions that keyword matching alone would miss, BM25 handles exact terminology, and the composite score shows the interaction between the two signals. Query output annotates `scoreComponents` for each result, making it visible which signal contributed to each retrieval.
 
 ### Fixture Generation
 
-Each example includes a `generate-fixtures` script that runs the full ingestion pipeline with a live extractor and a live embedding provider. The script writes both the LLM extraction output and the generated embedding vectors to committed fixture files.
+Each demo includes a `generate-fixtures` script that runs the full ingestion pipeline with a live extractor and a live embedding provider. The script writes both the LLM extraction output and the generated embedding vectors to committed fixture files.
 
 ```
-npx tsx examples/<name>/generate-fixtures.ts
+npx tsx demos/<name>/generate-fixtures.ts
 ```
 
 The fixture files:
 - `fixtures.ts` — extraction output: `Record<string, string>` mapping episode ID to raw LLM response JSON
 - `embeddings.ts` — pre-computed embedding vectors: `Record<string, number[]>` mapping assertion ID to embedding array
 
-At runtime, the example loads pre-computed embeddings via `RawVectorProvider` (trageti’s passthrough provider for caller-supplied vectors). This means sqlite-vec is exercised with real, semantically meaningful vectors even in fixture mode — the vectors were generated by a real embedding model during fixture generation, they just don’t require a live model at runtime.
+At runtime, the demo loads pre-computed embeddings via `RawVectorProvider` (trageti’s passthrough provider for caller-supplied vectors). This means sqlite-vec is exercised with real, semantically meaningful vectors even in fixture mode — the vectors were generated by a real embedding model during fixture generation, they just don’t require a live model at runtime.
 
-In live mode, the example uses whatever embedding provider is available (Ollama’s `/api/embeddings` endpoint, OpenAI’s embedding API, etc.) to generate vectors at ingestion time. The same provider is used for query embedding at retrieval time.
+In live mode, the demo uses whatever embedding provider is available (Ollama’s `/api/embeddings` endpoint, OpenAI’s embedding API, etc.) to generate vectors at ingestion time. The same provider is used for query embedding at retrieval time.
 
-Fixtures are regenerated when the extraction prompt changes, when the data changes, or when extraction quality needs improvement. They are version-controlled so the examples produce stable, reviewable output in CI.
+Fixtures are regenerated when the extraction prompt changes, when the data changes, or when extraction quality needs improvement. They are version-controlled so the demos produce stable, reviewable output in CI.
 
 ---
 
-## Example 1: Trageti Know Thyself!
+## Demo 1: Trageti Know Thyself!
 
 *trageti ingests its own development history and answers questions about its own evolution.*
 
 ### Concept
 
-This example uses trageti to build a temporal knowledge base over the library's own specifications, changelogs, and design decisions. It is simultaneously a dogfooding exercise, a demonstration of the library's temporal capabilities, and a genuinely useful tool for contributors who want to understand why something is the way it is without reading every spec revision.
+This demo uses trageti to build a temporal knowledge base over the library's own specifications, changelogs, and design decisions. It is simultaneously a dogfooding exercise, a demonstration of the library's temporal capabilities, and a genuinely useful tool for contributors who want to understand why something is the way it is without reading every spec revision.
 
 The tagline: "The only temporal RAG library that can explain its own history to you."
 
 ### Data: Keyframe Commits
 
-Rather than ingesting hand-curated spec documents, this example works directly from the repository's git history. A hand-curated manifest defines "keyframe" commits — moments of significant architectural change. The ingestion script processes each adjacent pair of keyframes, using git operations and two LLM calls per pair to produce episodes and assertions grounded in what actually changed in the codebase.
+Rather than ingesting hand-curated spec documents, this demo works directly from the repository's git history. A hand-curated manifest defines "keyframe" commits — moments of significant architectural change. The ingestion script processes each adjacent pair of keyframes, using git operations and two LLM calls per pair to produce episodes and assertions grounded in what actually changed in the codebase.
 
 The manifest is a small, hand-maintained file:
 
 ```typescript
-// examples/know-thyself/data/keyframes.ts
+// demos/know-thyself/data/keyframes.ts
 
 export const keyframes: Keyframe[] = [
   {
@@ -223,7 +223,7 @@ Adding a keyframe is the only manual curation required. Everything else is deriv
 The script processes each adjacent keyframe pair with two LLM calls and several git operations:
 
 ```
-npx tsx examples/know-thyself/generate-episodes.ts [--context-length 8192]
+npx tsx demos/know-thyself/generate-episodes.ts [--context-length 8192]
 ```
 
 **Per keyframe pair (prev, curr):**
@@ -254,7 +254,7 @@ Steps 1–3 are pure git operations. Steps 4–5 are LLM calls. The `--context-l
 
 ### Committed Artifacts
 
-Everything generated is committed so the example runs offline:
+Everything generated is committed so the demo runs offline:
 
 ```
 data/
@@ -270,13 +270,13 @@ The `aggregations.ts` file is committed separately because it’s useful for deb
 
 ```
 # After adding a new keyframe to keyframes.ts:
-npx tsx examples/know-thyself/generate-episodes.ts --context-length 32000
-npx tsx examples/know-thyself/generate-fixtures.ts
-git add examples/know-thyself/data/
+npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
+npx tsx demos/know-thyself/generate-fixtures.ts
+git add demos/know-thyself/data/
 git commit -m "chore: regenerate know-thyself episodes and fixtures"
 ```
 
-Both scripts use the same extractor resolution chain as all other examples (Anthropic → OpenAI-compatible → fixtures). Regeneration is a deliberate act, not an automatic process.
+Both scripts use the same extractor resolution chain as all other demos (Anthropic → OpenAI-compatible → fixtures). Regeneration is a deliberate act, not an automatic process.
 
 ### Expected Assertion Count
 
@@ -315,11 +315,11 @@ Both scripts use the same extractor resolution chain as all other examples (Anth
 
 ### Output Format
 
-The example prints annotated results for each query: the query text, the retrieval mode and strategy used, the number of results, and for each result the assertion content, its position, confidence, citation excerpt, and (in trajectory mode) the full supersession chain. Output is formatted for terminal readability with clear section breaks.
+The demo prints annotated results for each query: the query text, the retrieval mode and strategy used, the number of results, and for each result the assertion content, its position, confidence, citation excerpt, and (in trajectory mode) the full supersession chain. Output is formatted for terminal readability with clear section breaks.
 
 ---
 
-## Example 2: Alex's Place
+## Demo 2: Alex's Place
 
 *An aspiring chef's personal journal — the scattered, determined, sometimes vulnerable record of someone trying to teach themselves what culinary school didn't have time to finish.*
 
@@ -331,7 +331,7 @@ The data source is Alex's personal journal — a food diary that's mostly about 
 
 This is not a structured recipe log. It's a person's attempt to organize their own learning, written for themselves, not for an audience.
 
-### What Makes This Example Work
+### What Makes This Demo Work
 
 The journal format is the perfect ingestion challenge for temporal RAG because it mirrors real-world data: unstructured, inconsistent in timing and depth, mixing factual observations with emotional context, and requiring the extraction system to pull out the cooking knowledge while preserving the human texture that gives it meaning. Alex's journal is the kind of data that standard RAG would mangle — relevant chunks scattered across dozens of entries with no clear boundaries between "important technique observation" and "personal reflection." The temporal validity model is what makes it tractable: each assertion is anchored to when Alex understood it, and the supersession and accumulation links show how that understanding evolved.
 
@@ -470,14 +470,14 @@ These supplementary documents are ingested as their own episodes at the position
 
 ### Output Format
 
-Same annotated terminal format as Example 1. Additionally, Alex's Place outputs a "narrative summary" at the end — a generated prose paragraph (via the LLM if available, or a pre-written fixture) that synthesizes the current state of Alex's culinary journey based on the assertion store. This demonstrates a realistic downstream use of the retrieval API: assembled context feeding a synthesis pass, which is the core pattern trageti is designed to support.
+Same annotated terminal format as Demo 1. Additionally, Alex's Place outputs a "narrative summary" at the end — a generated prose paragraph (via the LLM if available, or a pre-written fixture) that synthesizes the current state of Alex's culinary journey based on the assertion store. This demonstrates a realistic downstream use of the retrieval API: assembled context feeding a synthesis pass, which is the core pattern trageti is designed to support.
 
 ---
 
 ## Package Structure
 
 ```
-examples/
+demos/
 ├── shared/
 │   ├── ingest.ts              — core ingestion function
 │   ├── prompt.ts              — default extraction prompt template
@@ -514,7 +514,7 @@ examples/
 
 ## Execution Modes
 
-Each example supports three execution modes determined by environment:
+Each demo supports three execution modes determined by environment:
 
 | Mode | Trigger | Behavior |
 |---|---|---|
@@ -524,22 +524,22 @@ Each example supports three execution modes determined by environment:
 | **Live (Ollama)** | `OLLAMA_HOST` set or Ollama running on localhost | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality. |
 | **Fixture** | None of the above available | Committed fixture files. Deterministic, offline, CI-safe. |
 
-The fixture path is the default — examples must always work without any external dependency. The README for each example documents all modes.
+The fixture path is the default — demos must always work without any external dependency. The README for each demo documents all modes.
 
 ### CI Integration
 
-The examples run in CI using fixtures. The CI job:
+The demos run in CI using fixtures. The CI job:
 1. Installs dependencies
-2. Runs each example via `npx tsx examples/<name>/index.ts`
+2. Runs each demo via `npx tsx demos/<name>/index.ts`
 3. Asserts that the exit code is 0 and that expected query results appear in stdout
 
-This is a lightweight integration test that verifies the examples work and that the API surface they exercise hasn't broken.
+This is a lightweight integration test that verifies the demos work and that the API surface they exercise hasn't broken.
 
 ---
 
 ## Writing Alex's Journal
 
-The journal entries in `alex.md` are the creative heart of this example and need to be written with care. They should feel like they were written by a real person for themselves, not by a developer constructing a test case. Some guidelines:
+The journal entries in `alex.md` are the creative heart of this demo and need to be written with care. They should feel like they were written by a real person for themselves, not by a developer constructing a test case. Some guidelines:
 
 **Voice.** Alex writes quickly and informally. Incomplete sentences are fine. Exclamation marks are genuine, not performative. Technical observations and emotional asides coexist in the same paragraph because that's how people think. Alex sometimes addresses the journal directly ("Note to self:") and sometimes just narrates.
 
@@ -555,15 +555,15 @@ The journal entries in `alex.md` are the creative heart of this example and need
 
 ## Open Questions
 
-**Extraction quality variance.** The shared extraction prompt produces good results with Claude and acceptable results with larger Ollama models. Smaller local models may produce unparseable JSON or miss supersession relationships. The fixture path makes this a non-issue for the examples themselves, but the README should be honest about extraction quality being model-dependent.
+**Extraction quality variance.** The shared extraction prompt produces good results with Claude and acceptable results with larger Ollama models. Smaller local models may produce unparseable JSON or miss supersession relationships. The fixture path makes this a non-issue for the demos themselves, but the README should be honest about extraction quality being model-dependent.
 
 **Context length vs. diff accuracy.** The `--context-length` parameter on `generate-episodes.ts` controls how much of the full diff is included in the aggregation call. With a small budget (4K–8K), large diffs between keyframes will be truncated and the aggregation summary may miss changes at the tail end. With a large budget (32K+), most diffs fit entirely but the LLM call is more expensive. The default (8192) is conservative; the README should recommend higher values when using cloud models.
 
 **Narrative synthesis.** The prose summary at the end of Alex's Place is a nice touch but requires either a live LLM or a pre-written fixture. If fixture-only, it should be clearly labeled as pre-written. If live, it demonstrates a genuine downstream use case but adds another LLM call.
 
-**Reference document sourcing.** The Alex example should use fictional food-science documents that make the same culinary points without reproducing real published excerpts. The extraction system can also pull assertions from Alex's description of what they learned without needing source text from real books or articles.
+**Reference document sourcing.** The Alex demo should use fictional food-science documents that make the same culinary points without reproducing real published excerpts. The extraction system can also pull assertions from Alex's description of what they learned without needing source text from real books or articles.
 
-**Additional examples.** The following scenarios were considered and deferred. They remain candidates for future additions:
+**Additional demos.** The following scenarios were considered and deferred. They remain candidates for future additions:
 
 - Incident postmortem timeline (SRE team tracking root cause evolution)
 - Legal case chronology (facts and positions evolving through discovery)

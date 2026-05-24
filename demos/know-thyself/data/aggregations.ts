@@ -1,4 +1,4 @@
-// Per-keyframe-pair aggregation summaries. In the full example these are
+// Per-keyframe-pair aggregation summaries. In the full demo these are
 // produced by generate-episodes.ts (LLM call 1: "summarize what materially
 // changed between these two commits"). Committed separately from fixtures so
 // debugging can compare the aggregation to the extraction output.

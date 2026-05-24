@@ -2,7 +2,7 @@
 // embedder over every assertion content + query text. Writes data/fixtures.ts
 // and data/embeddings.ts.
 //
-// Usage: npx tsx examples/alex-place/generate-fixtures.ts
+// Usage: npx tsx demos/alex-place/generate-fixtures.ts
 // Requires a live extractor env var AND a live embedder env var (paired).
 
 import { writeFileSync } from 'node:fs'
@@ -77,9 +77,9 @@ async function main(): Promise<void> {
     queryEmbeddings[t] = Array.from(v)
   }
 
-  console.log(`-> would write examples/alex-place/data/fixtures.ts (${String(Object.keys(fixtures).length)} entries)`)
+  console.log(`-> would write demos/alex-place/data/fixtures.ts (${String(Object.keys(fixtures).length)} entries)`)
   console.log(
-    `-> would write examples/alex-place/data/embeddings.ts (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`,
+    `-> would write demos/alex-place/data/embeddings.ts (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`,
   )
   console.log('(file writing left to the operator — review LLM output before committing)')
   void writeFileSync

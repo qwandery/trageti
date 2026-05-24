@@ -7,7 +7,7 @@
 //
 // Skeleton vectors are NOT semantically meaningful — they come from a small
 // deterministic hash and exist only to drive the pipeline offline. Regenerate
-// via `npx tsx examples/know-thyself/generate-fixtures.ts` against a real
+// via `npx tsx demos/know-thyself/generate-fixtures.ts` against a real
 // embedder for meaningful semantic ranking.
 
 import { parseExtraction } from '../../shared/parse.js'

@@ -1,6 +1,6 @@
 # Alex's Journal — skeleton excerpts
 
-(Skeleton: 4 dated entries. The full example in `_docs/specs/trageti-examples-spec-v0.1.md`
+(Skeleton: 4 dated entries. The full demo in `_docs/specs/trageti-demos-spec-v0.1.md`
 specifies ~25 entries across six months; the skeleton ships a sourdough
 mini-arc plus one ramen observation to keep the smoke test small.)
 

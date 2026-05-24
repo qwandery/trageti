@@ -1,4 +1,4 @@
-// Committed episode stand-ins for the skeleton. In the full example these are
+// Committed episode stand-ins for the skeleton. In the full demo these are
 // produced by generate-episodes.ts from git diffs; here they are hand-written
 // to keep the smoke test offline and reviewable.
 

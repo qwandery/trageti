@@ -2,14 +2,14 @@
 
 *trageti ingests its own development history and answers questions about its own evolution.*
 
-This is a **skeleton smoke test** of the full example described in
-`_docs/specs/trageti-examples-spec-v0.1.md`. It exercises the complete
+This is a **skeleton smoke test** of the full demo described in
+`_docs/specs/trageti-demos-spec-v0.1.md`. It exercises the complete
 ingestion + indexing + retrieval pipeline against 3 real keyframe commits
 from this repo's history, with hand-authored fixture data so it runs offline.
 
 ## What it does
 
-The example reads a hand-curated manifest of "keyframe" commits — moments of
+The demo reads a hand-curated manifest of "keyframe" commits — moments of
 significant architectural change in trageti — and treats each adjacent pair as
 the input to a temporal RAG pipeline. For each keyframe the committed
 `data/episodes.ts` provides an episode summary; the committed
@@ -29,7 +29,7 @@ After ingestion, the skeleton runs four queries:
 4. *"What was the temporal model as of v0.1?"* — `getTemporalSnapshot` at
    position 1, which returns the original `sequenceNumber` assertion.
 
-## Skeleton scope vs. the full example
+## Skeleton scope vs. the full demo
 
 | | Skeleton | Full spec |
 |---|---|---|
@@ -45,7 +45,7 @@ overwrites `data/embeddings.ts`.
 ## Run
 
 ```pwsh
-npx tsx examples/know-thyself/index.ts
+npx tsx demos/know-thyself/index.ts
 ```
 
 Exits 0; prints annotated output for each query.
@@ -69,12 +69,12 @@ against.
 ```pwsh
 # 1. Add a keyframe (or change an existing one) in data/keyframes.ts
 # 2. Regenerate episode summaries + aggregations from git:
-npx tsx examples/know-thyself/generate-episodes.ts --context-length 32000
+npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
 # 3. Regenerate extraction + embeddings:
-npx tsx examples/know-thyself/generate-fixtures.ts
+npx tsx demos/know-thyself/generate-fixtures.ts
 # 4. Commit data/
-git add examples/know-thyself/data/
-git commit -m "examples: regenerate know-thyself episodes and fixtures"
+git add demos/know-thyself/data/
+git commit -m "demos: regenerate know-thyself episodes and fixtures"
 ```
 
 Both regeneration scripts print proposed file contents to stdout — the
@@ -87,7 +87,7 @@ operator reviews and writes them to disk. Deliberate, not automatic.
   keying; `RawVectorProvider` is text-keyed, so `index.ts` re-keys at startup
   by walking the fixture assertions and pairing each `assertion.content` with
   `assertionEmbeddings[assertion.id]`.
-- Imports use the bare specifier `'trageti'`; `examples/tsconfig.json` maps it
+- Imports use the bare specifier `'trageti'`; `demos/tsconfig.json` maps it
   to `../src/index.ts` so `tsx` resolves it without a build step.
 - The skeleton uses `embeddingDimension: 768` (matches Ollama
   `nomic-embed-text` and OpenAI `text-embedding-3-small` with `dimensions:

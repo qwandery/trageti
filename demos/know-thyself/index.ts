@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   printBanner(`know-thyself — mode: ${mode.label}`)
 
   const store = await TemporalStore.create({
-    database: ':memory:',
+    database: './know-thyself.db',
     namespace: NAMESPACE,
     embeddingDimension: EMBEDDING_DIMENSION,
     embeddingProvider: mode.embedder,

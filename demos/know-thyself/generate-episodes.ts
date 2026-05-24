@@ -2,7 +2,7 @@
 // keyframe manifest by running git operations and an LLM aggregation call per
 // keyframe pair.
 //
-// Usage: npx tsx examples/know-thyself/generate-episodes.ts [--context-length N]
+// Usage: npx tsx demos/know-thyself/generate-episodes.ts [--context-length N]
 //
 // Default context length: 8192 tokens (≈0.25 tokens/char). Raise for larger
 // cloud models. Requires a live extractor env var; never runs in fixture mode.

@@ -1,6 +1,6 @@
 // Hand-curated keyframe manifest — moments of significant architectural change
-// in trageti's history. The only manual curation in this example; everything
-// else is derived from git. The skeleton ships 3 keyframes; the full example
+// in trageti's history. The only manual curation in this demo; everything
+// else is derived from git. The skeleton ships 3 keyframes; the full demo
 // would cover 8–12 across v0.1 through v0.3.
 
 export interface Keyframe {

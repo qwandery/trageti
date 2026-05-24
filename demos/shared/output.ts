@@ -1,4 +1,4 @@
-// Terminal output for the example query runners. Prints raw scoreComponents
+// Terminal output for the demo query runners. Prints raw scoreComponents
 // and applied-signal flags from RetrievalMeta so the hybrid retrieval demo is
 // observable, plus typed AssertionLink hops for the multi-hop demo.
 
