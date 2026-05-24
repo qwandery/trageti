@@ -4,6 +4,7 @@
 // assembleContext → LLM pattern trageti is designed to support.
 
 import type { TemporalStore } from 'trageti'
+import type { ExtractionProvider } from '../shared/providers.js'
 
 const PRE_WRITTEN =
   '(pre-written synthesis — set ANTHROPIC_API_KEY or OPENAI_API_KEY for live synthesis)\n' +
@@ -16,7 +17,7 @@ const PRE_WRITTEN =
 
 export async function generateNarrative(
   store: TemporalStore,
-  extract: (prompt: string) => Promise<string>,
+  extractor: ExtractionProvider,
   isLive: boolean,
 ): Promise<string> {
   const ctx = await store.assembleContext({
@@ -31,5 +32,5 @@ export async function generateNarrative(
   const prompt = `Below is a context window summarising the current state of a home cook's culinary journal. Write a single warm paragraph (3-5 sentences) synthesising where they are right now. Be specific, avoid lists, and let the human texture come through.
 
 ${ctx.text}`
-  return extract(prompt)
+  return extractor.extract(prompt)
 }

@@ -1,16 +1,15 @@
 // Functional reference: build data/episodes.ts + data/aggregations.ts from the
-// keyframe manifest by running git operations and an LLM aggregation call per
-// keyframe pair.
+// keyframe manifest by running git operations and a live LLM aggregation call.
 //
 // Usage: npx tsx demos/know-thyself/generate-episodes.ts [--context-length N]
-//
-// Default context length: 8192 tokens (≈0.25 tokens/char). Raise for larger
-// cloud models. Requires a live extractor env var; never runs in fixture mode.
+// PowerShell: .\node_modules\.bin\tsx.cmd demos\know-thyself\generate-episodes.ts
 
+import 'dotenv/config'
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { anthropicExtractor, openaiExtractor } from '../shared/extractors.js'
+import type { ExtractionProvider } from '../shared/providers.js'
+import { resolveLiveExtractionProvider } from '../shared/providers.js'
 import { keyframes, type Keyframe } from './data/keyframes.js'
 
 function git(args: readonly string[]): string {
@@ -22,17 +21,8 @@ function truncateToTokenBudget(text: string, tokenBudget: number): string {
   return text.length <= charBudget ? text : text.slice(0, charBudget) + '\n... [truncated]'
 }
 
-function resolveExtractor(): (prompt: string) => Promise<string> {
-  const anthropic = process.env['ANTHROPIC_API_KEY']
-  if (anthropic) return anthropicExtractor(anthropic)
-  const openai = process.env['OPENAI_API_KEY']
-  if (openai)
-    return openaiExtractor({ baseUrl: 'https://api.openai.com/v1', apiKey: openai, model: 'gpt-4o-mini' })
-  throw new Error('generate-episodes requires ANTHROPIC_API_KEY or OPENAI_API_KEY')
-}
-
 async function summarizePair(
-  extract: (p: string) => Promise<string>,
+  extractor: ExtractionProvider,
   prev: Keyframe,
   curr: Keyframe,
   tokenBudget: number,
@@ -41,11 +31,11 @@ async function summarizePair(
   const stat = git(['diff', '--stat', prev.hash, curr.hash])
   const diff = truncateToTokenBudget(git(['diff', prev.hash, curr.hash]), tokenBudget)
   const prompt = `Summarize what materially changed between commit ${prev.hash} (${prev.label}) and commit ${curr.hash} (${curr.label}). Focus on architectural and design-level changes, not line-by-line code changes.\n\nCommit message:\n${message}\n\nDiff stat:\n${stat}\n\nFull diff:\n${diff}\n\nOutput 2-3 sentences of plain prose.`
-  return extract(prompt)
+  return extractor.extract(prompt)
 }
 
 async function summarizeFirst(
-  extract: (p: string) => Promise<string>,
+  extractor: ExtractionProvider,
   first: Keyframe,
   tokenBudget: number,
 ): Promise<string> {
@@ -61,12 +51,12 @@ async function summarizeFirst(
   }
   const body = truncateToTokenBudget(contents.join('\n\n'), tokenBudget)
   const prompt = `Summarize the initial state of the project at commit ${first.hash} (${first.label}). Focus on architectural and design-level facts.\n\nCommit message:\n${message}\n\nKey files:\n${body}\n\nOutput 2-3 sentences of plain prose.`
-  return extract(prompt)
+  return extractor.extract(prompt)
 }
 
 async function main(): Promise<void> {
   const tokenBudget = Number(process.argv[process.argv.indexOf('--context-length') + 1]) || 8192
-  const extract = resolveExtractor()
+  const extractor = resolveLiveExtractionProvider()
 
   const aggregations: Record<string, string> = {}
   const episodes: Array<{ id: string; position: number; content: string }> = []
@@ -77,11 +67,11 @@ async function main(): Promise<void> {
     const id = `kf-${String(kf.position)}`
     let summary: string
     if (i === 0) {
-      summary = await summarizeFirst(extract, kf, tokenBudget)
+      summary = await summarizeFirst(extractor, kf, tokenBudget)
     } else {
       const prev = keyframes[i - 1]
       if (!prev) throw new Error(`unreachable: previous keyframe missing at ${String(i)}`)
-      summary = await summarizePair(extract, prev, kf, tokenBudget)
+      summary = await summarizePair(extractor, prev, kf, tokenBudget)
       aggregations[`kf-${String(prev.position)}..${id}`] = summary
     }
     episodes.push({ id, position: kf.position, content: summary })
@@ -92,9 +82,6 @@ async function main(): Promise<void> {
   console.log('')
   console.log('(commit the above into data/episodes.ts and data/aggregations.ts manually)')
 
-  // Optional: write the files directly. Left as console output by default
-  // because the data/*.ts files include namespace + type metadata the LLM
-  // doesn't produce.
   void writeFileSync
   void resolve
 }

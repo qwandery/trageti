@@ -1,50 +1,24 @@
-// Functional reference: run extraction over the committed episodes via a live
-// extractor, and run the resolved live embedder over every assertion content
-// + every query text. Writes data/fixtures.ts and data/embeddings.ts.
+// Functional reference: run extraction over committed episodes via a live
+// extractor, then embed every assertion content + query text via a live embedder.
 //
 // Usage: npx tsx demos/know-thyself/generate-fixtures.ts
-// Requires a live extractor env var AND a live embedder env var (paired).
+// PowerShell: .\node_modules\.bin\tsx.cmd demos\know-thyself\generate-fixtures.ts
 
+import 'dotenv/config'
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import {
-  anthropicExtractor,
-  openaiExtractor,
-  ollamaEmbeddingProvider,
-  openaiEmbeddingProvider,
-} from '../shared/extractors.js'
 import { buildExtractionPrompt } from '../shared/prompt.js'
 import { parseExtraction } from '../shared/parse.js'
+import {
+  resolveLiveEmbeddingProvider,
+  resolveLiveExtractionProvider,
+} from '../shared/providers.js'
 import { episodes } from './data/episodes.js'
 import { QUERY_TEXTS, EMBEDDING_DIMENSION } from './data/embeddings.js'
 
 async function main(): Promise<void> {
-  const anthropic = process.env['ANTHROPIC_API_KEY']
-  const openai = process.env['OPENAI_API_KEY']
-  const ollamaHost = process.env['OLLAMA_HOST']
-
-  const extract = anthropic
-    ? anthropicExtractor(anthropic)
-    : openai
-      ? openaiExtractor({ baseUrl: 'https://api.openai.com/v1', apiKey: openai, model: 'gpt-4o-mini' })
-      : null
-  if (!extract) throw new Error('generate-fixtures requires ANTHROPIC_API_KEY or OPENAI_API_KEY')
-
-  const embedder = openai
-    ? openaiEmbeddingProvider({
-        baseUrl: 'https://api.openai.com/v1',
-        apiKey: openai,
-        model: 'text-embedding-3-small',
-        dimension: EMBEDDING_DIMENSION,
-      })
-    : ollamaHost
-      ? ollamaEmbeddingProvider({
-          host: ollamaHost,
-          model: 'nomic-embed-text',
-          dimension: EMBEDDING_DIMENSION,
-        })
-      : null
-  if (!embedder) throw new Error('generate-fixtures requires OPENAI_API_KEY or OLLAMA_HOST for embeddings')
+  const extractor = resolveLiveExtractionProvider()
+  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION }).provider
 
   const fixtures: Record<string, string> = {}
   const assertionEmbeddings: Record<string, number[]> = {}
@@ -52,7 +26,7 @@ async function main(): Promise<void> {
 
   for (const episode of episodes) {
     const prompt = buildExtractionPrompt(episode.content, [])
-    const raw = await extract(prompt)
+    const raw = await extractor.extract(prompt, { episodeId: episode.id })
     fixtures[episode.id] = raw
     const result = parseExtraction(raw)
     for (const a of result.assertions) {
@@ -80,8 +54,10 @@ async function main(): Promise<void> {
   const fixturesPath = resolve('demos/know-thyself/data/fixtures.ts')
   const embeddingsPath = resolve('demos/know-thyself/data/embeddings.ts')
   console.log(`-> would write ${fixturesPath} (${String(Object.keys(fixtures).length)} entries)`)
-  console.log(`-> would write ${embeddingsPath} (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`)
-  console.log('(file writing left to the operator — review LLM output before committing)')
+  console.log(
+    `-> would write ${embeddingsPath} (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`,
+  )
+  console.log('(file writing left to the operator - review LLM output before committing)')
   void writeFileSync
 }
 
