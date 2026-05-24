@@ -16,14 +16,34 @@ export function runtimeDbPath(demoName: string): string {
 export function demoDataVersion(
   demoName: string,
   episodes: readonly Omit<Episode, 'createdAt'>[],
-  fixtures?: Record<string, string>,
+  fixtures: Record<string, string>,
+  assertionEmbeddings: Record<string, number[]>,
+  queryEmbeddings: Record<string, number[]>,
+  queryTexts: readonly string[],
 ): string {
+  // assertionEmbeddings and queryEmbeddings are always hashed even in live-embed mode.
+  // Changing committed vectors forces a DB rebuild that wasn't strictly necessary — acceptable
+  // conservatism for demos.
   const payload = {
     demoName,
-    episodes: episodes.map((e) => ({ id: e.id, namespace: e.namespace, position: e.position, type: e.type })),
-    fixtureKeys: fixtures ? Object.keys(fixtures).sort() : [],
+    episodes: episodes.map((e) => ({
+      id: e.id,
+      namespace: e.namespace,
+      position: e.position,
+      type: e.type,
+      content: e.content,
+      occurredAt: e.occurredAt,
+    })),
+    fixtures: sortRecordByKey(fixtures),
+    assertionEmbeddings: sortRecordByKey(assertionEmbeddings),
+    queryEmbeddings: sortRecordByKey(queryEmbeddings),
+    queryTexts,
   }
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16)
+}
+
+function sortRecordByKey<T>(record: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)))
 }
 
 export function ensureDemoMetadata(options: {

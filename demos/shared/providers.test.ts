@@ -131,6 +131,66 @@ describe('ingest normalization', () => {
   })
 })
 
+describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
+  const minOptions = {
+    fixtures: { 'ep-1': '{"assertions":[],"links":[]}' },
+    assertionEmbeddings: {},
+    queryEmbeddings: {},
+    queryTexts: [] as string[],
+    embeddingDimension: 4,
+  }
+
+  it('throws when ANTHROPIC_API_KEY is set without an embedding provider', () => {
+    expect(() =>
+      resolveDemoProviders({ ...minOptions, env: { ANTHROPIC_API_KEY: 'sk-ant-test' } }),
+    ).toThrow('Live extraction requires a live embedding provider')
+  })
+
+  it('throws when OPENROUTER_API_KEY is set without an embedding provider', () => {
+    expect(() =>
+      resolveDemoProviders({ ...minOptions, env: { OPENROUTER_API_KEY: 'sk-or-test' } }),
+    ).toThrow('Live extraction requires a live embedding provider')
+  })
+
+  it('throws when DEMO_EXTRACT_PROVIDER=anthropic and DEMO_EMBED_PROVIDER=fixture', () => {
+    expect(() =>
+      resolveDemoProviders({
+        ...minOptions,
+        env: { DEMO_EXTRACT_PROVIDER: 'anthropic', DEMO_EMBED_PROVIDER: 'fixture', ANTHROPIC_API_KEY: 'sk-ant-test' },
+      }),
+    ).toThrow('Live extraction requires a live embedding provider')
+  })
+
+  it('throws when DEMO_EXTRACT_PROVIDER=openai-compatible and DEMO_EMBED_PROVIDER=fixture', () => {
+    expect(() =>
+      resolveDemoProviders({
+        ...minOptions,
+        env: {
+          DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+          DEMO_EMBED_PROVIDER: 'fixture',
+          DEMO_EXTRACT_BASE_URL: 'http://localhost:8080/v1',
+          OPENAI_API_KEY: 'sk-test',
+        },
+      }),
+    ).toThrow('Live extraction requires a live embedding provider')
+  })
+
+  it('does NOT throw when DEMO_EXTRACT_PROVIDER=fixture and DEMO_EMBED_PROVIDER=openai-compatible', () => {
+    expect(() =>
+      resolveDemoProviders({
+        ...minOptions,
+        env: {
+          DEMO_EXTRACT_PROVIDER: 'fixture',
+          DEMO_EMBED_PROVIDER: 'openai-compatible',
+          DEMO_EMBED_BASE_URL: 'http://localhost:8080/v1',
+          DEMO_EMBED_MODEL: 'text-embedding-3-small',
+          OPENAI_API_KEY: 'sk-test',
+        },
+      }),
+    ).not.toThrow()
+  })
+})
+
 function providerReturning(raw: string): ExtractionProvider {
   return {
     name: 'test',

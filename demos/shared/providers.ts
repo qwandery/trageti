@@ -258,6 +258,14 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
   const extractProvider = explicitExtract ?? inferExtractionProvider(env, hasAnyLiveHint)
   const embedProvider = explicitEmbed ?? inferEmbeddingProvider(env, hasAnyLiveHint)
 
+  if (extractProvider !== 'fixture' && embedProvider === 'fixture') {
+    throw new Error(
+      'Live extraction requires a live embedding provider.\n' +
+        'Set DEMO_EMBED_PROVIDER with its required config (DEMO_EMBED_BASE_URL, DEMO_EMBED_MODEL, key),\n' +
+        'or unset the live extraction config to run in fixture mode.',
+    )
+  }
+
   const extractor =
     extractProvider === 'fixture'
       ? createFixtureExtractionProvider(options.fixtures)

@@ -1,6 +1,12 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      trageti: fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+    },
+  },
   test: {
     globals: false,
     pool: 'forks',

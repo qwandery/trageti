@@ -1,6 +1,6 @@
 // Committed extraction-output stand-ins, raw-JSON ExtractionResult per episode.
-// Keys iterate in position order (journal-1 → journal-5); fixtureExtractor is
-// call-index based and index.ts iterates episodes in the same order.
+// fixtures[episodeId] is the exact string the fixture extractor returns for that
+// episode (keyed by episode ID, not call index).
 
 export const fixtures: Record<string, string> = {
   'journal-1': JSON.stringify({

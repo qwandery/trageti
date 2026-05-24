@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   ensureDemoMetadata({
     database,
     demoName: 'know-thyself',
-    dataVersion: demoDataVersion('know-thyself', episodes, fixtures),
+    dataVersion: demoDataVersion('know-thyself', episodes, fixtures, assertionEmbeddings, queryEmbeddings, QUERY_TEXTS),
     providers,
   })
 
@@ -60,9 +60,9 @@ async function main(): Promise<void> {
     providers,
   }
   await ingestEpisodes(
-    providers.isLive
-      ? ingestOptions
-      : { ...ingestOptions, expectedFixtureAssertionIds: expectedFixtureAssertionIds(fixtures) },
+    providers.extractor.provenance.kind === 'fixture'
+      ? { ...ingestOptions, expectedFixtureAssertionIds: expectedFixtureAssertionIds(fixtures) }
+      : ingestOptions,
   )
 
   for (const { annotation, query } of retrieveQueries) {
