@@ -12,10 +12,22 @@ export interface RetrieveCase {
 
 export const retrieveQueries: readonly RetrieveCase[] = [
   {
-    annotation: '"What do I currently know about sourdough?" (hybrid snapshot @ position 5)',
+    annotation:
+      '"What did Alex know about making sourdough on January 20, 2026?" (early snapshot)',
     query: {
       namespace: NAMESPACE,
-      queryText: 'What do I currently know about sourdough?',
+      queryText: 'What did Alex know about making sourdough on January 20, 2026?',
+      temporalAnchor: 2,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      limit: 3,
+    },
+  },
+  {
+    annotation: '"What does Alex know about making sourdough today?" (latest snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What does Alex know about making sourdough today?',
       temporalAnchor: 5,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',

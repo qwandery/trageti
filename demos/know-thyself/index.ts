@@ -5,6 +5,7 @@
 import 'dotenv/config'
 import { TemporalStore } from 'trageti'
 import {
+  createDemoTimeline,
   createDemoLogger,
   printBanner,
   printProviderSummary,
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
     embeddingDimension: EMBEDDING_DIMENSION,
   })
   printBanner(`know-thyself - mode: ${providers.modeLabel}`)
+  const timeline = createDemoTimeline(episodes)
 
   const database = runtimeDbPath('know-thyself')
   const logger = createDemoLogger()
@@ -82,12 +84,12 @@ async function main(): Promise<void> {
   logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
     const result = await store.retrieve(query)
-    printRetrievalResult(annotation, query, result)
+    printRetrievalResult(annotation, query, result, timeline)
   }
 
   logger.step('Running temporal snapshot query')
   const snapshot = await store.getTemporalSnapshot(snapshotAtV01.options)
-  printSnapshot(`Query ${snapshotAtV01.annotation}`, snapshot)
+  printSnapshot(`Query ${snapshotAtV01.annotation}`, snapshot, { timeline })
 
   logger.step('Closing TemporalStore')
   await store.close()

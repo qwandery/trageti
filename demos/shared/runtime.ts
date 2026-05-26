@@ -139,14 +139,11 @@ export async function ingestEpisodes(options: {
   )
   const accumulated: Assertion[] = []
   for (const episode of options.episodes) {
-    options.logger?.detail(
-      `Source episode ${episode.id}: position ${String(episode.position)}, type ${episode.type}`,
-    )
     const existing = await options.store.getEpisode(episode.id)
     if (existing !== null) {
       validateExistingEpisode(existing, episode)
       options.logger?.detail(
-        `  Reuse: episode already exists; metadata matches, so stored assertions/links are reused instead of duplicated`,
+        `${formatEpisode(episode)}: already in SQLite; validated and reused stored assertions/links.`,
       )
       await reloadAccumulated(options.store, options.namespace, accumulated)
       continue
@@ -159,23 +156,12 @@ export async function ingestEpisodes(options: {
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
     })
-    options.logger?.detail(
-      `  Extract + store: wrote ${String(result.assertions.length)} assertion(s) and ${String(result.links.length)} typed link(s) to SQLite`,
-    )
-    for (const assertion of result.assertions) {
-      options.logger?.detail(
-        `    assertion ${assertion.id}: ${truncate(assertion.content, 96)}`,
-      )
-    }
-    for (const link of result.links) {
-      options.logger?.detail(
-        `    link ${link.id}: ${link.fromId} --[${link.linkType}]--> ${link.toId}`,
-      )
-    }
     await indexResult(options.store, result)
     options.logger?.detail(
-      `  Vector index: embedded and indexed ${String(result.assertions.length)} assertion text(s)`,
+      `${formatEpisode(episode)}: stored ${formatCount(result.assertions.length, 'claim')}, ` +
+        `${formatLinkSummary(result.links)}, and indexed ${formatCount(result.assertions.length, 'vector')}.`,
     )
+    options.logger?.detail(`  Claims: ${formatClaimSummary(result.assertions)}`)
     await reloadAccumulated(options.store, options.namespace, accumulated)
   }
   await verifyComplete(options)
@@ -184,6 +170,42 @@ export async function ingestEpisodes(options: {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 3) + '...'
+}
+
+function formatEpisode(episode: Omit<Episode, 'createdAt'>): string {
+  return `${formatDateTime(episode.occurredAt)} (pos ${String(episode.position)}, ${episode.type})`
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    timeZoneName: 'short',
+  }).format(new Date(value))
+}
+
+function formatClaimSummary(assertions: readonly ExtractionResult['assertions'][number][]): string {
+  if (assertions.length === 0) return 'none'
+  const shown = assertions.slice(0, 3).map((a) => truncate(a.content, 72))
+  const suffix = assertions.length > shown.length ? `; +${String(assertions.length - shown.length)} more` : ''
+  return shown.join('; ') + suffix
+}
+
+function formatLinkSummary(links: readonly ExtractionResult['links'][number][]): string {
+  if (links.length === 0) return 'no links'
+  const byType = new Map<string, number>()
+  for (const link of links) byType.set(link.linkType, (byType.get(link.linkType) ?? 0) + 1)
+  return [...byType.entries()]
+    .map(([type, count]) => formatCount(count, type + ' link'))
+    .join(', ')
+}
+
+function formatCount(count: number, noun: string): string {
+  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
 }
 
 export function expectedFixtureAssertionIds(fixtures: Record<string, string>): string[] {

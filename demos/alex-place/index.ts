@@ -4,6 +4,7 @@
 import 'dotenv/config'
 import { TemporalStore } from 'trageti'
 import {
+  createDemoTimeline,
   createDemoLogger,
   printBanner,
   printProviderSummary,
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
     embeddingDimension: EMBEDDING_DIMENSION,
   })
   printBanner(`alex-place - mode: ${providers.modeLabel}`)
+  const timeline = createDemoTimeline(episodes)
 
   const database = runtimeDbPath('alex-place')
   const logger = createDemoLogger()
@@ -88,7 +90,7 @@ async function main(): Promise<void> {
   logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
     const result = await store.retrieve(query)
-    printRetrievalResult(annotation, query, result)
+    printRetrievalResult(annotation, query, result, timeline)
   }
 
   logger.step('Running graph path query')
@@ -99,11 +101,13 @@ async function main(): Promise<void> {
     temporalAnchor: literaturePathQuery.options.temporalAnchor,
     maxDepth: literaturePathQuery.options.maxDepth,
     liveMode: providers.isLive,
+    timeline,
   })
 
   logger.step('Running entity history query')
   const dadHistory = await store.getEntityHistory(dadEntityQuery.namespace, dadEntityQuery.entityId)
   printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory, {
+    timeline,
     emptyMessage:
       `No assertions currently use entityId "${dadEntityQuery.entityId}". ` +
       (providers.isLive

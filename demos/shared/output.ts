@@ -8,10 +8,23 @@ import type {
   RetrievalQuery,
   RetrievalResult,
   RetrievedAssertion,
+  Episode,
 } from 'trageti'
 import type { DemoRunLogger } from './runtime.js'
 
 const RULE = '-'.repeat(72)
+
+export interface DemoTimeline {
+  byPosition: ReadonlyMap<number, Omit<Episode, 'createdAt'>>
+  byEpisodeId: ReadonlyMap<string, Omit<Episode, 'createdAt'>>
+}
+
+export function createDemoTimeline(episodes: readonly Omit<Episode, 'createdAt'>[]): DemoTimeline {
+  return {
+    byPosition: new Map(episodes.map((episode) => [episode.position, episode])),
+    byEpisodeId: new Map(episodes.map((episode) => [episode.id, episode])),
+  }
+}
 
 export function printBanner(title: string): void {
   console.log(RULE)
@@ -58,14 +71,15 @@ export function printRetrievalResult(
   annotation: string,
   query: RetrievalQuery,
   result: RetrievalResult,
+  timeline?: DemoTimeline,
 ): void {
-  printQueryHeader(annotation, query, result.meta)
+  printQueryHeader(annotation, query, result.meta, timeline)
   if (result.results.length === 0) {
     console.log('  No matching assertions returned.')
     return
   }
   for (const [i, r] of result.results.entries()) {
-    printAssertion(r, i)
+    printAssertion(r, i, timeline)
   }
 }
 
@@ -73,6 +87,7 @@ export function printQueryHeader(
   annotation: string,
   query: RetrievalQuery,
   meta: RetrievalMeta,
+  timeline?: DemoTimeline,
 ): void {
   console.log('')
   console.log(RULE)
@@ -81,11 +96,12 @@ export function printQueryHeader(
   console.log(`  Text: ${query.queryText ?? '(query embedding only)'}`)
   console.log(`  Namespace: ${meta.namespace}`)
   console.log(
-    `  Temporal scope: ${describeTemporalScope(query, meta)}; mode=${query.mode ?? 'snapshot'}`,
+    `  Time view: ${describeTemporalScope(query, meta, timeline)}; mode=${query.mode ?? 'snapshot'}`,
   )
   console.log(
-    `  Retrieval: strategy=${meta.retrievalStrategy}; vector=${applied(meta.vectorApplied)}; ` +
-      `BM25=${applied(meta.bm25Applied)}; candidates=${String(meta.candidateCount)}; limit=${String(meta.limit)}`,
+    `  Retrieval: ${meta.retrievalStrategy}; vector ${applied(meta.vectorApplied)}, ` +
+      `BM25 ${applied(meta.bm25Applied)}; ${String(meta.candidateCount)} candidates, ` +
+      `top ${String(meta.limit)}`,
   )
   if (meta.queryTextMode) console.log(`  Text search mode: ${meta.queryTextMode}`)
   if (meta.tookMs !== undefined) console.log(`  Runtime: ${meta.tookMs.toFixed(1)} ms`)
@@ -96,21 +112,15 @@ export function printQueryHeader(
   }
 }
 
-export function printAssertion(a: RetrievedAssertion, index: number): void {
+export function printAssertion(a: RetrievedAssertion, index: number, timeline?: DemoTimeline): void {
   console.log('')
   console.log(`  Result ${String(index + 1)}: ${a.content}`)
-  console.log(`    Assertion: ${a.id} (${a.type})`)
+  console.log(`    Time: ${describeAssertionValidity(a, timeline)}`)
   console.log(
-    `    Temporal: valid from position ${String(a.validFrom)}${a.validUntil === null ? '; currently active' : ` until position ${String(a.validUntil)}`}`,
+    `    Source: ${describeEpisode(a.sourceEpisodeId, timeline)}; ` +
+      `${a.type}, confidence ${a.confidence.toFixed(2)}`,
   )
-  console.log(
-    `    Confidence: ${a.confidence.toFixed(2)}; final rank score: ${a.score.toFixed(3)}`,
-  )
-  console.log(
-    `    Ranking signals: semantic distance=${formatDistance(a.scoreComponents.semanticDistance)}; ` +
-      `BM25=${formatBm25(a.scoreComponents.bm25Score)}; position=${String(a.scoreComponents.position)}`,
-  )
-  console.log(`    Source episode: ${a.sourceEpisodeId}`)
+  console.log(`    Rank: ${a.score.toFixed(3)} (${describeRankingSignals(a)})`)
   for (const citation of a.citations.slice(0, 2)) {
     if (citation.excerpt) {
       console.log(`    Citation (${citation.sourceRef}): "${truncate(citation.excerpt, 120)}"`)
@@ -118,7 +128,7 @@ export function printAssertion(a: RetrievedAssertion, index: number): void {
       console.log(`    Citation (${citation.sourceRef}): no excerpt recorded`)
     }
   }
-  if (a.supersedesId) console.log(`    Supersedes: ${a.supersedesId}`)
+  if (a.supersedesId) console.log('    Supersedes an earlier stored claim.')
   if (a.entityId) {
     console.log(
       `    Entity: ${a.entityId}${a.entityType ? ` (${a.entityType})` : ''}`,
@@ -127,14 +137,14 @@ export function printAssertion(a: RetrievedAssertion, index: number): void {
   if (a.linkedAssertions && a.linkedAssertions.length > 0) {
     console.log('    Linked assertions:')
     for (const linked of a.linkedAssertions) {
-      console.log(`      - ${linked.id}: ${truncate(linked.content, 100)}`)
+      console.log(`      - ${truncate(linked.content, 100)}`)
     }
   }
   if (a.supersessionChain && a.supersessionChain.length > 0) {
-    console.log('    Prior versions in supersession chain:')
+    console.log('    Earlier versions:')
     for (const prior of a.supersessionChain) {
       console.log(
-        `      - position ${String(prior.validFrom)} (${prior.id}): ${truncate(prior.content, 100)}`,
+        `      - ${formatPosition(prior.validFrom, timeline)}: ${truncate(prior.content, 100)}`,
       )
     }
   }
@@ -143,7 +153,7 @@ export function printAssertion(a: RetrievedAssertion, index: number): void {
 export function printSnapshot(
   title: string,
   assertions: readonly Assertion[],
-  options?: { emptyMessage?: string },
+  options?: { emptyMessage?: string; timeline?: DemoTimeline },
 ): void {
   console.log('')
   console.log(RULE)
@@ -156,10 +166,11 @@ export function printSnapshot(
   for (const [i, a] of assertions.entries()) {
     console.log('')
     console.log(`  Snapshot item ${String(i + 1)}: ${truncate(a.content, 120)}`)
+    console.log(`    Time: ${describeAssertionValidity(a, options?.timeline)}`)
     console.log(
-      `    ${a.id}; type=${a.type}; valid from position ${String(a.validFrom)}${a.validUntil === null ? '; active' : ` until position ${String(a.validUntil)}`}`,
+      `    Source: ${describeEpisode(a.sourceEpisodeId, options?.timeline)}; ` +
+        `${a.type}, confidence ${a.confidence.toFixed(2)}`,
     )
-    console.log(`    Source episode: ${a.sourceEpisodeId}; confidence=${a.confidence.toFixed(2)}`)
   }
 }
 
@@ -172,6 +183,7 @@ export function printPathHops(
     temporalAnchor?: number
     maxDepth?: number
     liveMode?: boolean
+    timeline?: DemoTimeline
   },
 ): void {
   console.log('')
@@ -184,7 +196,10 @@ export function printPathHops(
       console.log(
         `  Requested path: ${options.fromAssertionId} -> ${options.toAssertionId}` +
           (options.maxDepth === undefined ? '' : ` within ${String(options.maxDepth)} hop(s)`) +
-          `${options.temporalAnchor === undefined ? '' : ` at position ${String(options.temporalAnchor)}`}.`,
+          `${options.temporalAnchor === undefined ? '' : ` at ${formatPosition(
+            options.temporalAnchor,
+            options.timeline,
+          )}`}.`,
       )
     }
     console.log(
@@ -192,7 +207,8 @@ export function printPathHops(
     )
     if (options?.liveMode) {
       console.log(
-        '  Live extraction can choose different IDs or omit the expected contextualizes link; fixture mode is deterministic for this graph demo.',
+        '  Live extraction can choose different IDs or omit the expected contextualizes link; ' +
+          'fixture mode is deterministic for this graph demo.',
       )
     }
     return
@@ -200,11 +216,12 @@ export function printPathHops(
   console.log('  Typed assertion-link path:')
   for (const [i, l] of links.entries()) {
     console.log('')
-    console.log(`  Hop ${String(i + 1)}: ${l.fromId} --[${l.linkType}]--> ${l.toId}`)
+    console.log(`  Hop ${String(i + 1)}: ${l.linkType}`)
     console.log(
-      `    Namespace: ${l.namespace}; valid from position ${String(l.validFrom)}${l.validUntil === null ? '; active' : ` until position ${String(l.validUntil)}`}`,
+      `    Time: valid from ${formatPosition(l.validFrom, options?.timeline)}` +
+        (l.validUntil === null ? '; active' : ` until ${formatPosition(l.validUntil, options?.timeline)}`),
     )
-    console.log(`    Source episode: ${l.sourceEpisodeId}`)
+    console.log(`    Source: ${describeEpisode(l.sourceEpisodeId, options?.timeline)}`)
   }
 }
 
@@ -216,26 +233,60 @@ export function printNarrative(text: string): void {
   console.log('  ' + text.split('\n').join('\n  '))
 }
 
-function describeTemporalScope(query: RetrievalQuery, meta: RetrievalMeta): string {
+function describeTemporalScope(query: RetrievalQuery, meta: RetrievalMeta, timeline?: DemoTimeline): string {
   const window = query.temporalWindow
   if (window) {
-    const from = window.from === undefined ? '-infinity' : String(window.from)
-    const to = window.to === undefined ? '+infinity' : String(window.to)
-    return `anchor position ${String(meta.temporalAnchor)}, window ${from}..${to}`
+    const from = window.from === undefined ? 'the beginning' : formatPosition(window.from, timeline)
+    const to = window.to === undefined ? 'now' : formatPosition(window.to, timeline)
+    return `${formatPosition(meta.temporalAnchor, timeline)}, window ${from}..${to}`
   }
-  return `anchor position ${String(meta.temporalAnchor)}`
+  return formatPosition(meta.temporalAnchor, timeline)
+}
+
+function describeAssertionValidity(a: Assertion, timeline?: DemoTimeline): string {
+  return (
+    `valid from ${formatPosition(a.validFrom, timeline)}` +
+    (a.validUntil === null ? '; active at the query time' : ` until ${formatPosition(a.validUntil, timeline)}`)
+  )
+}
+
+function describeEpisode(episodeId: string, timeline?: DemoTimeline): string {
+  const episode = timeline?.byEpisodeId.get(episodeId)
+  if (!episode) return episodeId
+  return `${formatDateTime(episode.occurredAt)} ${episode.type} episode`
+}
+
+function formatPosition(position: number, timeline?: DemoTimeline): string {
+  const episode = timeline?.byPosition.get(position)
+  if (!episode) return `position ${String(position)}`
+  return formatDateTime(episode.occurredAt)
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+    timeZoneName: 'short',
+  }).format(new Date(value))
 }
 
 function applied(value: boolean): string {
-  return value ? 'applied' : 'not applied'
+  return value ? 'on' : 'off'
 }
 
-function formatDistance(n: number | null): string {
-  return n === null ? 'not used' : `${n.toFixed(3)} (lower is closer)`
-}
-
-function formatBm25(n: number | null): string {
-  return n === null ? 'not used' : `${n.toFixed(3)} (raw FTS5 score)`
+function describeRankingSignals(a: RetrievedAssertion): string {
+  const semantic = a.scoreComponents.semanticDistance
+  const bm25 = a.scoreComponents.bm25Score
+  const parts = [
+    semantic === null ? 'semantic unused' : `semantic distance ${semantic.toFixed(3)}`,
+    bm25 === null ? 'BM25 unused' : `BM25 ${bm25.toFixed(3)}`,
+    `position signal ${String(a.scoreComponents.position)}`,
+  ]
+  return parts.join('; ')
 }
 
 function truncate(s: string, n: number): string {

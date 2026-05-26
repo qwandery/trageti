@@ -9,7 +9,8 @@ import { fixtures } from './fixtures.js'
 export const EMBEDDING_DIMENSION = 768
 
 export const QUERY_TEXTS: readonly string[] = [
-  'What do I currently know about sourdough?',
+  'What did Alex know about making sourdough on January 20, 2026?',
+  'What does Alex know about making sourdough today?',
   'How has my understanding of sourdough proofing evolved?',
   'What does the literature say about my sourdough acidity?',
   'What would Dad think?',
