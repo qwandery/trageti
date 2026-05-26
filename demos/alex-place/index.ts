@@ -4,9 +4,10 @@
 import 'dotenv/config'
 import { TemporalStore } from 'trageti'
 import {
+  createDemoLogger,
   printBanner,
-  printQueryHeader,
-  printAssertion,
+  printProviderSummary,
+  printRetrievalResult,
   printPathHops,
   printSnapshot,
   printNarrative,
@@ -45,25 +46,38 @@ async function main(): Promise<void> {
   printBanner(`alex-place - mode: ${providers.modeLabel}`)
 
   const database = runtimeDbPath('alex-place')
+  const logger = createDemoLogger()
+  printProviderSummary({
+    modeLabel: providers.modeLabel,
+    namespace: NAMESPACE,
+    database,
+    extractionLabel: providers.extractor.label,
+    embeddingLabel: providers.embedder.label,
+    embeddingDimension: EMBEDDING_DIMENSION,
+  })
   ensureDemoMetadata({
     database,
     demoName: 'alex-place',
     dataVersion: demoDataVersion('alex-place', episodes, fixtures, assertionEmbeddings, queryEmbeddings, QUERY_TEXTS),
     providers,
+    logger,
   })
 
+  logger.step('Opening TemporalStore')
   const store = await TemporalStore.create({
     database,
     namespace: NAMESPACE,
     embeddingDimension: EMBEDDING_DIMENSION,
     embeddingProvider: providers.embedder.provider,
   })
+  logger.success('TemporalStore is ready')
 
   const ingestOptions = {
     store,
     namespace: NAMESPACE,
     episodes,
     providers,
+    logger,
   }
   await ingestEpisodes(
     providers.extractor.provenance.kind === 'fixture'
@@ -71,28 +85,27 @@ async function main(): Promise<void> {
       : ingestOptions,
   )
 
+  logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
-    const { results, meta } = await store.retrieve(query)
-    printQueryHeader(annotation, meta)
-    for (const [i, r] of results.entries()) {
-      printAssertion(r, i)
-    }
+    const result = await store.retrieve(query)
+    printRetrievalResult(annotation, query, result)
   }
 
-  console.log('')
-  console.log(`Query: ${literaturePathQuery.annotation}`)
+  logger.step('Running graph path query')
   const path = await store.findPath(literaturePathQuery.options)
-  printPathHops(path ?? [])
+  printPathHops(`Query ${literaturePathQuery.annotation}`, path ?? [])
 
-  console.log('')
-  console.log(`Query: ${dadEntityQuery.annotation}`)
+  logger.step('Running entity history query')
   const dadHistory = await store.getEntityHistory(dadEntityQuery.namespace, dadEntityQuery.entityId)
-  printSnapshot(dadHistory)
+  printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory)
 
+  logger.step('Assembling context and generating narrative')
   const narrative = await generateNarrative(store, providers.extractor, providers.isLive)
   printNarrative(narrative)
 
+  logger.step('Closing TemporalStore')
   await store.close()
+  logger.success('Demo complete')
 }
 
 main().then(

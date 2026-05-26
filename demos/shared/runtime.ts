@@ -7,6 +7,12 @@ import { ingest, type ExtractionResult } from './ingest.js'
 import { parseExtraction } from './parse.js'
 import type { ResolvedDemoProviders } from './providers.js'
 
+export interface DemoRunLogger {
+  step(message: string): void
+  detail(message: string): void
+  success(message: string): void
+}
+
 export function runtimeDbPath(demoName: string): string {
   const path = join('demos', '.local', `${demoName}.db`)
   mkdirSync(dirname(path), { recursive: true })
@@ -51,7 +57,17 @@ export function ensureDemoMetadata(options: {
   demoName: string
   dataVersion: string
   providers: ResolvedDemoProviders
+  logger?: DemoRunLogger
 }): void {
+  options.logger?.step('Checking demo database provenance')
+  options.logger?.detail(`Database path: ${options.database}`)
+  options.logger?.detail(`Demo data version: ${options.dataVersion}`)
+  options.logger?.detail(
+    `Extraction: ${options.providers.provenance.extraction.kind} (${options.providers.extractor.label})`,
+  )
+  options.logger?.detail(
+    `Embedding: ${options.providers.provenance.embedding.kind} (${options.providers.embedder.label})`,
+  )
   const db = new Database(options.database)
   try {
     db.prepare(
@@ -87,6 +103,7 @@ export function ensureDemoMetadata(options: {
             'Delete the demo DB or choose a different DB path before re-running.',
         )
       }
+      options.logger?.success('Existing DB provenance matches this run')
       return
     }
     db.prepare(
@@ -102,6 +119,7 @@ export function ensureDemoMetadata(options: {
       expected.mode,
       new Date().toISOString(),
     )
+    options.logger?.success('Recorded DB provenance for this run')
   } finally {
     db.close()
   }
@@ -113,12 +131,18 @@ export async function ingestEpisodes(options: {
   episodes: readonly Omit<Episode, 'createdAt'>[]
   providers: ResolvedDemoProviders
   expectedFixtureAssertionIds?: readonly string[]
+  logger?: DemoRunLogger
 }): Promise<void> {
+  options.logger?.step('Ingesting episodes into TemporalStore')
   const accumulated: Assertion[] = []
   for (const episode of options.episodes) {
+    options.logger?.detail(
+      `Episode ${episode.id}: position ${String(episode.position)}, type ${episode.type}`,
+    )
     const existing = await options.store.getEpisode(episode.id)
     if (existing !== null) {
       validateExistingEpisode(existing, episode)
+      options.logger?.detail(`Episode ${episode.id}: already present, skipping writes`)
       await reloadAccumulated(options.store, options.namespace, accumulated)
       continue
     }
@@ -130,10 +154,15 @@ export async function ingestEpisodes(options: {
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
     })
+    options.logger?.detail(
+      `Episode ${episode.id}: extracted ${String(result.assertions.length)} assertion(s), ${String(result.links.length)} link(s)`,
+    )
     await indexResult(options.store, result)
+    options.logger?.detail(`Episode ${episode.id}: indexed ${String(result.assertions.length)} assertion vector(s)`)
     await reloadAccumulated(options.store, options.namespace, accumulated)
   }
   await verifyComplete(options)
+  options.logger?.success('Ingestion and indexing checks passed')
 }
 
 export function expectedFixtureAssertionIds(fixtures: Record<string, string>): string[] {
@@ -180,7 +209,9 @@ async function verifyComplete(options: {
   namespace: string
   episodes: readonly Omit<Episode, 'createdAt'>[]
   expectedFixtureAssertionIds?: readonly string[]
+  logger?: DemoRunLogger
 }): Promise<void> {
+  options.logger?.step('Verifying demo DB completeness')
   const assertions = await options.store.getAssertions(options.namespace, { includeSuperseded: true })
   const byEpisode = new Map<string, number>()
   for (const a of assertions) byEpisode.set(a.sourceEpisodeId, (byEpisode.get(a.sourceEpisodeId) ?? 0) + 1)
@@ -209,5 +240,9 @@ async function verifyComplete(options: {
           'Delete the demo DB and re-run.',
       )
     }
+    options.logger?.detail('Fixture assertion IDs match committed fixture data')
   }
+  options.logger?.detail(
+    `Verified ${String(options.episodes.length)} episode(s), ${String(assertions.length)} assertion(s), 0 pending embedding(s)`,
+  )
 }

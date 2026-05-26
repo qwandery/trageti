@@ -5,9 +5,10 @@
 import 'dotenv/config'
 import { TemporalStore } from 'trageti'
 import {
+  createDemoLogger,
   printBanner,
-  printQueryHeader,
-  printAssertion,
+  printProviderSummary,
+  printRetrievalResult,
   printSnapshot,
 } from '../shared/output.js'
 import { resolveDemoProviders } from '../shared/providers.js'
@@ -39,25 +40,38 @@ async function main(): Promise<void> {
   printBanner(`know-thyself - mode: ${providers.modeLabel}`)
 
   const database = runtimeDbPath('know-thyself')
+  const logger = createDemoLogger()
+  printProviderSummary({
+    modeLabel: providers.modeLabel,
+    namespace: NAMESPACE,
+    database,
+    extractionLabel: providers.extractor.label,
+    embeddingLabel: providers.embedder.label,
+    embeddingDimension: EMBEDDING_DIMENSION,
+  })
   ensureDemoMetadata({
     database,
     demoName: 'know-thyself',
     dataVersion: demoDataVersion('know-thyself', episodes, fixtures, assertionEmbeddings, queryEmbeddings, QUERY_TEXTS),
     providers,
+    logger,
   })
 
+  logger.step('Opening TemporalStore')
   const store = await TemporalStore.create({
     database,
     namespace: NAMESPACE,
     embeddingDimension: EMBEDDING_DIMENSION,
     embeddingProvider: providers.embedder.provider,
   })
+  logger.success('TemporalStore is ready')
 
   const ingestOptions = {
     store,
     namespace: NAMESPACE,
     episodes,
     providers,
+    logger,
   }
   await ingestEpisodes(
     providers.extractor.provenance.kind === 'fixture'
@@ -65,20 +79,19 @@ async function main(): Promise<void> {
       : ingestOptions,
   )
 
+  logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
-    const { results, meta } = await store.retrieve(query)
-    printQueryHeader(annotation, meta)
-    for (const [i, r] of results.entries()) {
-      printAssertion(r, i)
-    }
+    const result = await store.retrieve(query)
+    printRetrievalResult(annotation, query, result)
   }
 
-  console.log('')
-  console.log(`Query: ${snapshotAtV01.annotation}`)
+  logger.step('Running temporal snapshot query')
   const snapshot = await store.getTemporalSnapshot(snapshotAtV01.options)
-  printSnapshot(snapshot)
+  printSnapshot(`Query ${snapshotAtV01.annotation}`, snapshot)
 
+  logger.step('Closing TemporalStore')
   await store.close()
+  logger.success('Demo complete')
 }
 
 main().then(
