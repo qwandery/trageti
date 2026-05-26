@@ -1,4 +1,4 @@
-import type { Assertion } from 'trageti'
+import type { Assertion, Episode } from 'trageti'
 
 /**
  * Default extraction prompt. Instructs the LLM to extract self-contained,
@@ -9,16 +9,37 @@ import type { Assertion } from 'trageti'
 export function buildExtractionPrompt(
   document: string,
   existingAssertions: readonly Assertion[],
+  episode?: Omit<Episode, 'createdAt'>,
+  namespace?: string,
 ): string {
   const existing =
     existingAssertions.length === 0
       ? '(no prior assertions)'
       : existingAssertions.map((a) => `- ${a.id}: ${a.content}`).join('\n')
+  const episodeContext = episode
+    ? `Current episode:
+- id: ${episode.id}
+- namespace: ${namespace ?? episode.namespace}
+- position: ${String(episode.position)}
+- type: ${episode.type}
+- occurredAt: ${episode.occurredAt}
+
+Use the current episode id in every new assertion, citation, and link id. For
+example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
+`
+    : ''
+  const idPattern = episode ? `a-${episode.id}-<index>` : 'a-<episodeId>-<index>'
+  const citationPattern = episode ? `c-a-${episode.id}-<index>-0` : 'c-<assertionId>-0'
+  const linkPattern = episode ? `link-${episode.id}-<index>` : 'link-<episodeId>-<index>'
+  const namespaceValue = namespace ?? episode?.namespace ?? '<same as episode>'
+  const validFromValue = episode ? String(episode.position) : '<episode.position>'
+  const sourceEpisodeValue = episode?.id ?? '<episode.id>'
   return `You are extracting structured temporal assertions from a document.
 
 Existing assertions (for supersession or link decisions):
 ${existing}
 
+${episodeContext}
 Document:
 ${document}
 
@@ -26,37 +47,38 @@ Output a single JSON object matching this schema:
 {
   "assertions": [
     {
-      "id": "a-<episodeId>-<index>",
-      "namespace": "<same as episode>",
+      "id": "${idPattern}",
+      "namespace": "${namespaceValue}",
       "type": "fact|update|recontextualization|resolution|regression|absence|pattern",
       "content": "<self-contained claim>",
-      "validFrom": <episode.position>,
+      "validFrom": ${validFromValue},
       "confidence": <0..1>,
-      "sourceEpisodeId": "<episode.id>",
+      "sourceEpisodeId": "${sourceEpisodeValue}",
       "supersedesId": null | "<prior assertion id this replaces>",
       "entityId": null | "<entity grouping id>",
       "entityType": null | "<entity classification>",
       "citations": [
-        {"id":"c-<assertionId>-0","episodeId":"<episode.id>","sourceRef":"<locator>","excerpt":"<verbatim>"}
+        {"id":"${citationPattern}","episodeId":"${sourceEpisodeValue}","sourceRef":"<locator>","excerpt":"<verbatim>"}
       ]
     }
   ],
   "links": [
     {
-      "id": "link-<episodeId>-<index>",
-      "namespace": "<same as episode>",
+      "id": "${linkPattern}",
+      "namespace": "${namespaceValue}",
       "fromId": "<assertion id>",
       "toId": "<prior assertion id>",
       "linkType": "deepens|qualifies|contradicts|contextualizes|measures|related",
-      "validFrom": <episode.position>,
+      "validFrom": ${validFromValue},
       "validUntil": null,
-      "sourceEpisodeId": "<episode.id>"
+      "sourceEpisodeId": "${sourceEpisodeValue}"
     }
   ]
 }
 
 Rules:
 - Every assertion needs at least one citation with a verbatim excerpt.
+- New assertion IDs must not reuse any ID listed under Existing assertions.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.
 - Emit JSON only — no prose, no markdown fences.`

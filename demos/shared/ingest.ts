@@ -1,4 +1,4 @@
-// Reference ingestion: write episode -> extract via LLM -> write assertions/links.
+// Reference ingestion: extract and validate via LLM -> write episode/assertions/links.
 // Indexing (vector embedding into sqlite-vec) is left to the caller, who knows
 // whether to supply pre-computed vectors or rely on a configured EmbeddingProvider.
 
@@ -32,7 +32,7 @@ export interface ExtractionResult {
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
   const { store, episode, document, existingAssertions, extractor, promptOverride, namespace } = options
   const prompt =
-    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [])
+    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace)
   const raw = await extractor.extract(prompt, { episodeId: episode.id })
   const result = parseExtraction(raw)
   validateExtractionResult(result, existingAssertions ?? [])
@@ -103,6 +103,7 @@ function validateExtractionResult(result: ExtractionResult, existingAssertions: 
     }
     if (nonEmpty(a.id)) {
       if (assertionIds.has(a.id)) errors.push(`duplicate assertion id "${a.id}"`)
+      if (knownIds.has(a.id)) errors.push(`assertion id "${a.id}" already exists`)
       assertionIds.add(a.id)
     }
   }

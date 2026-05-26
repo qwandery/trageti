@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const allAssertions: Array<{ id: string; content: string }> = []
 
   for (const episode of episodes) {
-    const prompt = buildExtractionPrompt(episode.content, [])
+    const prompt = buildExtractionPrompt(episode.content, [], episode, episode.namespace)
     const raw = await extractor.extract(prompt, { episodeId: episode.id })
     fixtures[episode.id] = raw
     const result = parseExtraction(raw)

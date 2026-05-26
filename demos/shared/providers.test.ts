@@ -129,6 +129,54 @@ describe('ingest normalization', () => {
     ).rejects.toThrow('Extraction result failed validation')
     expect(store.episodes).toHaveLength(0)
   })
+
+  it('rejects assertion IDs that collide with prior assertions before writing an episode', async () => {
+    const store = new FakeStore()
+    const extractor = providerReturning(JSON.stringify({
+      assertions: [
+        {
+          id: 'a-0',
+          namespace: 'wrong',
+          type: 'fact',
+          content: 'duplicate id',
+          validFrom: 999,
+          confidence: 0.9,
+          sourceEpisodeId: 'wrong-episode',
+          citations: [{ id: 'c-dup', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'duplicate id' }],
+        },
+      ],
+      links: [],
+    }))
+
+    await expect(
+      ingest({
+        store: store as unknown as TemporalStore,
+        episode: makeEpisode(),
+        document: 'doc',
+        namespace: 'correct',
+        existingAssertions: [
+          {
+            id: 'a-0',
+            namespace: 'correct',
+            type: 'fact',
+            content: 'prior',
+            validFrom: 1,
+            validUntil: null,
+            confidence: 1,
+            sourceEpisodeId: 'ep-0',
+            supersedesId: null,
+            entityId: null,
+            entityType: null,
+            citations: [],
+            createdAt: '',
+            extensions: {},
+          },
+        ],
+        extractor,
+      }),
+    ).rejects.toThrow('already exists')
+    expect(store.episodes).toHaveLength(0)
+  })
 })
 
 describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
