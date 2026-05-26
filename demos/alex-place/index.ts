@@ -93,11 +93,23 @@ async function main(): Promise<void> {
 
   logger.step('Running graph path query')
   const path = await store.findPath(literaturePathQuery.options)
-  printPathHops(`Query ${literaturePathQuery.annotation}`, path ?? [])
+  printPathHops(`Query ${literaturePathQuery.annotation}`, path ?? [], {
+    fromAssertionId: literaturePathQuery.options.fromAssertionId,
+    toAssertionId: literaturePathQuery.options.toAssertionId,
+    temporalAnchor: literaturePathQuery.options.temporalAnchor,
+    maxDepth: literaturePathQuery.options.maxDepth,
+    liveMode: providers.isLive,
+  })
 
   logger.step('Running entity history query')
   const dadHistory = await store.getEntityHistory(dadEntityQuery.namespace, dadEntityQuery.entityId)
-  printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory)
+  printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory, {
+    emptyMessage:
+      `No assertions currently use entityId "${dadEntityQuery.entityId}". ` +
+      (providers.isLive
+        ? 'Live extraction may mention Dad without assigning the fixture entity ID; fixture mode is deterministic for this near-miss demo.'
+        : 'The fixture corpus intentionally treats this as a sparse near-miss signal.'),
+  })
 
   logger.step('Assembling context and generating narrative')
   const narrative = await generateNarrative(store, providers.extractor, providers.isLive)

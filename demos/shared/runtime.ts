@@ -134,15 +134,20 @@ export async function ingestEpisodes(options: {
   logger?: DemoRunLogger
 }): Promise<void> {
   options.logger?.step('Ingesting episodes into TemporalStore')
+  options.logger?.detail(
+    'Each episode is converted into assertions and typed links, stored in SQLite, then assertion text is embedded for vector retrieval.',
+  )
   const accumulated: Assertion[] = []
   for (const episode of options.episodes) {
     options.logger?.detail(
-      `Episode ${episode.id}: position ${String(episode.position)}, type ${episode.type}`,
+      `Source episode ${episode.id}: position ${String(episode.position)}, type ${episode.type}`,
     )
     const existing = await options.store.getEpisode(episode.id)
     if (existing !== null) {
       validateExistingEpisode(existing, episode)
-      options.logger?.detail(`Episode ${episode.id}: already present, skipping writes`)
+      options.logger?.detail(
+        `  Reuse: episode already exists; metadata matches, so stored assertions/links are reused instead of duplicated`,
+      )
       await reloadAccumulated(options.store, options.namespace, accumulated)
       continue
     }
@@ -155,14 +160,30 @@ export async function ingestEpisodes(options: {
       extractor: options.providers.extractor,
     })
     options.logger?.detail(
-      `Episode ${episode.id}: extracted ${String(result.assertions.length)} assertion(s), ${String(result.links.length)} link(s)`,
+      `  Extract + store: wrote ${String(result.assertions.length)} assertion(s) and ${String(result.links.length)} typed link(s) to SQLite`,
     )
+    for (const assertion of result.assertions) {
+      options.logger?.detail(
+        `    assertion ${assertion.id}: ${truncate(assertion.content, 96)}`,
+      )
+    }
+    for (const link of result.links) {
+      options.logger?.detail(
+        `    link ${link.id}: ${link.fromId} --[${link.linkType}]--> ${link.toId}`,
+      )
+    }
     await indexResult(options.store, result)
-    options.logger?.detail(`Episode ${episode.id}: indexed ${String(result.assertions.length)} assertion vector(s)`)
+    options.logger?.detail(
+      `  Vector index: embedded and indexed ${String(result.assertions.length)} assertion text(s)`,
+    )
     await reloadAccumulated(options.store, options.namespace, accumulated)
   }
   await verifyComplete(options)
   options.logger?.success('Ingestion and indexing checks passed')
+}
+
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 3) + '...'
 }
 
 export function expectedFixtureAssertionIds(fixtures: Record<string, string>): string[] {

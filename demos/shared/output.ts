@@ -28,7 +28,7 @@ export function createDemoLogger(): DemoRunLogger {
       console.log(`[${String(stepNumber)}] ${message}`)
     },
     detail(message) {
-      console.log(`    - ${message}`)
+      console.log(`    ${message}`)
     },
     success(message) {
       console.log(`    OK ${message}`)
@@ -140,13 +140,17 @@ export function printAssertion(a: RetrievedAssertion, index: number): void {
   }
 }
 
-export function printSnapshot(title: string, assertions: readonly Assertion[]): void {
+export function printSnapshot(
+  title: string,
+  assertions: readonly Assertion[],
+  options?: { emptyMessage?: string },
+): void {
   console.log('')
   console.log(RULE)
   console.log(title)
   console.log(RULE)
   if (assertions.length === 0) {
-    console.log('  No assertions returned.')
+    console.log(`  ${options?.emptyMessage ?? 'No assertions matched this request.'}`)
     return
   }
   for (const [i, a] of assertions.entries()) {
@@ -159,13 +163,38 @@ export function printSnapshot(title: string, assertions: readonly Assertion[]): 
   }
 }
 
-export function printPathHops(title: string, links: readonly AssertionLink[]): void {
+export function printPathHops(
+  title: string,
+  links: readonly AssertionLink[],
+  options?: {
+    fromAssertionId?: string
+    toAssertionId?: string
+    temporalAnchor?: number
+    maxDepth?: number
+    liveMode?: boolean
+  },
+): void {
   console.log('')
   console.log(RULE)
   console.log(title)
   console.log(RULE)
   if (links.length === 0) {
-    console.log('  No path found.')
+    console.log('  No typed assertion-link path matched this request.')
+    if (options?.fromAssertionId && options.toAssertionId) {
+      console.log(
+        `  Requested path: ${options.fromAssertionId} -> ${options.toAssertionId}` +
+          (options.maxDepth === undefined ? '' : ` within ${String(options.maxDepth)} hop(s)`) +
+          `${options.temporalAnchor === undefined ? '' : ` at position ${String(options.temporalAnchor)}`}.`,
+      )
+    }
+    console.log(
+      '  Meaning: the current DB does not contain active stored links connecting those assertion IDs.',
+    )
+    if (options?.liveMode) {
+      console.log(
+        '  Live extraction can choose different IDs or omit the expected contextualizes link; fixture mode is deterministic for this graph demo.',
+      )
+    }
     return
   }
   console.log('  Typed assertion-link path:')
