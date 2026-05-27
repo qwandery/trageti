@@ -11,13 +11,15 @@ export interface RetrieveCase {
 }
 
 export const literatureSemanticQuery: RetrieveCase = {
-  annotation: '"What does the literature say about my sourdough acidity?" (semantic retrieval)',
+  annotation: '"What does the literature say about my sourdough acidity?" (semantic retrieval + graph expansion)',
   query: {
     namespace: NAMESPACE,
     queryText: 'What does the literature say about my sourdough acidity?',
     temporalAnchor: 5,
     retrievalStrategy: 'hybrid',
     mode: 'snapshot',
+    expandLinks: true,
+    maxDepth: 1,
     limit: 25,
   },
 }
@@ -70,26 +72,3 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     },
   },
 ]
-
-// Multi-hop demo - uses store.findPath directly because the public
-// retrieve({ expandLinks: true }) surface only exposes untyped
-// linkedAssertions[]; we want the typed AssertionLink hops.
-export const literaturePathQuery = {
-  annotation:
-    '"What does the literature say about my sourdough acidity?" (multi-hop via findPath)',
-  options: {
-    namespace: NAMESPACE,
-    fromAssertionId: 'a-ref-field-0',
-    toAssertionId: 'a-journal-4-0',
-    temporalAnchor: 5,
-    maxDepth: 2,
-  },
-}
-
-// Entity-history demo - RetrievalQuery has no entityId filter (only
-// entityTypes), so use getEntityHistory directly.
-export const dadEntityQuery = {
-  annotation: '"What would Dad think?" (strict entity-history lookup)',
-  namespace: NAMESPACE,
-  entityId: 'alex-father',
-}

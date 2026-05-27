@@ -2,7 +2,7 @@
 // in fixture mode by default; set explicit demo provider env vars for live mode.
 
 import 'dotenv/config'
-import { TemporalStore, type Assertion } from 'trageti'
+import { TemporalStore, type RetrievedAssertion } from 'trageti'
 import {
   createDemoTimeline,
   createDemoLogger,
@@ -10,7 +10,6 @@ import {
   printProviderSummary,
   printQueryPlan,
   printRetrievalResult,
-  printPathHops,
   printSnapshot,
   printNarrative,
   createLlmTraceOptions,
@@ -34,9 +33,7 @@ import {
 import {
   retrieveQueries,
   literatureSemanticQuery,
-  literaturePathQuery,
   dadSemanticQuery,
-  dadEntityQuery,
 } from './queries.js'
 import { generateNarrative } from './narrative.js'
 
@@ -104,32 +101,13 @@ async function main(): Promise<void> {
     })
   }
 
-  logger.step('Running graph path query')
+  logger.step('Running graph-expanded literature query')
   printQueryPlan(literatureSemanticQuery.annotation, literatureSemanticQuery.query, timeline)
   const literatureResult = await store.retrieve(literatureSemanticQuery.query)
   printRetrievalResult(literatureSemanticQuery.annotation, literatureSemanticQuery.query, literatureResult, timeline, {
     headerPrinted: true,
     order: 'temporal',
     relevance: { maxResults: 10 },
-  })
-
-  const pathEndpoints = await resolveLiteraturePathEndpoints(store)
-  const pathOptions = pathEndpoints
-    ? {
-        ...literaturePathQuery.options,
-        fromAssertionId: pathEndpoints.fromId,
-        toAssertionId: pathEndpoints.toId,
-      }
-    : literaturePathQuery.options
-  const path = pathEndpoints ? await store.findPath(pathOptions) : null
-  printPathHops(`Query ${literaturePathQuery.annotation}`, path ?? [], {
-    fromAssertionId: pathOptions.fromAssertionId,
-    toAssertionId: pathOptions.toAssertionId,
-    temporalAnchor: literaturePathQuery.options.temporalAnchor,
-    maxDepth: literaturePathQuery.options.maxDepth,
-    liveMode: providers.isLive,
-    timeline,
-    staleFixtureAdvice: !providers.isLive,
   })
 
   logger.step('Running entity history query')
@@ -141,16 +119,21 @@ async function main(): Promise<void> {
     relevance: { maxResults: 8 },
   })
 
-  const dadHistory = await store.getEntityHistory(dadEntityQuery.namespace, dadEntityQuery.entityId)
-  printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory, {
-    timeline,
-    emptyMessage:
-      `No entity-history assertions were returned for entityId "${dadEntityQuery.entityId}". ` +
-      'The semantic query above can still find Dad-related text; this strict lookup only reads assertions extraction tagged with that exact entity ID. ' +
-      (providers.isLive
-        ? 'Live extraction may mention Dad without assigning this entity ID.'
-        : 'If this fixture DB is current, it should contain one low-confidence Dad-related entity assertion.'),
-  })
+  const dadEntityId = firstEntityId(dadSemanticResult.results)
+  if (dadEntityId) {
+    const dadHistory = await store.getEntityHistory(NAMESPACE, dadEntityId)
+    printSnapshot(`Query "What would Dad think?" (entity history for retrieved entity "${dadEntityId}")`, dadHistory, {
+      timeline,
+      emptyMessage:
+        `No entity-history assertions were returned for entityId "${dadEntityId}", even though semantic retrieval surfaced it.`,
+    })
+  } else {
+    printSnapshot('Query "What would Dad think?" (entity history)', [], {
+      timeline,
+      emptyMessage:
+        'Semantic retrieval did not surface a stored entity ID for this subject, so there is no entity-history lookup to run.',
+    })
+  }
 
   logger.step('Assembling context and generating narrative')
   const narrative = await generateNarrative(store, providers.extractor, providers.isLive)
@@ -169,23 +152,9 @@ main().then(
   },
 )
 
-async function resolveLiteraturePathEndpoints(store: TemporalStore): Promise<{ fromId: string; toId: string } | null> {
-  const assertions = await store.getAssertions(NAMESPACE, { includeSuperseded: true })
-  const from = bestAssertionMatch(assertions, ['acidity', 'starter maturity', 'inoculation', 'temperature'])
-  const to = bestAssertionMatch(assertions, ['acidity', 'target', 'younger levain'])
-  if (!from || !to) return null
-  return { fromId: from.id, toId: to.id }
-}
-
-function bestAssertionMatch(assertions: readonly Assertion[], terms: readonly string[]): Assertion | null {
-  let best: { assertion: Assertion; score: number } | null = null
-  for (const assertion of assertions) {
-    const content = assertion.content.toLowerCase()
-    const score = terms.filter((term) => content.includes(term.toLowerCase())).length
-    if (score === 0) continue
-    if (!best || score > best.score || (score === best.score && assertion.validFrom > best.assertion.validFrom)) {
-      best = { assertion, score }
-    }
+function firstEntityId(results: readonly RetrievedAssertion[]): string | null {
+  for (const result of results) {
+    if (result.entityId) return result.entityId
   }
-  return best?.assertion ?? null
+  return null
 }

@@ -52,10 +52,10 @@ runs:
 
 1. A current sourdough snapshot query.
 2. A sourdough understanding trajectory query.
-3. A semantic literature query followed by a stricter `findPath` graph query
-   over the Field reference link.
-4. A semantic Dad query followed by a stricter `getEntityHistory` lookup for
-   `alex-father`.
+3. A semantic literature query with graph expansion enabled, so linked
+   assertions appear when extraction stored typed links.
+4. A semantic Dad query followed by `getEntityHistory` for the entity ID
+   surfaced by retrieval, when one exists.
 5. An assembled-context narrative synthesis pass.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.

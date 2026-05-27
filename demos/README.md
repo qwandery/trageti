@@ -9,7 +9,7 @@ workflows.
 
 | Demo | Corpus | Main features shown |
 |---|---|---|
-| `alex-place` | A cooking journal plus a fictional reference excerpt | Ingestion, hybrid retrieval, supersession, graph links via `findPath`, entity history, assembled-context narrative synthesis |
+| `alex-place` | A cooking journal plus a fictional reference excerpt | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
 | `know-thyself` | `trageti` development-history keyframes | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots |
 
 Both demos share provider handling from `demos/shared/`. Extraction and
