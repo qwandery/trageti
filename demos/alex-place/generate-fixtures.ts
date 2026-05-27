@@ -13,12 +13,14 @@ import {
   resolveLiveEmbeddingProvider,
   resolveLiveExtractionProvider,
 } from '../shared/providers.js'
+import { createLlmTraceOptions } from '../shared/output.js'
 import { episodes } from './data/episodes.js'
 import { QUERY_TEXTS, EMBEDDING_DIMENSION } from './data/embeddings.js'
 
 async function main(): Promise<void> {
-  const extractor = resolveLiveExtractionProvider()
-  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION }).provider
+  const trace = createLlmTraceOptions()
+  const extractor = resolveLiveExtractionProvider({ trace })
+  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, trace }).provider
 
   const fixtures: Record<string, string> = {}
   const assertionEmbeddings: Record<string, number[]> = {}

@@ -12,6 +12,7 @@ import {
   printPathHops,
   printSnapshot,
   printNarrative,
+  createLlmTraceOptions,
 } from '../shared/output.js'
 import { resolveDemoProviders } from '../shared/providers.js'
 import {
@@ -37,12 +38,14 @@ import {
 import { generateNarrative } from './narrative.js'
 
 async function main(): Promise<void> {
+  const trace = createLlmTraceOptions()
   const providers = resolveDemoProviders({
     fixtures,
     assertionEmbeddings,
     queryEmbeddings,
     queryTexts: QUERY_TEXTS,
     embeddingDimension: EMBEDDING_DIMENSION,
+    trace,
   })
   printBanner(`alex-place - mode: ${providers.modeLabel}`)
   const timeline = createDemoTimeline(episodes)
@@ -109,7 +112,8 @@ async function main(): Promise<void> {
   printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory, {
     timeline,
     emptyMessage:
-      `No assertions currently use entityId "${dadEntityQuery.entityId}". ` +
+      `No entity-history assertions were returned for entityId "${dadEntityQuery.entityId}". ` +
+      'This query does not run semantic search for the word "Dad"; it only reads assertions that extraction tagged with that exact entity ID. ' +
       (providers.isLive
         ? 'Live extraction may mention Dad without assigning the fixture entity ID; fixture mode is deterministic for this near-miss demo.'
         : 'The fixture corpus intentionally treats this as a sparse near-miss signal.'),

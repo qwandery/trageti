@@ -10,6 +10,7 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ExtractionProvider } from '../shared/providers.js'
 import { resolveLiveExtractionProvider } from '../shared/providers.js'
+import { createLlmTraceOptions } from '../shared/output.js'
 import { keyframes, type Keyframe } from './data/keyframes.js'
 
 function git(args: readonly string[]): string {
@@ -56,7 +57,8 @@ async function summarizeFirst(
 
 async function main(): Promise<void> {
   const tokenBudget = Number(process.argv[process.argv.indexOf('--context-length') + 1]) || 8192
-  const extractor = resolveLiveExtractionProvider()
+  const trace = createLlmTraceOptions()
+  const extractor = resolveLiveExtractionProvider({ trace })
 
   const aggregations: Record<string, string> = {}
   const episodes: Array<{ id: string; position: number; content: string }> = []

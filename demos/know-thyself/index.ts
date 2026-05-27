@@ -11,6 +11,7 @@ import {
   printProviderSummary,
   printRetrievalResult,
   printSnapshot,
+  createLlmTraceOptions,
 } from '../shared/output.js'
 import { resolveDemoProviders } from '../shared/providers.js'
 import {
@@ -31,12 +32,14 @@ import {
 import { retrieveQueries, snapshotAtV01 } from './queries.js'
 
 async function main(): Promise<void> {
+  const trace = createLlmTraceOptions()
   const providers = resolveDemoProviders({
     fixtures,
     assertionEmbeddings,
     queryEmbeddings,
     queryTexts: QUERY_TEXTS,
     embeddingDimension: EMBEDDING_DIMENSION,
+    trace,
   })
   printBanner(`know-thyself - mode: ${providers.modeLabel}`)
   const timeline = createDemoTimeline(episodes)

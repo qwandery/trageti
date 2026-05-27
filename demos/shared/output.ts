@@ -11,6 +11,7 @@ import type {
   Episode,
 } from 'trageti'
 import type { DemoRunLogger } from './runtime.js'
+import type { LlmTraceOptions } from './providers.js'
 
 const RULE = '-'.repeat(72)
 
@@ -49,6 +50,26 @@ export function createDemoLogger(): DemoRunLogger {
   }
 }
 
+export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEnv = process.env): LlmTraceOptions {
+  const arg = argv.find((value) => value === '--llm-trace' || value.startsWith('--llm-trace='))
+  const raw = arg?.includes('=') ? arg.split('=')[1] : arg ? 'full' : env['DEMO_LLM_TRACE']
+  const normalized = raw?.toLowerCase()
+  return {
+    enabled: normalized === '1' || normalized === 'true' || normalized === 'summary' || normalized === 'full',
+    includePayloads: normalized === '1' || normalized === 'true' || normalized === 'full',
+    log(message) {
+      console.log('')
+      console.log('[LLM]')
+      console.log(
+        message
+          .split('\n')
+          .map((line) => `  ${line}`)
+          .join('\n'),
+      )
+    },
+  }
+}
+
 export function printProviderSummary(options: {
   modeLabel: string
   namespace: string
@@ -65,6 +86,7 @@ export function printProviderSummary(options: {
   console.log(`  Extraction provider: ${options.extractionLabel}`)
   console.log(`  Embedding provider: ${options.embeddingLabel}`)
   console.log(`  Embedding dimension: ${String(options.embeddingDimension)}`)
+  console.log('  LLM trace: set DEMO_LLM_TRACE=summary or run with --llm-trace to print model calls')
 }
 
 export function printRetrievalResult(
@@ -191,7 +213,10 @@ export function printPathHops(
   console.log(title)
   console.log(RULE)
   if (links.length === 0) {
-    console.log('  No typed assertion-link path matched this request.')
+    console.log('  No graph path was returned.')
+    console.log(
+      '  This query does not run semantic search. It asks SQLite for stored typed links that connect two known assertions.',
+    )
     if (options?.fromAssertionId && options.toAssertionId) {
       console.log(
         `  Requested path: ${options.fromAssertionId} -> ${options.toAssertionId}` +
@@ -211,6 +236,9 @@ export function printPathHops(
           'fixture mode is deterministic for this graph demo.',
       )
     }
+    console.log(
+      '  If the DB was created before the latest fixtures, delete demos/.local/alex-place.db and rerun.',
+    )
     return
   }
   console.log('  Typed assertion-link path:')

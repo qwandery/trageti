@@ -42,6 +42,10 @@ Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 demo does not infer that any named service supports both extraction and
 embedding. Configure both capabilities for live runs.
 
+To inspect model boundaries while running the demo, set
+`DEMO_LLM_TRACE=summary`. To print full prompts, responses, embedding inputs,
+and vectors, set `DEMO_LLM_TRACE=full` or pass `--llm-trace`.
+
 ## What It Shows
 
 The skeleton ingests a sourdough learning arc, a fictional fermentation

@@ -38,6 +38,12 @@ export interface ResolvedDemoProviders {
   }
 }
 
+export interface LlmTraceOptions {
+  enabled: boolean
+  includePayloads: boolean
+  log(message: string): void
+}
+
 export interface ResolveDemoProvidersOptions {
   fixtures: Record<string, string>
   assertionEmbeddings: Record<string, number[]>
@@ -45,11 +51,13 @@ export interface ResolveDemoProvidersOptions {
   queryTexts: readonly string[]
   embeddingDimension: number
   env?: NodeJS.ProcessEnv
+  trace?: LlmTraceOptions
 }
 
 export interface ResolveLiveProvidersOptions {
   embeddingDimension: number
   env?: NodeJS.ProcessEnv
+  trace?: LlmTraceOptions
 }
 
 export function createFixtureExtractionProvider(fixtures: Record<string, string>): ExtractionProvider {
@@ -266,11 +274,11 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
     )
   }
 
-  const extractor =
+  let extractor =
     extractProvider === 'fixture'
       ? createFixtureExtractionProvider(options.fixtures)
       : resolveExtractionProvider(extractProvider, env)
-  const embedder =
+  let embedder =
     embedProvider === 'fixture'
       ? createRawVectorEmbeddingProvider({
           fixtures: options.fixtures,
@@ -280,6 +288,10 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
           dimension: options.embeddingDimension,
         })
       : resolveEmbeddingProvider(embedProvider, env, options.embeddingDimension)
+  if (options.trace?.enabled) {
+    extractor = traceExtractionProvider(extractor, options.trace)
+    embedder = traceEmbeddingProvider(embedder, options.trace)
+  }
 
   const isLive = extractor.provenance.kind !== 'fixture' || embedder.provenance.kind !== 'fixture'
   return {
@@ -291,17 +303,63 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
   }
 }
 
-export function resolveLiveExtractionProvider(env: NodeJS.ProcessEnv = process.env): ExtractionProvider {
+export function resolveLiveExtractionProvider(
+  envOrOptions: NodeJS.ProcessEnv | { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions } = process.env,
+): ExtractionProvider {
+  const options = isLiveExtractionOptions(envOrOptions) ? envOrOptions : undefined
+  const env: NodeJS.ProcessEnv = options?.env ?? (options ? process.env : envOrOptions as NodeJS.ProcessEnv)
+  const trace = options?.trace
   const provider = env['DEMO_EXTRACT_PROVIDER'] ?? inferExtractionProvider(env, true)
   if (provider === 'fixture') throw new Error('A live extraction provider is required; set DEMO_EXTRACT_PROVIDER.')
-  return resolveExtractionProvider(provider, env)
+  const extractor = resolveExtractionProvider(provider, env)
+  return trace?.enabled ? traceExtractionProvider(extractor, trace) : extractor
 }
 
 export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOptions): DemoEmbeddingProvider {
   const env = options.env ?? process.env
   const provider = env['DEMO_EMBED_PROVIDER'] ?? inferEmbeddingProvider(env, true)
   if (provider === 'fixture') throw new Error('A live embedding provider is required; set DEMO_EMBED_PROVIDER.')
-  return resolveEmbeddingProvider(provider, env, options.embeddingDimension)
+  const embedder = resolveEmbeddingProvider(provider, env, options.embeddingDimension)
+  return options.trace?.enabled ? traceEmbeddingProvider(embedder, options.trace) : embedder
+}
+
+export function traceExtractionProvider(provider: ExtractionProvider, trace: LlmTraceOptions): ExtractionProvider {
+  return {
+    ...provider,
+    async extract(prompt, options) {
+      const label = options?.episodeId ? `${provider.label} / ${options.episodeId}` : provider.label
+      trace.log(`LLM extraction request -> ${label}`)
+      if (trace.includePayloads) trace.log(indentBlock('prompt', prompt))
+      const started = performance.now()
+      const response = await provider.extract(prompt, options)
+      trace.log(`LLM extraction response <- ${label} (${(performance.now() - started).toFixed(1)} ms)`)
+      if (trace.includePayloads) trace.log(indentBlock('response', response))
+      return response
+    },
+  }
+}
+
+export function traceEmbeddingProvider(embedder: DemoEmbeddingProvider, trace: LlmTraceOptions): DemoEmbeddingProvider {
+  return {
+    ...embedder,
+    provider: {
+      ...embedder.provider,
+      async embed(texts, options) {
+        trace.log(`Embedding request -> ${embedder.label}: ${String(texts.length)} text(s)`)
+        if (trace.includePayloads) trace.log(indentBlock('input texts', texts.map((text, i) => `[${String(i + 1)}] ${text}`).join('\n\n')))
+        const started = performance.now()
+        const vectors = await embedder.provider.embed(texts, options)
+        trace.log(
+          `Embedding response <- ${embedder.label}: ${String(vectors.length)} vector(s), ` +
+            `${vectors[0]?.length ?? 0} dimension(s) (${(performance.now() - started).toFixed(1)} ms)`,
+        )
+        if (trace.includePayloads) {
+          trace.log(indentBlock('vectors', JSON.stringify(vectors.map((v) => Array.from(v)))))
+        }
+        return vectors
+      },
+    },
+  }
 }
 
 function inferExtractionProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean): string {
@@ -311,6 +369,12 @@ function inferExtractionProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean
     return 'openai-compatible'
   }
   return 'fixture'
+}
+
+function isLiveExtractionOptions(
+  value: NodeJS.ProcessEnv | { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions },
+): value is { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions } {
+  return Object.prototype.hasOwnProperty.call(value, 'env') || Object.prototype.hasOwnProperty.call(value, 'trace')
 }
 
 function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean): string {
@@ -452,4 +516,11 @@ function provenance(input: Omit<ProviderProvenance, 'configHash'>): ProviderProv
 
 function trimSlash(value: string): string {
   return value.replace(/\/+$/, '')
+}
+
+function indentBlock(label: string, value: string): string {
+  return `${label}:\n${value
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n')}`
 }

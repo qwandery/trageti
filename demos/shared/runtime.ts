@@ -142,9 +142,8 @@ export async function ingestEpisodes(options: {
     const existing = await options.store.getEpisode(episode.id)
     if (existing !== null) {
       validateExistingEpisode(existing, episode)
-      options.logger?.detail(
-        `${formatEpisode(episode)}: already in SQLite; validated and reused stored assertions/links.`,
-      )
+      options.logger?.detail(formatEpisode(episode))
+      options.logger?.detail('  Reused existing SQLite rows after validating the episode metadata.')
       await reloadAccumulated(options.store, options.namespace, accumulated)
       continue
     }
@@ -157,11 +156,15 @@ export async function ingestEpisodes(options: {
       extractor: options.providers.extractor,
     })
     await indexResult(options.store, result)
+    options.logger?.detail(formatEpisode(episode))
     options.logger?.detail(
-      `${formatEpisode(episode)}: stored ${formatCount(result.assertions.length, 'claim')}, ` +
-        `${formatLinkSummary(result.links)}, and indexed ${formatCount(result.assertions.length, 'vector')}.`,
+      `  Stored ${formatCount(result.assertions.length, 'claim')}; ` +
+        `${formatLinkSummary(result.links)}; indexed ${formatCount(result.assertions.length, 'vector')}.`,
     )
-    options.logger?.detail(`  Claims: ${formatClaimSummary(result.assertions)}`)
+    options.logger?.detail('  Main claims:')
+    for (const claim of formatClaimSummary(result.assertions)) {
+      options.logger?.detail(`    - ${claim}`)
+    }
     await reloadAccumulated(options.store, options.namespace, accumulated)
   }
   await verifyComplete(options)
@@ -173,7 +176,7 @@ function truncate(s: string, n: number): string {
 }
 
 function formatEpisode(episode: Omit<Episode, 'createdAt'>): string {
-  return `${formatDateTime(episode.occurredAt)} (pos ${String(episode.position)}, ${episode.type})`
+  return `${formatDateTime(episode.occurredAt)} - ${episode.type} episode, sequence ${String(episode.position)}`
 }
 
 function formatDateTime(value: string): string {
@@ -188,11 +191,11 @@ function formatDateTime(value: string): string {
   }).format(new Date(value))
 }
 
-function formatClaimSummary(assertions: readonly ExtractionResult['assertions'][number][]): string {
-  if (assertions.length === 0) return 'none'
+function formatClaimSummary(assertions: readonly ExtractionResult['assertions'][number][]): string[] {
+  if (assertions.length === 0) return ['none']
   const shown = assertions.slice(0, 3).map((a) => truncate(a.content, 72))
-  const suffix = assertions.length > shown.length ? `; +${String(assertions.length - shown.length)} more` : ''
-  return shown.join('; ') + suffix
+  if (assertions.length > shown.length) shown.push(`+${String(assertions.length - shown.length)} more stored claim(s)`)
+  return shown
 }
 
 function formatLinkSummary(links: readonly ExtractionResult['links'][number][]): string {
