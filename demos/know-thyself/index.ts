@@ -89,7 +89,11 @@ async function main(): Promise<void> {
   for (const { annotation, query } of retrieveQueries) {
     printQueryPlan(annotation, query, timeline)
     const result = await store.retrieve(query)
-    printRetrievalResult(annotation, query, result, timeline, { headerPrinted: true })
+    printRetrievalResult(annotation, query, result, timeline, {
+      headerPrinted: true,
+      order: 'temporal',
+      relevance: { maxResults: 10 },
+    })
   }
 
   logger.step('Running temporal snapshot query')

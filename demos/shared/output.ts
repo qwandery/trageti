@@ -15,6 +15,20 @@ import type { LlmTraceOptions } from './providers.js'
 
 const RULE = '-'.repeat(72)
 
+interface RelevanceDisplayOptions {
+  minResults: number
+  maxResults: number
+  relativeToBest: number
+  maxDropFromBest: number
+}
+
+const DEFAULT_RELEVANCE_OPTIONS: RelevanceDisplayOptions = {
+  minResults: 3,
+  maxResults: 12,
+  relativeToBest: 0.72,
+  maxDropFromBest: 0.22,
+}
+
 export interface DemoTimeline {
   byPosition: ReadonlyMap<number, Omit<Episode, 'createdAt'>>
   byEpisodeId: ReadonlyMap<string, Omit<Episode, 'createdAt'>>
@@ -96,7 +110,11 @@ export function printRetrievalResult(
   query: RetrievalQuery,
   result: RetrievalResult,
   timeline?: DemoTimeline,
-  options?: { headerPrinted?: boolean },
+  options?: {
+    headerPrinted?: boolean
+    order?: 'ranked' | 'temporal'
+    relevance?: Partial<RelevanceDisplayOptions>
+  },
 ): void {
   if (!options?.headerPrinted) printQueryHeader(annotation, query, result.meta, timeline)
   else printRetrievalMeta(result.meta)
@@ -104,7 +122,16 @@ export function printRetrievalResult(
     console.log('  No matching assertions returned.')
     return
   }
-  for (const [i, r] of result.results.entries()) {
+  const selected = selectRelevantResults(result.results, options?.relevance)
+  const ordered = options?.order === 'temporal' ? orderByTimeThenRank(selected.results) : selected.results
+  printRelevanceSummary(result.results.length, selected, options?.order ?? 'ranked')
+  let currentPosition: number | null = null
+  for (const [i, r] of ordered.entries()) {
+    if (options?.order === 'temporal' && r.validFrom !== currentPosition) {
+      currentPosition = r.validFrom
+      console.log('')
+      console.log(`  ${formatPosition(r.validFrom, timeline)}`)
+    }
     printAssertion(r, i, timeline)
   }
 }
@@ -117,7 +144,7 @@ export function printQueryPlan(annotation: string, query: RetrievalQuery, timeli
   console.log(`  Text: ${sanitizeForTerminal(query.queryText ?? '(query embedding only)')}`)
   console.log(`  Namespace: ${query.namespace}`)
   console.log(`  Time view: ${describePlannedTemporalScope(query, timeline)}; mode=${query.mode ?? 'snapshot'}`)
-  const plannedLimit = query.limit === undefined ? 'default result limit' : `top ${String(query.limit)}`
+  const plannedLimit = query.limit === undefined ? 'default result cap' : `up to ${String(query.limit)} ranked results`
   console.log(
     `  Retrieval plan: ${query.retrievalStrategy ?? 'hybrid'}; ` +
       plannedLimit,
@@ -146,7 +173,7 @@ function printRetrievalMeta(meta: RetrievalMeta): void {
   console.log(
     `  Retrieval: ${meta.retrievalStrategy}; vector ${applied(meta.vectorApplied)}, ` +
       `BM25 ${applied(meta.bm25Applied)}; ${String(meta.candidateCount)} candidates, ` +
-      `top ${String(meta.limit)}`,
+      `result cap ${String(meta.limit)}`,
   )
   if (meta.queryTextMode) console.log(`  Text search mode: ${meta.queryTextMode}`)
   if (meta.tookMs !== undefined) console.log(`  Runtime: ${meta.tookMs.toFixed(1)} ms`)
@@ -154,6 +181,62 @@ function printRetrievalMeta(meta: RetrievalMeta): void {
     for (const warning of meta.warnings) {
       console.log(`  Warning: ${warning.code} - ${sanitizeForTerminal(warning.message)}`)
     }
+  }
+}
+
+function selectRelevantResults(
+  results: readonly RetrievedAssertion[],
+  options?: Partial<RelevanceDisplayOptions>,
+): {
+  results: RetrievedAssertion[]
+  hiddenCount: number
+  threshold: number
+  bestScore: number
+} {
+  const config = { ...DEFAULT_RELEVANCE_OPTIONS, ...options }
+  if (results.length === 0) {
+    return { results: [], hiddenCount: 0, threshold: 0, bestScore: 0 }
+  }
+  const ranked = [...results].sort((a, b) => b.score - a.score)
+  const bestScore = ranked[0]?.score ?? 0
+  const relativeFloor = bestScore * config.relativeToBest
+  const dropFloor = bestScore - config.maxDropFromBest
+  const threshold = Math.max(relativeFloor, dropFloor)
+  const selected = ranked.filter((result, index) => {
+    if (index < config.minResults) return true
+    return result.score >= threshold
+  }).slice(0, config.maxResults)
+  return {
+    results: selected,
+    hiddenCount: Math.max(0, results.length - selected.length),
+    threshold,
+    bestScore,
+  }
+}
+
+function orderByTimeThenRank(results: readonly RetrievedAssertion[]): RetrievedAssertion[] {
+  return [...results].sort((a, b) => {
+    if (a.validFrom !== b.validFrom) return a.validFrom - b.validFrom
+    return b.score - a.score
+  })
+}
+
+function printRelevanceSummary(
+  retrievedCount: number,
+  selected: ReturnType<typeof selectRelevantResults>,
+  order: 'ranked' | 'temporal',
+): void {
+  console.log(
+    `  Showing ${String(selected.results.length)} of ${String(retrievedCount)} retrieved assertion(s): ` +
+      `kept results near the best score (${selected.bestScore.toFixed(3)}; cutoff ${selected.threshold.toFixed(3)}).`,
+  )
+  console.log(
+    order === 'temporal'
+      ? '  Display order: time first, then rank within the same time.'
+      : '  Display order: rank first.',
+  )
+  if (selected.hiddenCount > 0) {
+    console.log(`  Hidden: ${String(selected.hiddenCount)} lower-ranked result(s) below the demo relevance cutoff.`)
   }
 }
 
