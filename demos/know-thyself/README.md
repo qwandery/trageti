@@ -9,11 +9,8 @@ keyframe fixtures.
 
 ## Run
 
-```pwsh
+```sh
 npx tsx demos/know-thyself/index.ts
-
-# PowerShell execution-policy friendly form:
-.\node_modules\.bin\tsx.cmd demos\know-thyself\index.ts
 ```
 
 With no provider env vars, the demo runs fully offline using committed fixtures
@@ -61,13 +58,9 @@ semantic vectors.
 
 ## Regeneration Workflow
 
-```pwsh
+```sh
 npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
 npx tsx demos/know-thyself/generate-fixtures.ts
-
-# PowerShell alternatives:
-.\node_modules\.bin\tsx.cmd demos\know-thyself\generate-episodes.ts --context-length 32000
-.\node_modules\.bin\tsx.cmd demos\know-thyself\generate-fixtures.ts
 ```
 
 The generator scripts print proposed outputs for operator review; committed

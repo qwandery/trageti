@@ -9,11 +9,8 @@ graph traversal, entity history, and assembled-context narrative synthesis.
 
 ## Run
 
-```pwsh
+```sh
 npx tsx demos/alex-place/index.ts
-
-# PowerShell execution-policy friendly form:
-.\node_modules\.bin\tsx.cmd demos\alex-place\index.ts
 ```
 
 With no provider env vars, the demo runs fully offline using committed fixtures,
@@ -64,11 +61,8 @@ semantic vectors.
 
 ## Regeneration Workflow
 
-```pwsh
+```sh
 npx tsx demos/alex-place/generate-fixtures.ts
-
-# PowerShell alternative:
-.\node_modules\.bin\tsx.cmd demos\alex-place\generate-fixtures.ts
 ```
 
 The generator script prints proposed outputs for operator review; committed
