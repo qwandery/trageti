@@ -37,3 +37,4 @@
 
 - Follows a direct and descriptive commit style (e.g., "Implement temporally-aware RAG over SQLite", "Add lint enforcement and expand test coverage to 95%").
 - Uses **Changesets** for release management (`.changeset` directory).
+- Every code or documentation change made by an agent must be committed before the task is considered complete. Do not leave created or modified files untracked or unstaged. If validation or follow-up work is still pending, commit after the coherent change is complete and clearly report any remaining validation gaps.
