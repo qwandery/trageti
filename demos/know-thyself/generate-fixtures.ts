@@ -1,12 +1,11 @@
 // Functional reference: run extraction over committed episodes via a live
 // extractor, then embed every assertion content + query text via a live embedder.
 //
-// Usage: npx tsx demos/know-thyself/generate-fixtures.ts
-// PowerShell: .\node_modules\.bin\tsx.cmd demos\know-thyself\generate-fixtures.ts
+// Usage: npx tsx demos/know-thyself/generate-fixtures.ts [--write]
 
 import 'dotenv/config'
-import { writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { buildExtractionPrompt } from '../shared/prompt.js'
 import { parseExtraction } from '../shared/parse.js'
 import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js'
@@ -20,6 +19,7 @@ import { citationSources } from './data/sources.js'
 import { QUERY_TEXTS, EMBEDDING_DIMENSION } from './data/embeddings.js'
 
 async function main(): Promise<void> {
+  const writeCommitted = process.argv.includes('--write')
   const trace = createLlmTraceOptions()
   const extractor = resolveLiveExtractionProvider({ trace })
   const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, trace }).provider
@@ -59,12 +59,49 @@ async function main(): Promise<void> {
 
   const fixturesPath = resolve('demos/know-thyself/data/fixtures.ts')
   const embeddingsPath = resolve('demos/know-thyself/data/embeddings.ts')
-  console.log(`-> would write ${fixturesPath} (${String(Object.keys(fixtures).length)} entries)`)
+  const fixturesContent = renderFixtures(fixtures)
+  const embeddingsContent = renderEmbeddings(assertionEmbeddings, queryEmbeddings)
+  const reviewFixturesPath = resolve('demos/.local/know-thyself/generated-fixtures.ts')
+  const reviewEmbeddingsPath = resolve('demos/.local/know-thyself/generated-embeddings.ts')
+  writeGenerated(reviewFixturesPath, fixturesContent)
+  writeGenerated(reviewEmbeddingsPath, embeddingsContent)
+
+  console.log(`-> wrote review file ${reviewFixturesPath} (${String(Object.keys(fixtures).length)} entries)`)
   console.log(
-    `-> would write ${embeddingsPath} (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`,
+    `-> wrote review file ${reviewEmbeddingsPath} (${String(allAssertions.length)} assertion vectors, ${String(QUERY_TEXTS.length)} query vectors)`,
   )
-  console.log('(file writing left to the operator - review LLM output before committing)')
-  void writeFileSync
+  if (writeCommitted) {
+    writeGenerated(fixturesPath, fixturesContent)
+    writeGenerated(embeddingsPath, embeddingsContent)
+    console.log('-> updated committed know-thyself fixture files because --write was supplied')
+  } else {
+    console.log('(review .local generated files, then rerun with --write to replace committed fixture files)')
+  }
+}
+
+function writeGenerated(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content)
+}
+
+function renderFixtures(fixtures: Record<string, string>): string {
+  return `export const fixtures: Record<string, string> = ${JSON.stringify(fixtures, null, 2)}\n`
+}
+
+function renderEmbeddings(
+  assertionEmbeddings: Record<string, number[]>,
+  queryEmbeddings: Record<string, number[]>,
+): string {
+  return [
+    `export const EMBEDDING_DIMENSION = ${String(EMBEDDING_DIMENSION)}`,
+    '',
+    `export const QUERY_TEXTS: readonly string[] = ${JSON.stringify(QUERY_TEXTS, null, 2)}`,
+    '',
+    `export const assertionEmbeddings: Readonly<Record<string, number[]>> = ${JSON.stringify(assertionEmbeddings, null, 2)}`,
+    '',
+    `export const queryEmbeddings: Readonly<Record<string, number[]>> = ${JSON.stringify(queryEmbeddings, null, 2)}`,
+    '',
+  ].join('\n')
 }
 
 main().catch((err: unknown) => {

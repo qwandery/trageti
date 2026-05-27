@@ -60,6 +60,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.*', '.changeset/'],
+    ignores: ['dist/', 'node_modules/', 'coverage/', 'demos/.local/', '*.config.*', '.changeset/'],
   },
 )

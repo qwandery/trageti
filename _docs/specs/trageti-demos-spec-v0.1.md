@@ -117,7 +117,7 @@ Three extractor implementations, selected per-environment:
 **`fixtureExtractor(fixtures)`** — reads from a pre-generated fixture map keyed by episode ID. For offline execution, CI, and deterministic README output. The fixtures are generated once by running the demo with a live extractor and committing the output.
 
 ```typescript
-// demos/shared/extractors.ts
+// demos/shared/providers.ts
 
 /** Anthropic Messages API — different request format from OpenAI standard */
 function anthropicExtractor(apiKey: string): (prompt: string) => Promise<string> {
@@ -222,7 +222,7 @@ The tagline: "The only temporal RAG library that can explain its own history to 
 
 ### Data: Keyframe Commits
 
-Rather than ingesting hand-curated spec documents, this demo works directly from the repository's git history. A hand-curated manifest defines "keyframe" commits — moments of significant architectural change. The ingestion script processes each adjacent pair of keyframes, using git operations and two LLM calls per pair to produce episodes and assertions grounded in what actually changed in the codebase.
+Rather than ingesting hand-curated spec documents, this demo works from the repository's git history. A hand-curated manifest defines keyframe commits: moments of significant architectural change. The generation script processes the initial keyframe and each adjacent keyframe pair with git operations to produce reviewable source documents. Extraction then produces assertions, links, and citation spans grounded in those committed source documents.
 
 The manifest is a small, hand-maintained file:
 
@@ -230,25 +230,9 @@ The manifest is a small, hand-maintained file:
 // demos/know-thyself/data/keyframes.ts
 
 export const keyframes: Keyframe[] = [
-  {
-    hash: 'abc1234',
-    position: 1,
-    label: 'v0.1 initial spec',
-    date: '2026-04-15',
-  },
-  {
-    hash: 'def5678',
-    position: 2,
-    label: 'v0.2 citations + trajectory',
-    date: '2026-05-01',
-  },
-  {
-    hash: 'ghi9012',
-    position: 3,
-    label: 'v0.2.1 correctness patches',
-    date: '2026-05-10',
-  },
-  // ... 8–12 keyframes covering v0.1 through v0.3
+  { hash: 'fac4ada', position: 1, label: 'v0.1 implementation', date: '2026-04-29' },
+  { hash: '5695df6', position: 2, label: 'v0.2 citations and trajectory retrieval', date: '2026-05-10' },
+  // ... additional keyframes through v0.3 implementation, remediation, and polish
 ]
 ```
 
@@ -278,26 +262,17 @@ npx tsx demos/know-thyself/generate-episodes.ts [--context-length 8192]
 **Per keyframe pair (prev, curr):**
 
 ```
-1. git log curr -1 --format='%B'              → commit message
-2. git diff --stat prev curr                   → file change list with line counts
-3. git diff prev curr                          → full unified diff, truncated to fit
-                                                 within --context-length budget
-                                                 (default: 8192 tokens, roughly
-                                                 estimated at 0.25 tokens/char)
-4. LLM call 1 (aggregation):
-     Input: commit message + diff stat + truncated full diff
-     Prompt: "Summarize what materially changed between these two
-              commits. Focus on architectural and design-level
-              changes, not line-by-line code changes."
-     Output: plain-language summary of what changed and why
-
-5. LLM call 2 (extraction):
-     Input: commit message + diff stat + summary from step 4
-     Prompt: standard extraction prompt (assertions + links + citations)
-     Output: assertions, links, citations
+1. git log curr -1 --format='%B'       -> commit message
+2. git diff --stat prev curr            -> full file change summary
+3. git diff --name-status prev curr     -> changed path status
+4. git diff --numstat prev curr         -> per-file line counts
+5. deterministic source selection       -> bounded important files
+6. git diff prev curr -- <path>         -> selected file diffs
+7. source summary pass                  -> reviewable keyframe document
+8. fixture/runtime extraction           -> assertions, links, citation spans
 ```
 
-Steps 1–3 are pure git operations. Steps 4–5 are LLM calls. The `--context-length` parameter controls how much of the full diff is included in step 3 — larger values produce more complete aggregation summaries at the cost of more tokens. This lets the same script work with a small local model (4K–8K) and a large cloud model (32K+) without code changes.
+Steps 1-6 are pure git operations. The `--context-length` parameter controls how much selected diff context is included in the generated source document. Source documents are reviewed before being committed under `demos/know-thyself/data/sources/`.
 
 **For the first keyframe** (no previous commit to diff against), the script uses the full content of the keyframe commit itself: `git show <hash>:<file>` for the key files (spec, types, schema, README), truncated to the context budget. The aggregation call summarizes the initial state rather than a diff.
 
@@ -307,13 +282,15 @@ Everything generated is committed so the demo runs offline:
 
 ```
 data/
-├── keyframes.ts          — hand-curated manifest (the only manual input)
-├── episodes.ts           — generated episode objects with summaries
-├── aggregations.ts       — raw LLM aggregation outputs per keyframe pair
-└── fixtures.ts           — extraction output (assertions, links, citations)
+├── keyframes.ts          - hand-curated manifest (the only manual input)
+├── sources/              - reviewed keyframe source documents
+├── sources.ts            - source registry for citation-span resolution
+├── episodes.ts           - episode objects with temporal summaries
+├── aggregations.ts       - compact source-summary index
+└── fixtures.ts           - extraction output (assertions, links, citation spans)
 ```
 
-The `aggregations.ts` file is committed separately because it’s useful for debugging — if the extraction output looks wrong, you can check whether the aggregation summary captured the relevant changes before blaming the extraction prompt.
+The `aggregations.ts` file is committed separately because it is useful for debugging: if extraction output looks wrong, compare it with the compact source summary before changing the extraction prompt.
 
 ### Regeneration Workflow
 
@@ -325,11 +302,11 @@ git add demos/know-thyself/data/
 git commit -m "chore: regenerate know-thyself episodes and fixtures"
 ```
 
-Both scripts use the same extractor resolution chain as all other demos (Anthropic → OpenAI-compatible → fixtures). Regeneration is a deliberate act, not an automatic process.
+Both scripts use the same provider resolver as all other demos. Regeneration is a deliberate act, not an automatic process.
 
 ### Expected Assertion Count
 
-40–60 assertions across 8–12 keyframe pairs, with rich supersession chains (the scoring model evolved three times, the citation requirement went from absent to optional to mandatory, the temporal model was renamed and generalized) and accumulation links (each spec version deepens core concepts without replacing them).
+40-60 assertions across 8-12 keyframes, with supersession chains, accumulation links, source-grounded citations, schema evolution, retrieval-contract changes, and remediation milestones.
 
 ### What It Exercises
 
@@ -530,7 +507,7 @@ demos/
 ├── shared/
 │   ├── ingest.ts              — core ingestion function
 │   ├── prompt.ts              — default extraction prompt template
-│   ├── extractors.ts          — anthropic, openai-compatible, fixture extractors
+│   ├── providers.ts           — extraction and embedding provider resolver
 │   ├── parse.ts               — JSON parsing with error recovery
 │   └── output.ts              — terminal output formatting
 ├── know-thyself/
@@ -541,9 +518,11 @@ demos/
 │   ├── generate-fixtures.ts   — run extraction over episodes (requires LLM)
 │   └── data/
 │       ├── keyframes.ts       — hand-curated commit manifest (only manual input)
-│       ├── episodes.ts        — generated episode objects with summaries
-│       ├── aggregations.ts    — raw LLM aggregation outputs per keyframe pair
-│       ├── fixtures.ts        — extraction output (assertions, links, citations)
+│       ├── sources/           — reviewed keyframe source documents
+│       ├── sources.ts         — source registry for citation-span resolution
+│       ├── episodes.ts        — episode objects with temporal summaries
+│       ├── aggregations.ts    — compact source-summary index
+│       ├── fixtures.ts        — extraction output (assertions, links, citation spans)
 │       └── embeddings.ts      — pre-computed embedding vectors per assertion
 └── alex-place/
     ├── README.md
