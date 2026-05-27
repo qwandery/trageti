@@ -23,16 +23,26 @@ export const QUERY_TEXTS: readonly string[] = [
 
 function hashEmbed(text: string): number[] {
   const out = new Array(EMBEDDING_DIMENSION).fill(0) as number[]
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    const idx = (c * 31 + i) % EMBEDDING_DIMENSION
-    out[idx] = (out[idx] ?? 0) + Math.sin(c * (i + 1)) * 0.1
+  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  for (let i = 0; i < tokens.length; i++) {
+    addFeature(out, tokens[i] ?? '', 1)
+    if (i + 1 < tokens.length) addFeature(out, `${tokens[i]} ${tokens[i + 1]}`, 0.5)
   }
   let mag = 0
   for (let i = 0; i < EMBEDDING_DIMENSION; i++) mag += (out[i] ?? 0) * (out[i] ?? 0)
   mag = Math.sqrt(mag) || 1
   for (let i = 0; i < EMBEDDING_DIMENSION; i++) out[i] = (out[i] ?? 0) / mag
   return out
+}
+
+function addFeature(out: number[], feature: string, weight: number): void {
+  let hash = 2166136261
+  for (let i = 0; i < feature.length; i++) {
+    hash ^= feature.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  const idx = Math.abs(hash) % EMBEDDING_DIMENSION
+  out[idx] = (out[idx] ?? 0) + weight
 }
 
 const _assertionEmbeddings: Record<string, number[]> = {}

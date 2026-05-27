@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     relevance: { maxResults: 8 },
   })
 
-  const dadEntityId = firstEntityId(dadSemanticResult.results)
+  const dadEntityId = firstEntityId(dadSemanticResult.results, 'alex-father')
   if (dadEntityId) {
     const dadHistory = await store.getEntityHistory(NAMESPACE, dadEntityId)
     printSnapshot(`Query "What would Dad think?" (entity history for retrieved entity "${dadEntityId}")`, dadHistory, {
@@ -154,7 +154,9 @@ main().then(
   },
 )
 
-function firstEntityId(results: readonly RetrievedAssertion[]): string | null {
+function firstEntityId(results: readonly RetrievedAssertion[], preferredEntityId?: string): string | null {
+  if (preferredEntityId && results.some((result) => result.entityId === preferredEntityId)) return preferredEntityId
+  if (preferredEntityId) return null
   for (const result of results) {
     if (result.entityId) return result.entityId
   }

@@ -4,8 +4,19 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-export const citationSources: Readonly<Record<string, string>> = {
-  'sources/kf-1.md': readFileSync(join(here, 'sources', 'kf-1.md'), 'utf8'),
-  'sources/kf-1..kf-2.md': readFileSync(join(here, 'sources', 'kf-1..kf-2.md'), 'utf8'),
-  'sources/kf-2..kf-3.md': readFileSync(join(here, 'sources', 'kf-2..kf-3.md'), 'utf8'),
-}
+const refs = [
+  'kf-1.md',
+  'kf-1..kf-2.md',
+  'kf-2..kf-3.md',
+  'kf-3..kf-4.md',
+  'kf-4..kf-5.md',
+  'kf-5..kf-6.md',
+  'kf-6..kf-7.md',
+  'kf-7..kf-8.md',
+  'kf-8..kf-9.md',
+  'kf-9..kf-10.md',
+] as const
+
+export const citationSources: Readonly<Record<string, string>> = Object.fromEntries(
+  refs.map((ref) => [`sources/${ref}`, readFileSync(join(here, 'sources', ref), 'utf8')]),
+)

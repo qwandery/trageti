@@ -167,20 +167,18 @@ function openaiExtractor(options: {
 /** Pre-generated fixtures — offline, CI, deterministic */
 function fixtureExtractor(
   fixtures: Record<string, string>,
-): (prompt: string) => Promise<string> {
-  let callIndex = 0
-  const keys = Object.keys(fixtures)
-  return async () => {
-    const key = keys[callIndex++]
-    if (!key || !(key in fixtures)) {
-      throw new Error(`No fixture for call index ${callIndex - 1}`)
+): (prompt: string, options: { episodeId: string }) => Promise<string> {
+  return async (_prompt, options) => {
+    const raw = fixtures[options.episodeId]
+    if (!raw) {
+      throw new Error(`No fixture for episode ${options.episodeId}`)
     }
-    return fixtures[key]
+    return raw
   }
 }
 ```
 
-Each demo resolves an extractor by checking environment variables in order: `ANTHROPIC_API_KEY` selects Anthropic; `OPENAI_API_KEY` or `OPENROUTER_API_KEY` (with their respective base URLs) selects the OpenAI-compatible extractor; `OLLAMA_HOST` (defaulting to `http://localhost:11434/v1`) selects the OpenAI-compatible extractor pointed at a local Ollama instance. If none are available, fixtures are used. This means `npx tsx demos/<name>/index.ts` always works regardless of what's installed.
+Each demo resolves extraction and embedding independently through `demos/shared/providers.ts`. Convenience variables can supply provider defaults, but the demos do not infer that a named service supports both extraction and embeddings. If no live provider is configured, fixture extraction and fixture embeddings are used.
 
 ### Embedding Providers
 
@@ -271,7 +269,7 @@ committed under `demos/know-thyself/data/sources/` and registered in
 `data/sources.ts`. Episodes are temporal summaries over those documents, while
 fixtures and live extraction cite source spans inside the committed source docs.
 
-The script processes each adjacent keyframe pair with two LLM calls and several git operations:
+The script processes each adjacent keyframe pair with git operations and an optional source-summary pass:
 
 ```
 npx tsx demos/know-thyself/generate-episodes.ts [--context-length 8192]

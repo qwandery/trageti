@@ -1,53 +1,50 @@
-# kf-1: v0.1 initial implementation
+# kf-1.md: v0.1 implementation
 
 Source kind: initial keyframe source bundle
 Commit: fac4ada
-Label: v0.1 initial implementation
-Date: 2026-05-10
+Date: 2026-04-29
 
 ## Commit message
 
 Implement trageti v0.1: temporally-aware RAG over SQLite
 
-## Initial state summary
+## git show --stat
 
-The first keyframe establishes trageti as a TypeScript library for temporally-aware
-RAG over SQLite. The public model centers on episodes with sequence numbers,
-assertions with validity windows, hybrid retrieval over semantic and keyword
-signals, and a TemporalStore API for writing and querying temporal knowledge.
+```txt
+fac4ada Implement trageti v0.1: temporally-aware RAG over SQLite
+ README.md                                  | 328 ++
+ src/db/migrations/v001_initial.ts          | 119 +
+ src/db/repositories/AssertionRepository.ts | 169 +
+ src/db/repositories/EmbeddingRepository.ts |  73 +
+ src/db/repositories/EpisodeRepository.ts   |  67 +
+ src/defaults/scoring/DefaultScorer.ts      |  73 +
+ src/pipeline/retrieve.ts                   | 142 +
+ src/store/TemporalStore.ts                 | 312 +
+ test/integration/e2e.test.ts               | 221 +
+```
 
-The scoring model combines semantic similarity, BM25 relevance, and recency into
-a weighted hybrid score. Retrieval is scoped by namespace and temporal anchor,
-so callers can ask what was true at a particular point rather than only asking
-for the latest matching text.
+## Material change summary
+
+v0.1 establishes trageti as a TypeScript library for temporally aware retrieval over SQLite. The core unit is an episode with an ordinal sequenceNumber, and assertions attach to episodes with validity windows. Retrieval combines vector distance, BM25 text search, and recency into a weighted hybrid score.
+
+The initial implementation includes TemporalStore, schema migrations, repositories, default graph/scoring/formatting components, and integration tests. Citations are not yet a structural requirement in v0.1; assertions can be written without citation rows.
 
 ## Selected source context
 
-From the v0.1 domain model:
-
-```ts
-export interface Episode {
-  id: string
-  namespace: string
-  sequenceNumber: number
-  occurredAt: string
-  type: string
-  content: string
-}
-```
-
-From the v0.1 retrieval design:
+### src/defaults/scoring/DefaultScorer.ts
 
 ```txt
-retrieve(query) searches assertions in a namespace, applies the requested
-temporal anchor, combines vector and keyword evidence, and returns ranked
-assertions with score components.
+The v0.1 scorer combines semantic similarity, BM25 text score, and recency into one weighted score.
 ```
 
-From the v0.1 scoring behavior:
+### src/domain/types.ts
 
 ```txt
-DefaultScorer computes a weighted hybrid scoring formula combining semantic
-similarity, BM25, and recency.
+The v0.1 temporal model uses Episode.sequenceNumber as the caller-supplied ordering field for snapshot and retrieval behavior.
 ```
 
+### src/store/TemporalStore.ts
+
+```txt
+TemporalStore writes episodes, assertions, links, and embeddings through SQLite repositories and exposes retrieval methods over that stored state.
+```

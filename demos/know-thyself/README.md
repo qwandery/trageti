@@ -2,9 +2,10 @@
 
 *trageti ingests its own development history and answers questions about its own evolution.*
 
-This demo ingests reviewed source documents generated from `trageti` keyframe
-commits. It exercises ingestion, indexing, retrieval, trajectory display, and a
-temporal snapshot against committed keyframe fixtures.
+This demo ingests reviewed source documents generated from ten `trageti`
+keyframe commits, from the v0.1 implementation through v0.3 remediation and
+polish. It exercises ingestion, indexing, retrieval, trajectory display, graph
+expansion, and a temporal snapshot against committed keyframe fixtures.
 
 ## Run
 
@@ -51,12 +52,15 @@ and a reviewable summary of what changed. Episodes are temporal summaries over
 those source documents; citations point into the committed source documents via
 offsets.
 
-The demo runs three retrieval queries and one temporal snapshot:
+The demo runs six retrieval queries and one temporal snapshot:
 
-1. Current scoring formula.
+1. Current retrieval result contract.
 2. Temporal model evolution via trajectory mode.
-3. Data-integrity behavior with score component display.
-4. The v0.1 temporal model via `getTemporalSnapshot`.
+3. Citation provenance evolution via trajectory mode.
+4. Data-integrity behavior with linked migration context.
+5. Vectorless namespace and embedding-provider changes.
+6. Retrieval determinism and graph-ordering refinements.
+7. The v0.1 temporal model via `getTemporalSnapshot`.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.
 Use `generate-fixtures.ts` with a real embedding provider to regenerate
