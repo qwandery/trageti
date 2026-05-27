@@ -20,7 +20,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
       temporalAnchor: 3,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
-      limit: 3,
+      limit: 5,
     },
   },
   {
@@ -31,7 +31,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
       temporalAnchor: 3,
       retrievalStrategy: 'hybrid',
       mode: 'trajectory',
-      limit: 3,
+      limit: 6,
     },
   },
   {
@@ -43,7 +43,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
       temporalAnchor: 3,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
-      limit: 3,
+      limit: 5,
     },
   },
 ]
