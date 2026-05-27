@@ -33,7 +33,9 @@ import {
 } from './data/embeddings.js'
 import {
   retrieveQueries,
+  literatureSemanticQuery,
   literaturePathQuery,
+  dadSemanticQuery,
   dadEntityQuery,
 } from './queries.js'
 import { generateNarrative } from './narrative.js'
@@ -103,6 +105,14 @@ async function main(): Promise<void> {
   }
 
   logger.step('Running graph path query')
+  printQueryPlan(literatureSemanticQuery.annotation, literatureSemanticQuery.query, timeline)
+  const literatureResult = await store.retrieve(literatureSemanticQuery.query)
+  printRetrievalResult(literatureSemanticQuery.annotation, literatureSemanticQuery.query, literatureResult, timeline, {
+    headerPrinted: true,
+    order: 'temporal',
+    relevance: { maxResults: 10 },
+  })
+
   const pathEndpoints = await resolveLiteraturePathEndpoints(store)
   const pathOptions = pathEndpoints
     ? {
@@ -123,15 +133,23 @@ async function main(): Promise<void> {
   })
 
   logger.step('Running entity history query')
+  printQueryPlan(dadSemanticQuery.annotation, dadSemanticQuery.query, timeline)
+  const dadSemanticResult = await store.retrieve(dadSemanticQuery.query)
+  printRetrievalResult(dadSemanticQuery.annotation, dadSemanticQuery.query, dadSemanticResult, timeline, {
+    headerPrinted: true,
+    order: 'temporal',
+    relevance: { maxResults: 8 },
+  })
+
   const dadHistory = await store.getEntityHistory(dadEntityQuery.namespace, dadEntityQuery.entityId)
   printSnapshot(`Query ${dadEntityQuery.annotation}`, dadHistory, {
     timeline,
     emptyMessage:
       `No entity-history assertions were returned for entityId "${dadEntityQuery.entityId}". ` +
-      'This intentional negative-control query does not run semantic search for the word "Dad"; it only reads assertions that extraction tagged with that exact entity ID. ' +
+      'The semantic query above can still find Dad-related text; this strict lookup only reads assertions extraction tagged with that exact entity ID. ' +
       (providers.isLive
         ? 'Live extraction may mention Dad without assigning this entity ID.'
-        : 'The fixture corpus intentionally treats this as a sparse near-miss signal.'),
+        : 'If this fixture DB is current, it should contain one low-confidence Dad-related entity assertion.'),
   })
 
   logger.step('Assembling context and generating narrative')

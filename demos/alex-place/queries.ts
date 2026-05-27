@@ -10,6 +10,30 @@ export interface RetrieveCase {
   query: RetrievalQuery
 }
 
+export const literatureSemanticQuery: RetrieveCase = {
+  annotation: '"What does the literature say about my sourdough acidity?" (semantic retrieval)',
+  query: {
+    namespace: NAMESPACE,
+    queryText: 'What does the literature say about my sourdough acidity?',
+    temporalAnchor: 5,
+    retrievalStrategy: 'hybrid',
+    mode: 'snapshot',
+    limit: 25,
+  },
+}
+
+export const dadSemanticQuery: RetrieveCase = {
+  annotation: '"What would Dad think?" (semantic retrieval)',
+  query: {
+    namespace: NAMESPACE,
+    queryText: 'What would Dad think?',
+    temporalAnchor: 5,
+    retrievalStrategy: 'hybrid',
+    mode: 'snapshot',
+    limit: 25,
+  },
+}
+
 export const retrieveQueries: readonly RetrieveCase[] = [
   {
     annotation:
@@ -65,7 +89,7 @@ export const literaturePathQuery = {
 // Entity-history demo - RetrievalQuery has no entityId filter (only
 // entityTypes), so use getEntityHistory directly.
 export const dadEntityQuery = {
-  annotation: '"What would Dad think?" (entity-history negative control)',
+  annotation: '"What would Dad think?" (strict entity-history lookup)',
   namespace: NAMESPACE,
   entityId: 'alex-father',
 }
