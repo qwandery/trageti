@@ -2,10 +2,10 @@
 
 *An aspiring chef's personal journal as a temporal RAG corpus.*
 
-This is a skeleton smoke test of the full demo described in
-`_docs/specs/trageti-demos-spec-v0.1.md`. It ships four journal entries plus one
-fictional reference document, enough to exercise ingestion, indexing, retrieval,
-graph traversal, entity history, and assembled-context narrative synthesis.
+This demo turns Alex's journal and fictional food-science notes into dated
+episodes, extracted assertions, typed links, source-grounded citations, vector
+indexes, temporal retrieval, graph expansion, sparse entity lookup, and
+assembled-context narrative synthesis.
 
 ## Run
 
@@ -46,17 +46,21 @@ equivalent to summary mode.
 
 ## What It Shows
 
-The skeleton ingests a sourdough learning arc, a fictional fermentation
-reference, a low-confidence father reference, and a ramen-broth note. It then
-runs:
+The demo ingests twenty temporal slices covering sourdough, ramen broth, knife
+skills, dinner feedback, Maillard browning, noodles, kimchi, Mrs. Park's advice,
+Jordan's feedback, and sparse Dad references. Episodes are summaries; citations
+are derived from source spans in `alex.md` and `data/references/*`, not from LLM
+supplied excerpts. It then runs:
 
 1. A current sourdough snapshot query.
-2. A sourdough understanding trajectory query.
-3. A semantic literature query with graph expansion enabled, so linked
+2. A paired early-vs-current sourdough snapshot query.
+3. Sourdough, ramen, dinner-feedback, knife-skill, unresolved-question, and
+   Mrs. Park queries.
+4. A semantic literature query with graph expansion enabled, so linked
    assertions appear when extraction stored typed links.
-4. A semantic Dad query followed by `getEntityHistory` for the entity ID
+5. A semantic Dad query followed by `getEntityHistory` for the entity ID
    surfaced by retrieval, when one exists.
-5. An assembled-context narrative synthesis pass.
+6. An assembled-context narrative synthesis pass.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.
 Use `generate-fixtures.ts` with a real embedding provider to regenerate

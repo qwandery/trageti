@@ -1,6 +1,5 @@
-// Annotated query set for the alex-place skeleton smoke test. Demonstrates
-// snapshot mode, trajectory mode (supersession chain), a typed multi-hop
-// traversal via findPath, and entity-history retrieval (the "Dad" near-miss).
+// Annotated query set for alex-place. Demonstrates snapshot retrieval,
+// trajectory retrieval, graph-expanded retrieval, and sparse entity follow-up.
 
 import type { RetrievalQuery } from 'trageti'
 import { NAMESPACE } from './data/episodes.js'
@@ -14,8 +13,8 @@ export const literatureSemanticQuery: RetrieveCase = {
   annotation: '"What does the literature say about my sourdough acidity?" (semantic retrieval + graph expansion)',
   query: {
     namespace: NAMESPACE,
-    queryText: 'What does the literature say about my sourdough acidity?',
-    temporalAnchor: 5,
+    queryText: 'What does the literature say about sourdough acidity and fermentation schedule?',
+    temporalAnchor: 20,
     retrievalStrategy: 'hybrid',
     mode: 'snapshot',
     expandLinks: true,
@@ -29,7 +28,7 @@ export const dadSemanticQuery: RetrieveCase = {
   query: {
     namespace: NAMESPACE,
     queryText: 'What would Dad think?',
-    temporalAnchor: 5,
+    temporalAnchor: 20,
     retrievalStrategy: 'hybrid',
     mode: 'snapshot',
     limit: 25,
@@ -54,7 +53,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What does Alex know about making sourdough today?',
-      temporalAnchor: 5,
+      temporalAnchor: 20,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
       limit: 25,
@@ -65,9 +64,72 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'How has my understanding of sourdough proofing evolved?',
-      temporalAnchor: 5,
+      temporalAnchor: 20,
       retrievalStrategy: 'hybrid',
       mode: 'trajectory',
+      limit: 25,
+    },
+  },
+  {
+    annotation: `"How has Alex's ramen broth knowledge changed?" (trajectory)`,
+    query: {
+      namespace: NAMESPACE,
+      queryText: "How has Alex's ramen broth knowledge changed?",
+      temporalAnchor: 20,
+      retrievalStrategy: 'hybrid',
+      mode: 'trajectory',
+      expandLinks: true,
+      maxDepth: 1,
+      limit: 25,
+    },
+  },
+  {
+    annotation: '"What did Alex learn from dinner feedback?" (current snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What did Alex learn from dinner feedback?',
+      temporalAnchor: 20,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      expandLinks: true,
+      maxDepth: 1,
+      limit: 25,
+    },
+  },
+  {
+    annotation: '"What does Alex know about knife skills and safe cutting?" (current snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What does Alex know about knife skills and safe cutting?',
+      temporalAnchor: 20,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      limit: 25,
+    },
+  },
+  {
+    annotation: '"What questions or contradictions are still unresolved?" (current snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What questions or contradictions are still unresolved?',
+      temporalAnchor: 20,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      expandLinks: true,
+      maxDepth: 1,
+      limit: 25,
+    },
+  },
+  {
+    annotation: '"What has Mrs. Park taught Alex?" (current snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What has Mrs. Park taught Alex?',
+      temporalAnchor: 20,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      expandLinks: true,
+      maxDepth: 1,
       limit: 25,
     },
   },

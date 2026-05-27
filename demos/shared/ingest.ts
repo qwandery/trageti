@@ -33,7 +33,7 @@ export interface ExtractionResult {
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
   const { store, episode, document, citationSources, existingAssertions, extractor, promptOverride, namespace } = options
   const prompt =
-    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace)
+    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources)
   const raw = await extractor.extract(prompt, { episodeId: episode.id })
   const result = parseExtraction(raw)
   const cited = resolveCitationExcerpts(result, document, citationSources)
@@ -50,7 +50,7 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
   return normalized
 }
 
-function resolveCitationExcerpts(
+export function resolveCitationExcerpts(
   result: ExtractionResult,
   document: string,
   citationSources?: Record<string, string>,
@@ -139,7 +139,7 @@ function normalizeExtractionResult(
   }
 }
 
-function validateExtractionResult(result: ExtractionResult, existingAssertions: readonly Assertion[]): void {
+export function validateExtractionResult(result: ExtractionResult, existingAssertions: readonly Assertion[]): void {
   const errors: string[] = []
   const assertionIds = new Set<string>()
   const knownIds = new Set(existingAssertions.map((a) => a.id))

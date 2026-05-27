@@ -2,10 +2,9 @@
 
 *trageti ingests its own development history and answers questions about its own evolution.*
 
-This is a skeleton smoke test of the full demo described in
-`_docs/specs/trageti-demos-spec-v0.1.md`. It exercises ingestion, indexing,
-retrieval, trajectory display, and a temporal snapshot against committed
-keyframe fixtures.
+This demo ingests reviewed source documents generated from `trageti` keyframe
+commits. It exercises ingestion, indexing, retrieval, trajectory display, and a
+temporal snapshot against committed keyframe fixtures.
 
 ## Run
 
@@ -46,6 +45,12 @@ equivalent to summary mode.
 
 ## What It Shows
 
+The demo source documents live in `data/sources/`. They include commit
+metadata, full `git diff --stat` output, selected important diffs or snapshots,
+and a reviewable summary of what changed. Episodes are temporal summaries over
+those source documents; citations point into the committed source documents via
+offsets.
+
 The demo runs three retrieval queries and one temporal snapshot:
 
 1. Current scoring formula.
@@ -64,5 +69,7 @@ npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
 npx tsx demos/know-thyself/generate-fixtures.ts
 ```
 
-The generator scripts print proposed outputs for operator review; committed
-`data/*.ts` files are still updated manually.
+`generate-episodes.ts` writes proposed source documents to
+`demos/.local/know-thyself/sources/` for review. Reviewed source documents are
+committed under `data/sources/`; fixture generation uses the same source-span
+validation as runtime ingestion.

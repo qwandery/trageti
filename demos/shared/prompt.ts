@@ -11,6 +11,7 @@ export function buildExtractionPrompt(
   existingAssertions: readonly Assertion[],
   episode?: Omit<Episode, 'createdAt'>,
   namespace?: string,
+  citationSources?: Record<string, string>,
 ): string {
   const existing =
     existingAssertions.length === 0
@@ -34,6 +35,11 @@ example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
   const namespaceValue = namespace ?? episode?.namespace ?? '<same as episode>'
   const validFromValue = episode ? String(episode.position) : '<episode.position>'
   const sourceEpisodeValue = episode?.id ?? '<episode.id>'
+  const sourceText = citationSources
+    ? `\nRegistered citation source documents:\n${Object.entries(citationSources)
+        .map(([sourceRef, text]) => `--- sourceRef: ${sourceRef} ---\n${text}`)
+        .join('\n\n')}\n`
+    : ''
   return `You are extracting structured temporal assertions from a document.
 
 Existing assertions (for supersession or link decisions):
@@ -42,6 +48,7 @@ ${existing}
 ${episodeContext}
 Document:
 ${document}
+${sourceText}
 
 Output a single JSON object matching this schema:
 {

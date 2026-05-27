@@ -9,11 +9,12 @@ import type { ExtractionProvider } from '../shared/providers.js'
 const PRE_WRITTEN =
   '(pre-written synthesis - set ANTHROPIC_API_KEY or OPENAI_API_KEY for live synthesis)\n' +
   "Alex is partway through a self-directed culinary apprenticeship. The sourdough arc has " +
-  'turned a corner: the early bake was dense and over-soured, but a younger levain, shorter ' +
-  'bulk, and no cold retard brought acidity in line - with the caveat that the technique has ' +
-  'only been validated against one starter. A first encounter with a milky tonkotsu-style ' +
-  'ramen broth has opened a new investigation: fat and gelatin both suspended in the boil, ' +
-  'something Alex now wants to reverse-engineer at home.'
+  'moved from an over-soured loaf toward better acidity control, then hit a whole-wheat ' +
+  'setback that Alex partially corrected with higher hydration and gentler handling. The ' +
+  'ramen arc has shifted from admiring opaque broth to understanding the role of fat, gelatin, ' +
+  'and vigorous boiling, while noodle texture remains a separate unresolved problem. Dinner ' +
+  "feedback, Mrs. Park's kimchi advice, and knife-practice notes show Alex turning scattered " +
+  'observations into repeatable technique without treating every question as solved.'
 
 export async function generateNarrative(
   store: TemporalStore,
@@ -23,7 +24,7 @@ export async function generateNarrative(
   const ctx = await store.assembleContext({
     namespace: 'alex-journal',
     queryText: 'cooking progress',
-    temporalAnchor: 5,
+    temporalAnchor: 20,
     tokenBudget: 1000,
   })
 

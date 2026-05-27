@@ -1,7 +1,6 @@
-// Pre-computed embedding vectors for the alex-place skeleton — same shape
-// and provenance as know-thyself/data/embeddings.ts. Skeleton vectors are
-// produced by a small deterministic hash; regenerate via generate-fixtures.ts
-// against a real embedder for semantic ranking.
+// Pre-computed embedding vectors for alex-place. Fixture vectors are produced
+// by a small deterministic hash; regenerate via generate-fixtures.ts against a
+// real embedder for semantic ranking.
 
 import { parseExtraction } from '../../shared/parse.js'
 import { fixtures } from './fixtures.js'
@@ -12,7 +11,12 @@ export const QUERY_TEXTS: readonly string[] = [
   'What did Alex know about making sourdough on January 20, 2026?',
   'What does Alex know about making sourdough today?',
   'How has my understanding of sourdough proofing evolved?',
-  'What does the literature say about my sourdough acidity?',
+  "How has Alex's ramen broth knowledge changed?",
+  'What did Alex learn from dinner feedback?',
+  'What does Alex know about knife skills and safe cutting?',
+  'What questions or contradictions are still unresolved?',
+  'What has Mrs. Park taught Alex?',
+  'What does the literature say about sourdough acidity and fermentation schedule?',
   'What would Dad think?',
   'cooking progress',
 ]

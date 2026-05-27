@@ -9,12 +9,14 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { buildExtractionPrompt } from '../shared/prompt.js'
 import { parseExtraction } from '../shared/parse.js'
+import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js'
 import {
   resolveLiveEmbeddingProvider,
   resolveLiveExtractionProvider,
 } from '../shared/providers.js'
 import { createLlmTraceOptions } from '../shared/output.js'
 import { episodes } from './data/episodes.js'
+import { citationSources } from './data/sources.js'
 import { QUERY_TEXTS, EMBEDDING_DIMENSION } from './data/embeddings.js'
 
 async function main(): Promise<void> {
@@ -27,11 +29,13 @@ async function main(): Promise<void> {
   const allAssertions: Array<{ id: string; content: string }> = []
 
   for (const episode of episodes) {
-    const prompt = buildExtractionPrompt(episode.content, [], episode, episode.namespace)
+    const prompt = buildExtractionPrompt(episode.content, [], episode, episode.namespace, citationSources)
     const raw = await extractor.extract(prompt, { episodeId: episode.id })
-    fixtures[episode.id] = raw
     const result = parseExtraction(raw)
-    for (const a of result.assertions) {
+    const cited = resolveCitationExcerpts(result, episode.content, citationSources)
+    validateExtractionResult(cited, [])
+    fixtures[episode.id] = raw
+    for (const a of cited.assertions) {
       allAssertions.push({ id: a.id, content: a.content })
     }
   }

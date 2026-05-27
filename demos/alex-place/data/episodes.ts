@@ -1,7 +1,3 @@
-// Committed episode stand-ins for the alex-place skeleton. In the full demo
-// these would be derived from alex.md by a chunking/segmentation step; for the
-// skeleton they are hand-written and short.
-
 import type { Episode } from 'trageti'
 
 export const NAMESPACE = 'alex-journal'
@@ -13,9 +9,7 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 1,
     occurredAt: '2026-01-05T20:00:00Z',
     type: 'journal',
-    content:
-      'Started the sourdough starter — flour and water in a jar. Mention of doing this at ' +
-      'school before "everything stopped." Brief offhand reference to Dad and the jar.',
+    content: 'Alex starts a sourdough starter and briefly references Dad and the jar.',
   },
   {
     id: 'journal-2',
@@ -23,10 +17,7 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 2,
     occurredAt: '2026-01-20T21:00:00Z',
     type: 'journal',
-    content:
-      'First real bake. Dense and way too sour. Alex suspects multiple causes: a long cold ' +
-      'retard, a very mature levain (refreshed twice daily for two weeks), and possibly ' +
-      'too-low hydration for the desired crumb. Not blaming any one variable.',
+    content: 'The first sourdough bake is dense and too sour; Alex suspects cold retard, mature levain, and hydration.',
   },
   {
     id: 'ref-field',
@@ -34,11 +25,7 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 3,
     occurredAt: '2026-01-22T10:00:00Z',
     type: 'reference',
-    content:
-      'Mara Field, Sourdough Notes — chapter on fermentation acidity. Acidity in a finished ' +
-      'loaf is the sum of starter maturity, inoculation rate, total fermentation time, and ' +
-      'temperature schedule. No single dial. The productive move is rarely to isolate one ' +
-      'variable; look at the schedule end to end.',
+    content: 'Alex reads Mara Field on sourdough acidity as a whole fermentation schedule.',
   },
   {
     id: 'journal-4',
@@ -46,10 +33,7 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 4,
     occurredAt: '2026-02-08T18:00:00Z',
     type: 'journal',
-    content:
-      'Room-temp proof bake. Open crumb, mild flavor, light tang. Alex shortened bulk, ' +
-      'dropped the cold retard, and used a younger levain. Acidity dropped to the target — ' +
-      'at least with this starter; technique transferability is still unknown.',
+    content: 'A room-temperature proof with younger levain improves the sourdough but may not transfer to other starters.',
   },
   {
     id: 'journal-5',
@@ -57,9 +41,126 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 5,
     occurredAt: '2026-02-15T22:00:00Z',
     type: 'journal',
-    content:
-      'Ate miso ramen at Kintaro. Broth was opaque and almost milky — fat AND gelatin ' +
-      'suspended through it, not just an emulsified fat slick on top. The vigorous boil ' +
-      'pulled body out of the bones.',
+    content: 'Alex observes Kintaro ramen broth: milky body from fat and gelatin suspended by vigorous boiling.',
+  },
+  {
+    id: 'journal-6',
+    namespace: NAMESPACE,
+    position: 6,
+    occurredAt: '2026-02-23T19:00:00Z',
+    type: 'journal',
+    content: 'A knife class teaches pinch grip and rocking cuts, but the rocking motion feels wrong with Alex santoku.',
+  },
+  {
+    id: 'journal-7',
+    namespace: NAMESPACE,
+    position: 7,
+    occurredAt: '2026-03-01T20:00:00Z',
+    type: 'journal',
+    content: 'First ramen broth attempt is thin and weak; Alex suspects short cooking, water ratio, and insufficient boil.',
+  },
+  {
+    id: 'journal-8',
+    namespace: NAMESPACE,
+    position: 8,
+    occurredAt: '2026-03-06T20:00:00Z',
+    type: 'journal',
+    content: 'Alex learns santoku knife geometry favors push cuts and shorter slicing more than high rocking.',
+  },
+  {
+    id: 'ref-ito',
+    namespace: NAMESPACE,
+    position: 9,
+    occurredAt: '2026-03-10T12:00:00Z',
+    type: 'reference',
+    content: 'Alex reads Ito on paitan broth: vigorous boiling disperses fat, gelatin, and solids into suspension.',
+  },
+  {
+    id: 'journal-10',
+    namespace: NAMESPACE,
+    position: 10,
+    occurredAt: '2026-03-18T18:00:00Z',
+    type: 'journal',
+    content: 'Whole wheat sourdough fails because hydration is not yet adjusted for the flour.',
+  },
+  {
+    id: 'journal-11',
+    namespace: NAMESPACE,
+    position: 11,
+    occurredAt: '2026-03-25T18:00:00Z',
+    type: 'journal',
+    content: 'A fresh ramen kit shows Alex that kansui matters for noodle texture but is not the whole technique.',
+  },
+  {
+    id: 'journal-12',
+    namespace: NAMESPACE,
+    position: 12,
+    occurredAt: '2026-04-02T22:00:00Z',
+    type: 'journal',
+    content: 'Second ramen broth attempt uses an eight-hour rolling boil and becomes dramatically closer to Kintaro.',
+  },
+  {
+    id: 'journal-13',
+    namespace: NAMESPACE,
+    position: 13,
+    occurredAt: '2026-04-09T18:00:00Z',
+    type: 'journal',
+    content: 'Eighty percent hydration solves whole wheat for this flour, but the bread-flour method does not transfer directly.',
+  },
+  {
+    id: 'journal-14',
+    namespace: NAMESPACE,
+    position: 14,
+    occurredAt: '2026-04-16T22:00:00Z',
+    type: 'journal',
+    content: 'First dinner party feedback: Sam finds the bread sour, Priya discusses browning, and Jordan likes the simple salad dressing.',
+  },
+  {
+    id: 'ref-maillard',
+    namespace: NAMESPACE,
+    position: 15,
+    occurredAt: '2026-04-18T12:00:00Z',
+    type: 'reference',
+    content: 'Alex reads a Maillard note about dry surface heat, time, proteins, and reducing sugars.',
+  },
+  {
+    id: 'journal-16',
+    namespace: NAMESPACE,
+    position: 16,
+    occurredAt: '2026-04-25T18:00:00Z',
+    type: 'journal',
+    content: 'Baked baking soda noodles turn rubbery and metallic, so Alex treats the substitution as unresolved.',
+  },
+  {
+    id: 'journal-17',
+    namespace: NAMESPACE,
+    position: 17,
+    occurredAt: '2026-05-05T20:00:00Z',
+    type: 'journal',
+    content: 'Mrs. Park says Alex kimchi jjigae has too much sugar and not enough gochugaru; aged kimchi is the base.',
+  },
+  {
+    id: 'journal-18',
+    namespace: NAMESPACE,
+    position: 18,
+    occurredAt: '2026-05-20T20:00:00Z',
+    type: 'journal',
+    content: 'Alex corrects kimchi jjigae with older kimchi, more gochugaru, and less sugar.',
+  },
+  {
+    id: 'journal-19',
+    namespace: NAMESPACE,
+    position: 19,
+    occurredAt: '2026-05-27T20:00:00Z',
+    type: 'journal',
+    content: 'Mrs. Park teaches Alex to toast miso for tare, making the flavor more dimensional.',
+  },
+  {
+    id: 'journal-20',
+    namespace: NAMESPACE,
+    position: 20,
+    occurredAt: '2026-06-03T23:00:00Z',
+    type: 'journal',
+    content: 'Third dinner party: Sam likes the sourdough, Priya sees improved knife work, and Alex can imagine the restaurant someday.',
   },
 ]

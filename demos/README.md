@@ -9,8 +9,8 @@ workflows.
 
 | Demo | Corpus | Main features shown |
 |---|---|---|
-| `alex-place` | A cooking journal plus a fictional reference excerpt | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
-| `know-thyself` | `trageti` development-history keyframes | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots |
+| `alex-place` | A cooking journal plus fictional food-science references | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
+| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots |
 
 Both demos share provider handling from `demos/shared/`. Extraction and
 embedding are configured independently:
@@ -19,6 +19,12 @@ embedding are configured independently:
 |---|---|
 | Extraction | `fixture`, `anthropic`, `openai-compatible` |
 | Embedding | `fixture`, `openai-compatible`, `ollama-native` |
+
+The demos distinguish source documents from episodes. Source documents are the
+verbatim text that citations quote. Episodes are dated ingestion units and may
+be summaries of source material. Extraction outputs citation spans
+(`sourceRef`, `excerptStart`, `excerptEnd`), and demo ingestion derives the
+stored citation excerpt from the registered source text.
 
 ## Prerequisites
 

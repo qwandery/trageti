@@ -10,4 +10,9 @@ export const citationSources: Readonly<Record<string, string>> = {
     join(here, 'references', 'field-fermentation.md'),
     'utf8',
   ),
+  'references/ito-paitan.md': readFileSync(join(here, 'references', 'ito-paitan.md'), 'utf8'),
+  'references/maillard-browning.md': readFileSync(
+    join(here, 'references', 'maillard-browning.md'),
+    'utf8',
+  ),
 }

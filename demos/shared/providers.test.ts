@@ -163,6 +163,98 @@ describe('ingest normalization', () => {
     expect(store.episodes).toHaveLength(0)
   })
 
+  it('resolves citation excerpts from a registered source document', async () => {
+    const store = new FakeStore()
+    const extractor = providerReturning(JSON.stringify({
+      assertions: [
+        {
+          id: 'a-1',
+          namespace: 'wrong',
+          type: 'fact',
+          content: 'content',
+          validFrom: 999,
+          confidence: 0.9,
+          sourceEpisodeId: 'wrong-episode',
+          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'source.md', excerpt: null, excerptStart: '6', excerptEnd: '11' }],
+        },
+      ],
+      links: [],
+    }))
+
+    await ingest({
+      store: store as unknown as TemporalStore,
+      episode: makeEpisode(),
+      document: 'episode summary',
+      namespace: 'correct',
+      citationSources: { 'source.md': 'hello world' },
+      extractor,
+    })
+
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('world')
+  })
+
+  it('rejects an unknown citation source before writing an episode', async () => {
+    const store = new FakeStore()
+    const extractor = providerReturning(JSON.stringify({
+      assertions: [
+        {
+          id: 'a-1',
+          namespace: 'wrong',
+          type: 'fact',
+          content: 'content',
+          validFrom: 999,
+          confidence: 0.9,
+          sourceEpisodeId: 'wrong-episode',
+          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'missing.md', excerpt: null, excerptStart: '0', excerptEnd: '4' }],
+        },
+      ],
+      links: [],
+    }))
+
+    await expect(
+      ingest({
+        store: store as unknown as TemporalStore,
+        episode: makeEpisode(),
+        document: 'doc',
+        namespace: 'correct',
+        citationSources: { 'source.md': 'hello world' },
+        extractor,
+      }),
+    ).rejects.toThrow('does not match a registered source document')
+    expect(store.episodes).toHaveLength(0)
+  })
+
+  it('rejects invalid citation offsets before writing an episode', async () => {
+    const store = new FakeStore()
+    const extractor = providerReturning(JSON.stringify({
+      assertions: [
+        {
+          id: 'a-1',
+          namespace: 'wrong',
+          type: 'fact',
+          content: 'content',
+          validFrom: 999,
+          confidence: 0.9,
+          sourceEpisodeId: 'wrong-episode',
+          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'source.md', excerpt: null, excerptStart: '7', excerptEnd: '3' }],
+        },
+      ],
+      links: [],
+    }))
+
+    await expect(
+      ingest({
+        store: store as unknown as TemporalStore,
+        episode: makeEpisode(),
+        document: 'doc',
+        namespace: 'correct',
+        citationSources: { 'source.md': 'hello world' },
+        extractor,
+      }),
+    ).rejects.toThrow('invalid excerptStart/excerptEnd offsets')
+    expect(store.episodes).toHaveLength(0)
+  })
+
   it('rejects assertion IDs that collide with prior assertions before writing an episode', async () => {
     const store = new FakeStore()
     const extractor = providerReturning(JSON.stringify({
