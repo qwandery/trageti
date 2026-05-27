@@ -17,7 +17,7 @@ const fixture = JSON.stringify({
       validFrom: 999,
       confidence: 0.9,
       sourceEpisodeId: 'wrong-episode',
-      citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'content' }],
+      citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: null, excerptStart: '0', excerptEnd: '3' }],
     },
   ],
   links: [
@@ -109,6 +109,9 @@ describe('ingest normalization', () => {
     expect(store.assertions[0]?.sourceEpisodeId).toBe('ep-1')
     expect(store.assertions[0]?.validFrom).toBe(3)
     expect(store.assertions[0]?.citations[0]?.episodeId).toBe('ep-1')
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('doc')
+    expect(store.assertions[0]?.citations[0]?.excerptStart).toBe('0')
+    expect(store.assertions[0]?.citations[0]?.excerptEnd).toBe('3')
     expect(store.links[0]?.namespace).toBe('correct')
     expect(store.links[0]?.sourceEpisodeId).toBe('ep-1')
     expect(store.links[0]?.validFrom).toBe(3)
@@ -130,6 +133,36 @@ describe('ingest normalization', () => {
     expect(store.episodes).toHaveLength(0)
   })
 
+  it('rejects direct citation excerpt text before writing an episode', async () => {
+    const store = new FakeStore()
+    const extractor = providerReturning(JSON.stringify({
+      assertions: [
+        {
+          id: 'a-1',
+          namespace: 'wrong',
+          type: 'fact',
+          content: 'content',
+          validFrom: 999,
+          confidence: 0.9,
+          sourceEpisodeId: 'wrong-episode',
+          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'made up' }],
+        },
+      ],
+      links: [],
+    }))
+
+    await expect(
+      ingest({
+        store: store as unknown as TemporalStore,
+        episode: makeEpisode(),
+        document: 'doc',
+        namespace: 'correct',
+        extractor,
+      }),
+    ).rejects.toThrow('supplied excerpt text directly')
+    expect(store.episodes).toHaveLength(0)
+  })
+
   it('rejects assertion IDs that collide with prior assertions before writing an episode', async () => {
     const store = new FakeStore()
     const extractor = providerReturning(JSON.stringify({
@@ -142,7 +175,7 @@ describe('ingest normalization', () => {
           validFrom: 999,
           confidence: 0.9,
           sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-dup', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'duplicate id' }],
+          citations: [{ id: 'c-dup', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: null, excerptStart: '0', excerptEnd: '3' }],
         },
       ],
       links: [],

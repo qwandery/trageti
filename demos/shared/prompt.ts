@@ -58,7 +58,14 @@ Output a single JSON object matching this schema:
       "entityId": null | "<entity grouping id>",
       "entityType": null | "<entity classification>",
       "citations": [
-        {"id":"${citationPattern}","episodeId":"${sourceEpisodeValue}","sourceRef":"<locator>","excerpt":"<verbatim>"}
+        {
+          "id": "${citationPattern}",
+          "episodeId": "${sourceEpisodeValue}",
+          "sourceRef": "<stable locator>",
+          "excerpt": null,
+          "excerptStart": "<zero-based start character offset in Document>",
+          "excerptEnd": "<exclusive end character offset in Document>"
+        }
       ]
     }
   ],
@@ -76,8 +83,15 @@ Output a single JSON object matching this schema:
   ]
 }
 
+Citation rules:
+- Every assertion needs at least one citation.
+- Do not supply citation.excerpt text. Always set "excerpt": null.
+- Supply sourceRef, excerptStart, and excerptEnd so the demo runner can derive the stored citation excerpt from registered source text.
+- If no external source document is provided, offsets refer to the Document text above.
+- If sourceRef names an external source document, offsets refer to that external source document, not this episode summary.
+- If the offsets do not resolve to source text, ingestion will fail.
+
 Rules:
-- Every assertion needs at least one citation with a verbatim excerpt.
 - New assertion IDs must not reuse any ID listed under Existing assertions.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.

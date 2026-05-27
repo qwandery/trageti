@@ -128,6 +128,7 @@ export async function ingestEpisodes(options: {
   store: TemporalStore
   namespace: string
   episodes: readonly Omit<Episode, 'createdAt'>[]
+  citationSources?: Record<string, string>
   providers: ResolvedDemoProviders
   expectedFixtureAssertionIds?: readonly string[]
   logger?: DemoRunLogger
@@ -155,14 +156,16 @@ export async function ingestEpisodes(options: {
       }
       continue
     }
-    const result = await ingest({
+    const ingestOptions = {
       store: options.store,
       namespace: options.namespace,
       episode,
       document: episode.content,
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
-    })
+      ...(options.citationSources !== undefined && { citationSources: options.citationSources }),
+    }
+    const result = await ingest(ingestOptions)
     await indexResult(options.store, result)
     options.logger?.detail(formatEpisode(episode))
     options.logger?.detail(

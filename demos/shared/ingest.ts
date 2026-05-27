@@ -17,6 +17,7 @@ export interface IngestOptions {
   store: TemporalStore
   episode: Omit<Episode, 'createdAt'>
   document: string
+  citationSources?: Record<string, string>
   existingAssertions?: Assertion[]
   extractor: ExtractionProvider
   namespace: string
@@ -30,14 +31,15 @@ export interface ExtractionResult {
 }
 
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
-  const { store, episode, document, existingAssertions, extractor, promptOverride, namespace } = options
+  const { store, episode, document, citationSources, existingAssertions, extractor, promptOverride, namespace } = options
   const prompt =
     promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace)
   const raw = await extractor.extract(prompt, { episodeId: episode.id })
   const result = parseExtraction(raw)
-  validateExtractionResult(result, existingAssertions ?? [])
+  const cited = resolveCitationExcerpts(result, document, citationSources)
+  validateExtractionResult(cited, existingAssertions ?? [])
 
-  const normalized = normalizeExtractionResult(result, namespace, episode)
+  const normalized = normalizeExtractionResult(cited, namespace, episode)
   await store.writeEpisode(episode)
   for (const a of normalized.assertions) {
     await store.writeAssertion(a)
@@ -46,6 +48,68 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
     await store.writeLink(l)
   }
   return normalized
+}
+
+function resolveCitationExcerpts(
+  result: ExtractionResult,
+  document: string,
+  citationSources?: Record<string, string>,
+): ExtractionResult {
+  return {
+    assertions: result.assertions.map((a) => ({
+      ...a,
+      citations: Array.isArray(a.citations) ? a.citations.map((c) => {
+        if (c.excerpt !== null && c.excerpt !== undefined) {
+          throw new Error(
+            `Extraction result failed citation validation:\n` +
+              `- citation "${c.id}" supplied excerpt text directly; provide excerptStart/excerptEnd and set excerpt to null`,
+          )
+        }
+        const source = resolveCitationSource(c.sourceRef, document, citationSources)
+        const start = parseOffset(c.excerptStart)
+        const end = parseOffset(c.excerptEnd)
+        if (start === null || end === null || start < 0 || end <= start || end > source.content.length) {
+          throw new Error(
+            `Extraction result failed citation validation:\n` +
+              `- citation "${c.id}" has invalid excerptStart/excerptEnd offsets for source "${source.id}" length ${String(source.content.length)}`,
+          )
+        }
+        const excerpt = source.content.slice(start, end)
+        if (excerpt.trim().length === 0) {
+          throw new Error(
+            `Extraction result failed citation validation:\n` +
+              `- citation "${c.id}" offsets resolve to empty source text`,
+          )
+        }
+        return {
+          ...c,
+          excerpt,
+          excerptStart: String(start),
+          excerptEnd: String(end),
+        }
+      }) : a.citations,
+    })),
+    links: result.links,
+  }
+}
+
+function resolveCitationSource(
+  sourceRef: string,
+  document: string,
+  citationSources?: Record<string, string>,
+): { id: string; content: string } {
+  if (!citationSources) return { id: 'episode document', content: document }
+  const direct = citationSources[sourceRef]
+  if (direct !== undefined) return { id: sourceRef, content: direct }
+  const baseRef = sourceRef.split('#')[0]
+  if (baseRef) {
+    const base = citationSources[baseRef]
+    if (base !== undefined) return { id: baseRef, content: base }
+  }
+  throw new Error(
+    `Extraction result failed citation validation:\n` +
+      `- citation sourceRef "${sourceRef}" does not match a registered source document`,
+  )
 }
 
 function normalizeExtractionResult(
@@ -129,4 +193,10 @@ function validateExtractionResult(result: ExtractionResult, existingAssertions: 
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function parseOffset(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+  return Number.parseInt(value, 10)
 }

@@ -24,6 +24,7 @@ import {
 } from '../shared/runtime.js'
 import { NAMESPACE, episodes } from './data/episodes.js'
 import { fixtures } from './data/fixtures.js'
+import { citationSources } from './data/sources.js'
 import {
   EMBEDDING_DIMENSION,
   QUERY_TEXTS,
@@ -81,6 +82,7 @@ async function main(): Promise<void> {
     store,
     namespace: NAMESPACE,
     episodes,
+    citationSources,
     providers,
     logger,
   }
