@@ -41,7 +41,8 @@ embedding. Configure both capabilities for live runs.
 
 To inspect model boundaries while running the demo, set
 `DEMO_LLM_TRACE=summary`. To print full prompts, responses, embedding inputs,
-and vectors, set `DEMO_LLM_TRACE=full` or pass `--llm-trace`.
+and vector summaries, set `DEMO_LLM_TRACE=full`. The `--llm-trace` flag is
+equivalent to summary mode.
 
 ## What It Shows
 

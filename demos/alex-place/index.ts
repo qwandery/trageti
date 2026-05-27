@@ -2,12 +2,13 @@
 // in fixture mode by default; set explicit demo provider env vars for live mode.
 
 import 'dotenv/config'
-import { TemporalStore } from 'trageti'
+import { TemporalStore, type Assertion } from 'trageti'
 import {
   createDemoTimeline,
   createDemoLogger,
   printBanner,
   printProviderSummary,
+  printQueryPlan,
   printRetrievalResult,
   printPathHops,
   printSnapshot,
@@ -92,19 +93,29 @@ async function main(): Promise<void> {
 
   logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
+    printQueryPlan(annotation, query, timeline)
     const result = await store.retrieve(query)
-    printRetrievalResult(annotation, query, result, timeline)
+    printRetrievalResult(annotation, query, result, timeline, { headerPrinted: true })
   }
 
   logger.step('Running graph path query')
-  const path = await store.findPath(literaturePathQuery.options)
+  const pathEndpoints = await resolveLiteraturePathEndpoints(store)
+  const pathOptions = pathEndpoints
+    ? {
+        ...literaturePathQuery.options,
+        fromAssertionId: pathEndpoints.fromId,
+        toAssertionId: pathEndpoints.toId,
+      }
+    : literaturePathQuery.options
+  const path = pathEndpoints ? await store.findPath(pathOptions) : null
   printPathHops(`Query ${literaturePathQuery.annotation}`, path ?? [], {
-    fromAssertionId: literaturePathQuery.options.fromAssertionId,
-    toAssertionId: literaturePathQuery.options.toAssertionId,
+    fromAssertionId: pathOptions.fromAssertionId,
+    toAssertionId: pathOptions.toAssertionId,
     temporalAnchor: literaturePathQuery.options.temporalAnchor,
     maxDepth: literaturePathQuery.options.maxDepth,
     liveMode: providers.isLive,
     timeline,
+    staleFixtureAdvice: !providers.isLive,
   })
 
   logger.step('Running entity history query')
@@ -113,9 +124,9 @@ async function main(): Promise<void> {
     timeline,
     emptyMessage:
       `No entity-history assertions were returned for entityId "${dadEntityQuery.entityId}". ` +
-      'This query does not run semantic search for the word "Dad"; it only reads assertions that extraction tagged with that exact entity ID. ' +
+      'This intentional negative-control query does not run semantic search for the word "Dad"; it only reads assertions that extraction tagged with that exact entity ID. ' +
       (providers.isLive
-        ? 'Live extraction may mention Dad without assigning the fixture entity ID; fixture mode is deterministic for this near-miss demo.'
+        ? 'Live extraction may mention Dad without assigning this entity ID.'
         : 'The fixture corpus intentionally treats this as a sparse near-miss signal.'),
   })
 
@@ -135,3 +146,24 @@ main().then(
     process.exit(1)
   },
 )
+
+async function resolveLiteraturePathEndpoints(store: TemporalStore): Promise<{ fromId: string; toId: string } | null> {
+  const assertions = await store.getAssertions(NAMESPACE, { includeSuperseded: true })
+  const from = bestAssertionMatch(assertions, ['acidity', 'starter maturity', 'inoculation', 'temperature'])
+  const to = bestAssertionMatch(assertions, ['acidity', 'target', 'younger levain'])
+  if (!from || !to) return null
+  return { fromId: from.id, toId: to.id }
+}
+
+function bestAssertionMatch(assertions: readonly Assertion[], terms: readonly string[]): Assertion | null {
+  let best: { assertion: Assertion; score: number } | null = null
+  for (const assertion of assertions) {
+    const content = assertion.content.toLowerCase()
+    const score = terms.filter((term) => content.includes(term.toLowerCase())).length
+    if (score === 0) continue
+    if (!best || score > best.score || (score === best.score && assertion.validFrom > best.assertion.validFrom)) {
+      best = { assertion, score }
+    }
+  }
+  return best?.assertion ?? null
+}

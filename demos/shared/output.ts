@@ -52,18 +52,20 @@ export function createDemoLogger(): DemoRunLogger {
 
 export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEnv = process.env): LlmTraceOptions {
   const arg = argv.find((value) => value === '--llm-trace' || value.startsWith('--llm-trace='))
-  const raw = arg?.includes('=') ? arg.split('=')[1] : arg ? 'full' : env['DEMO_LLM_TRACE']
+  const raw = arg?.includes('=') ? arg.split('=')[1] : arg ? 'summary' : env['DEMO_LLM_TRACE']
   const normalized = raw?.toLowerCase()
+  const rawVectors = env['DEMO_LLM_TRACE_RAW_VECTORS']?.toLowerCase()
   return {
     enabled: normalized === '1' || normalized === 'true' || normalized === 'summary' || normalized === 'full',
-    includePayloads: normalized === '1' || normalized === 'true' || normalized === 'full',
+    includePayloads: normalized === 'full',
+    includeRawVectors: rawVectors === '1' || rawVectors === 'true' || rawVectors === 'full',
     log(message) {
       console.log('')
       console.log('[LLM]')
       console.log(
         message
           .split('\n')
-          .map((line) => `  ${line}`)
+          .map((line) => `  ${sanitizeForTerminal(line)}`)
           .join('\n'),
       )
     },
@@ -86,7 +88,7 @@ export function printProviderSummary(options: {
   console.log(`  Extraction provider: ${options.extractionLabel}`)
   console.log(`  Embedding provider: ${options.embeddingLabel}`)
   console.log(`  Embedding dimension: ${String(options.embeddingDimension)}`)
-  console.log('  LLM trace: set DEMO_LLM_TRACE=summary or run with --llm-trace to print model calls')
+  console.log('  LLM trace: --llm-trace or DEMO_LLM_TRACE=summary shows call timing; DEMO_LLM_TRACE=full shows prompts and responses')
 }
 
 export function printRetrievalResult(
@@ -94,8 +96,10 @@ export function printRetrievalResult(
   query: RetrievalQuery,
   result: RetrievalResult,
   timeline?: DemoTimeline,
+  options?: { headerPrinted?: boolean },
 ): void {
-  printQueryHeader(annotation, query, result.meta, timeline)
+  if (!options?.headerPrinted) printQueryHeader(annotation, query, result.meta, timeline)
+  else printRetrievalMeta(result.meta)
   if (result.results.length === 0) {
     console.log('  No matching assertions returned.')
     return
@@ -103,6 +107,21 @@ export function printRetrievalResult(
   for (const [i, r] of result.results.entries()) {
     printAssertion(r, i, timeline)
   }
+}
+
+export function printQueryPlan(annotation: string, query: RetrievalQuery, timeline?: DemoTimeline): void {
+  console.log('')
+  console.log(RULE)
+  console.log(`Query ${sanitizeForTerminal(annotation)}`)
+  console.log(RULE)
+  console.log(`  Text: ${sanitizeForTerminal(query.queryText ?? '(query embedding only)')}`)
+  console.log(`  Namespace: ${query.namespace}`)
+  console.log(`  Time view: ${describePlannedTemporalScope(query, timeline)}; mode=${query.mode ?? 'snapshot'}`)
+  const plannedLimit = query.limit === undefined ? 'default result limit' : `top ${String(query.limit)}`
+  console.log(
+    `  Retrieval plan: ${query.retrievalStrategy ?? 'hybrid'}; ` +
+      plannedLimit,
+  )
 }
 
 export function printQueryHeader(
@@ -113,13 +132,17 @@ export function printQueryHeader(
 ): void {
   console.log('')
   console.log(RULE)
-  console.log(`Query ${annotation}`)
+  console.log(`Query ${sanitizeForTerminal(annotation)}`)
   console.log(RULE)
-  console.log(`  Text: ${query.queryText ?? '(query embedding only)'}`)
+  console.log(`  Text: ${sanitizeForTerminal(query.queryText ?? '(query embedding only)')}`)
   console.log(`  Namespace: ${meta.namespace}`)
   console.log(
     `  Time view: ${describeTemporalScope(query, meta, timeline)}; mode=${query.mode ?? 'snapshot'}`,
   )
+  printRetrievalMeta(meta)
+}
+
+function printRetrievalMeta(meta: RetrievalMeta): void {
   console.log(
     `  Retrieval: ${meta.retrievalStrategy}; vector ${applied(meta.vectorApplied)}, ` +
       `BM25 ${applied(meta.bm25Applied)}; ${String(meta.candidateCount)} candidates, ` +
@@ -129,14 +152,14 @@ export function printQueryHeader(
   if (meta.tookMs !== undefined) console.log(`  Runtime: ${meta.tookMs.toFixed(1)} ms`)
   if (meta.warnings.length > 0) {
     for (const warning of meta.warnings) {
-      console.log(`  Warning: ${warning.code} - ${warning.message}`)
+      console.log(`  Warning: ${warning.code} - ${sanitizeForTerminal(warning.message)}`)
     }
   }
 }
 
 export function printAssertion(a: RetrievedAssertion, index: number, timeline?: DemoTimeline): void {
   console.log('')
-  console.log(`  Result ${String(index + 1)}: ${a.content}`)
+  console.log(`  Result ${String(index + 1)}: ${sanitizeForTerminal(a.content)}`)
   console.log(`    Time: ${describeAssertionValidity(a, timeline)}`)
   console.log(
     `    Source: ${describeEpisode(a.sourceEpisodeId, timeline)}; ` +
@@ -145,7 +168,7 @@ export function printAssertion(a: RetrievedAssertion, index: number, timeline?: 
   console.log(`    Rank: ${a.score.toFixed(3)} (${describeRankingSignals(a)})`)
   for (const citation of a.citations.slice(0, 2)) {
     if (citation.excerpt) {
-      console.log(`    Citation (${citation.sourceRef}): "${truncate(citation.excerpt, 120)}"`)
+      console.log(`    Citation (${sanitizeForTerminal(citation.sourceRef)}): "${truncate(sanitizeForTerminal(citation.excerpt), 120)}"`)
     } else {
       console.log(`    Citation (${citation.sourceRef}): no excerpt recorded`)
     }
@@ -159,14 +182,14 @@ export function printAssertion(a: RetrievedAssertion, index: number, timeline?: 
   if (a.linkedAssertions && a.linkedAssertions.length > 0) {
     console.log('    Linked assertions:')
     for (const linked of a.linkedAssertions) {
-      console.log(`      - ${truncate(linked.content, 100)}`)
+      console.log(`      - ${truncate(sanitizeForTerminal(linked.content), 100)}`)
     }
   }
   if (a.supersessionChain && a.supersessionChain.length > 0) {
     console.log('    Earlier versions:')
     for (const prior of a.supersessionChain) {
       console.log(
-        `      - ${formatPosition(prior.validFrom, timeline)}: ${truncate(prior.content, 100)}`,
+        `      - ${formatPosition(prior.validFrom, timeline)}: ${truncate(sanitizeForTerminal(prior.content), 100)}`,
       )
     }
   }
@@ -187,7 +210,7 @@ export function printSnapshot(
   }
   for (const [i, a] of assertions.entries()) {
     console.log('')
-    console.log(`  Snapshot item ${String(i + 1)}: ${truncate(a.content, 120)}`)
+    console.log(`  Snapshot item ${String(i + 1)}: ${truncate(sanitizeForTerminal(a.content), 120)}`)
     console.log(`    Time: ${describeAssertionValidity(a, options?.timeline)}`)
     console.log(
       `    Source: ${describeEpisode(a.sourceEpisodeId, options?.timeline)}; ` +
@@ -206,6 +229,7 @@ export function printPathHops(
     maxDepth?: number
     liveMode?: boolean
     timeline?: DemoTimeline
+    staleFixtureAdvice?: boolean
   },
 ): void {
   console.log('')
@@ -232,13 +256,12 @@ export function printPathHops(
     )
     if (options?.liveMode) {
       console.log(
-        '  Live extraction can choose different IDs or omit the expected contextualizes link; ' +
-          'fixture mode is deterministic for this graph demo.',
+        '  The live extraction stored both endpoint claims, but it did not store an active typed link connecting them.',
       )
     }
-    console.log(
-      '  If the DB was created before the latest fixtures, delete demos/.local/alex-place.db and rerun.',
-    )
+    if (options?.staleFixtureAdvice) {
+      console.log('  If this fixture DB predates the current fixtures, delete demos/.local/alex-place.db and rerun.')
+    }
     return
   }
   console.log('  Typed assertion-link path:')
@@ -258,7 +281,17 @@ export function printNarrative(text: string): void {
   console.log(RULE)
   console.log('Assembled-context narrative synthesis')
   console.log(RULE)
-  console.log('  ' + text.split('\n').join('\n  '))
+  console.log('  ' + sanitizeForTerminal(text).split('\n').join('\n  '))
+}
+
+function describePlannedTemporalScope(query: RetrievalQuery, timeline?: DemoTimeline): string {
+  const anchor = query.temporalAnchor ?? 'latest'
+  const anchorLabel = typeof anchor === 'number' ? formatPosition(anchor, timeline) : String(anchor)
+  const window = query.temporalWindow
+  if (!window) return anchorLabel
+  const from = window.from === undefined ? 'the beginning' : formatPosition(window.from, timeline)
+  const to = window.to === undefined ? 'now' : formatPosition(window.to, timeline)
+  return `${anchorLabel}, window ${from}..${to}`
 }
 
 function describeTemporalScope(query: RetrievalQuery, meta: RetrievalMeta, timeline?: DemoTimeline): string {
@@ -319,4 +352,21 @@ function describeRankingSignals(a: RetrievedAssertion): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + '...'
+}
+
+function sanitizeForTerminal(value: string): string {
+  return value
+    .replaceAll('â€”', '-')
+    .replaceAll('â€“', '-')
+    .replaceAll('â€™', "'")
+    .replaceAll('â€œ', '"')
+    .replaceAll('â€�', '"')
+    .replaceAll('â†’', '->')
+    .replaceAll('—', '-')
+    .replaceAll('–', '-')
+    .replaceAll('’', "'")
+    .replaceAll('“', '"')
+    .replaceAll('”', '"')
+    .replaceAll('→', '->')
+    .replaceAll('…', '...')
 }

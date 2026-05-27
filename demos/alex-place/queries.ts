@@ -47,7 +47,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
   },
 ]
 
-// Multi-hop demo — uses store.findPath directly because the public
+// Multi-hop demo - uses store.findPath directly because the public
 // retrieve({ expandLinks: true }) surface only exposes untyped
 // linkedAssertions[]; we want the typed AssertionLink hops.
 export const literaturePathQuery = {
@@ -62,10 +62,10 @@ export const literaturePathQuery = {
   },
 }
 
-// Entity-history demo — RetrievalQuery has no entityId filter (only
+// Entity-history demo - RetrievalQuery has no entityId filter (only
 // entityTypes), so use getEntityHistory directly.
 export const dadEntityQuery = {
-  annotation: '"What would Dad think?" (getEntityHistory — the near-miss)',
+  annotation: '"What would Dad think?" (entity-history negative control)',
   namespace: NAMESPACE,
   entityId: 'alex-father',
 }

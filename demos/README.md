@@ -195,11 +195,14 @@ synthesis flow. To show model-call boundaries and timings:
 DEMO_LLM_TRACE=summary npx tsx demos/alex-place/index.ts
 ```
 
-To print prompts, responses, embedding inputs, and vectors:
+To print prompts, responses, embedding inputs, and vector summaries:
 
 ```sh
 DEMO_LLM_TRACE=full npx tsx demos/alex-place/index.ts
 ```
+
+Full raw vectors are intentionally hidden because they dominate the log. Set
+`DEMO_LLM_TRACE_RAW_VECTORS=1` only when debugging vector payloads directly.
 
 ## More detail
 

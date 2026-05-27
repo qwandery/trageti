@@ -28,8 +28,7 @@ export function demoDataVersion(
   queryTexts: readonly string[],
 ): string {
   // assertionEmbeddings and queryEmbeddings are always hashed even in live-embed mode.
-  // Changing committed vectors forces a DB rebuild that wasn't strictly necessary — acceptable
-  // conservatism for demos.
+  // Changing committed vectors forces a DB rebuild that is conservative for demos.
   const payload = {
     demoName,
     episodes: episodes.map((e) => ({
@@ -143,8 +142,17 @@ export async function ingestEpisodes(options: {
     if (existing !== null) {
       validateExistingEpisode(existing, episode)
       options.logger?.detail(formatEpisode(episode))
-      options.logger?.detail('  Reused existing SQLite rows after validating the episode metadata.')
       await reloadAccumulated(options.store, options.namespace, accumulated)
+      const existingAssertions = accumulated.filter((a) => a.sourceEpisodeId === episode.id)
+      options.logger?.detail(
+        `  Reused ${formatCount(existingAssertions.length, 'stored claim')} from SQLite after validating the episode metadata.`,
+      )
+      if (existingAssertions.length > 0) {
+        options.logger?.detail('  Stored claims:')
+        for (const claim of formatExistingClaimSummary(existingAssertions)) {
+          options.logger?.detail(`    - ${claim}`)
+        }
+      }
       continue
     }
     const result = await ingest({
@@ -193,7 +201,14 @@ function formatDateTime(value: string): string {
 
 function formatClaimSummary(assertions: readonly ExtractionResult['assertions'][number][]): string[] {
   if (assertions.length === 0) return ['none']
-  const shown = assertions.slice(0, 3).map((a) => truncate(a.content, 72))
+  const shown = assertions.slice(0, 3).map((a) => truncate(sanitizeForTerminal(a.content), 72))
+  if (assertions.length > shown.length) shown.push(`+${String(assertions.length - shown.length)} more stored claim(s)`)
+  return shown
+}
+
+function formatExistingClaimSummary(assertions: readonly Assertion[]): string[] {
+  if (assertions.length === 0) return ['none']
+  const shown = assertions.slice(0, 3).map((a) => truncate(sanitizeForTerminal(a.content), 72))
   if (assertions.length > shown.length) shown.push(`+${String(assertions.length - shown.length)} more stored claim(s)`)
   return shown
 }
@@ -209,6 +224,23 @@ function formatLinkSummary(links: readonly ExtractionResult['links'][number][]):
 
 function formatCount(count: number, noun: string): string {
   return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
+}
+
+function sanitizeForTerminal(value: string): string {
+  return value
+    .replaceAll('â€”', '-')
+    .replaceAll('â€“', '-')
+    .replaceAll('â€™', "'")
+    .replaceAll('â€œ', '"')
+    .replaceAll('â€�', '"')
+    .replaceAll('â†’', '->')
+    .replaceAll('—', '-')
+    .replaceAll('–', '-')
+    .replaceAll('’', "'")
+    .replaceAll('“', '"')
+    .replaceAll('”', '"')
+    .replaceAll('→', '->')
+    .replaceAll('…', '...')
 }
 
 export function expectedFixtureAssertionIds(fixtures: Record<string, string>): string[] {

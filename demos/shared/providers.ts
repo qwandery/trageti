@@ -41,6 +41,7 @@ export interface ResolvedDemoProviders {
 export interface LlmTraceOptions {
   enabled: boolean
   includePayloads: boolean
+  includeRawVectors: boolean
   log(message: string): void
 }
 
@@ -354,7 +355,10 @@ export function traceEmbeddingProvider(embedder: DemoEmbeddingProvider, trace: L
             `${vectors[0]?.length ?? 0} dimension(s) (${(performance.now() - started).toFixed(1)} ms)`,
         )
         if (trace.includePayloads) {
-          trace.log(indentBlock('vectors', JSON.stringify(vectors.map((v) => Array.from(v)))))
+          trace.log(indentBlock('vector summary', summarizeVectors(vectors)))
+        }
+        if (trace.includeRawVectors) {
+          trace.log(indentBlock('raw vectors', JSON.stringify(vectors.map((v) => Array.from(v)))))
         }
         return vectors
       },
@@ -523,4 +527,14 @@ function indentBlock(label: string, value: string): string {
     .split('\n')
     .map((line) => `  ${line}`)
     .join('\n')}`
+}
+
+function summarizeVectors(vectors: readonly Float32Array[]): string {
+  if (vectors.length === 0) return 'none'
+  return vectors
+    .map((vector, i) => {
+      const preview = Array.from(vector.slice(0, 6)).map((n) => n.toFixed(4)).join(', ')
+      return `[${String(i + 1)}] dimensions=${String(vector.length)} preview=[${preview}${vector.length > 6 ? ', ...' : ''}]`
+    })
+    .join('\n')
 }

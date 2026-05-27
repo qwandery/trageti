@@ -9,6 +9,7 @@ import {
   createDemoLogger,
   printBanner,
   printProviderSummary,
+  printQueryPlan,
   printRetrievalResult,
   printSnapshot,
   createLlmTraceOptions,
@@ -86,8 +87,9 @@ async function main(): Promise<void> {
 
   logger.step('Running retrieval queries')
   for (const { annotation, query } of retrieveQueries) {
+    printQueryPlan(annotation, query, timeline)
     const result = await store.retrieve(query)
-    printRetrievalResult(annotation, query, result, timeline)
+    printRetrievalResult(annotation, query, result, timeline, { headerPrinted: true })
   }
 
   logger.step('Running temporal snapshot query')
