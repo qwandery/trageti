@@ -35,6 +35,7 @@ export const ErrorCode = {
   EMBEDDING_PROVIDER_ERROR: 'EMBEDDING_PROVIDER_ERROR',
   REINDEX_ERROR: 'REINDEX_ERROR',
   REINDEX_PARTIAL_REJECTED: 'REINDEX_PARTIAL_REJECTED',
+  REINDEX_ALREADY_RUNNING: 'REINDEX_ALREADY_RUNNING',
 
   // Domain-prefixed codes used inside IndexingError / RetrievalInputError / DefaultScorer
   INDEXING_NAMESPACE_VECTORLESS: 'INDEXING_NAMESPACE_VECTORLESS',
@@ -60,17 +61,17 @@ export const ErrorCode = {
 
   // Internal-invariant violations — a "this should never happen" guard tripped.
   INTERNAL_INVARIANT: 'INTERNAL_INVARIANT',
-} as const
+} as const;
 
-export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export class TragetiError extends Error {
-  readonly code: string
+  readonly code: string;
 
   constructor(code: string, message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = 'TragetiError'
-    this.code = code
+    super(message, options);
+    this.name = 'TragetiError';
+    this.code = code;
   }
 }
 
@@ -79,8 +80,8 @@ export class NamespaceNotInitializedError extends TragetiError {
     super(
       ErrorCode.NAMESPACE_NOT_INITIALIZED,
       `Namespace "${namespace}" has not been initialized. Call store.init() or store.initNamespace() first.`,
-    )
-    this.name = 'NamespaceNotInitializedError'
+    );
+    this.name = 'NamespaceNotInitializedError';
   }
 }
 
@@ -89,58 +90,51 @@ export class NamespaceHashCollisionError extends TragetiError {
     super(
       ErrorCode.NAMESPACE_HASH_COLLISION,
       `Namespace "${namespace}" hashes to embedding table "${tableName}", which is already in use by namespace "${collidingNamespace}". Rename one of the namespaces.`,
-    )
-    this.name = 'NamespaceHashCollisionError'
+    );
+    this.name = 'NamespaceHashCollisionError';
   }
 }
 
 export class SchemaExtensionError extends TragetiError {
-  readonly violations: string[]
+  readonly violations: string[];
 
   constructor(violations: string[]) {
-    super(
-      ErrorCode.SCHEMA_EXTENSION_ERROR,
-      `Schema extension validation failed:\n${violations.join('\n')}`,
-    )
-    this.name = 'SchemaExtensionError'
-    this.violations = violations
+    super(ErrorCode.SCHEMA_EXTENSION_ERROR, `Schema extension validation failed:\n${violations.join('\n')}`);
+    this.name = 'SchemaExtensionError';
+    this.violations = violations;
   }
 }
 
 export class ValidationError extends TragetiError {
-  readonly errors: string[]
+  readonly errors: string[];
 
   constructor(errors: string[]) {
-    super(ErrorCode.VALIDATION_ERROR, `Assertion validation failed:\n${errors.join('\n')}`)
-    this.name = 'ValidationError'
-    this.errors = errors
+    super(ErrorCode.VALIDATION_ERROR, `Assertion validation failed:\n${errors.join('\n')}`);
+    this.name = 'ValidationError';
+    this.errors = errors;
   }
 }
 
 export class MigrationError extends TragetiError {
-  readonly migrationVersion: number
-  readonly violations?: ReadonlyArray<Record<string, unknown>>
+  readonly migrationVersion: number;
+  readonly violations?: ReadonlyArray<Record<string, unknown>>;
 
-  constructor(
-    version: number,
-    cause: unknown,
-    options?: { violations?: ReadonlyArray<Record<string, unknown>> },
-  ) {
+  constructor(version: number, cause: unknown, options?: { violations?: ReadonlyArray<Record<string, unknown>> }) {
     super(
       ErrorCode.MIGRATION_ERROR,
       `Migration v${version} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
       { cause },
-    )
-    this.name = 'MigrationError'
-    this.migrationVersion = version
-    if (options?.violations) this.violations = options.violations
+    );
+    this.name = 'MigrationError';
+    this.migrationVersion = version;
+    if (options?.violations) this.violations = options.violations;
   }
 }
 
 export class ConnectionVerificationError extends TragetiError {
   constructor(reason: string) {
-    super(ErrorCode.CONNECTION_VERIFICATION_ERROR, `Connection verification failed: ${reason}`)
-    this.name = 'ConnectionVerificationError'
+    super(ErrorCode.CONNECTION_VERIFICATION_ERROR, `Connection verification failed: ${reason}`);
+    this.name = 'ConnectionVerificationError';
   }
 }
 
@@ -153,17 +147,17 @@ export class StoreClosedError extends TragetiError {
       operation
         ? `TemporalStore has been closed; cannot invoke "${operation}".`
         : 'TemporalStore has been closed; no further operations are allowed.',
-    )
-    this.name = 'StoreClosedError'
+    );
+    this.name = 'StoreClosedError';
   }
 }
 
 export class NamespaceDimensionMismatchError extends TragetiError {
-  readonly namespace: string
+  readonly namespace: string;
   /** The namespace's registered dimension, or `null` when it is vectorless
    *  (the caller attempted a vectorless → vector re-registration). */
-  readonly expected: number | null
-  readonly actual: number
+  readonly expected: number | null;
+  readonly actual: number;
 
   constructor(namespace: string, expected: number | null, actual: number) {
     super(
@@ -174,91 +168,91 @@ export class NamespaceDimensionMismatchError extends TragetiError {
             `store.upgradeNamespaceToVector("${namespace}", { embeddingDimension: ${String(actual)} }) ` +
             `— re-registering it via initNamespace() with a dimension is not the upgrade path.`
         : `Namespace "${namespace}" was registered with embedding dimension ${String(expected)}; got ${String(actual)}.`,
-    )
-    this.name = 'NamespaceDimensionMismatchError'
-    this.namespace = namespace
-    this.expected = expected
-    this.actual = actual
+    );
+    this.name = 'NamespaceDimensionMismatchError';
+    this.namespace = namespace;
+    this.expected = expected;
+    this.actual = actual;
   }
 }
 
 export class MigrationCompatibilityError extends TragetiError {
-  readonly kind: string
-  readonly details: Record<string, unknown>
+  readonly kind: string;
+  readonly details: Record<string, unknown>;
 
   constructor(kind: string, message: string, details: Record<string, unknown> = {}) {
-    super(ErrorCode.MIGRATION_COMPATIBILITY, message)
-    this.name = 'MigrationCompatibilityError'
-    this.kind = kind
-    this.details = details
+    super(ErrorCode.MIGRATION_COMPATIBILITY, message);
+    this.name = 'MigrationCompatibilityError';
+    this.kind = kind;
+    this.details = details;
   }
 }
 
 export class ReferencedExtensionTableError extends TragetiError {
-  readonly namespace: string
-  readonly blockingTables: string[]
+  readonly namespace: string;
+  readonly blockingTables: string[];
 
   constructor(namespace: string, blockingTables: string[]) {
     super(
       ErrorCode.REFERENCED_EXTENSION_TABLE,
       `Cannot delete namespace "${namespace}" — extension tables reference it: ${blockingTables.join(', ')}. Pass { cascade: true } to delete per-namespace rows from each.`,
-    )
-    this.name = 'ReferencedExtensionTableError'
-    this.namespace = namespace
-    this.blockingTables = blockingTables
+    );
+    this.name = 'ReferencedExtensionTableError';
+    this.namespace = namespace;
+    this.blockingTables = blockingTables;
   }
 }
 
 export class MissingPeerDependencyError extends TragetiError {
-  readonly packageName: string
-  readonly installCommand: string
-  readonly alternative?: string
+  readonly packageName: string;
+  readonly installCommand: string;
+  readonly alternative?: string;
 
   constructor(packageName: string, installCommand: string, alternative?: string) {
-    const altSuffix = alternative ? ` Alternative: ${alternative}` : ''
+    const altSuffix = alternative ? ` Alternative: ${alternative}` : '';
     super(
       ErrorCode.MISSING_PEER_DEPENDENCY,
       `Missing peer dependency "${packageName}". Install with: ${installCommand}.${altSuffix}`,
-    )
-    this.name = 'MissingPeerDependencyError'
-    this.packageName = packageName
-    this.installCommand = installCommand
-    if (alternative !== undefined) this.alternative = alternative
+    );
+    this.name = 'MissingPeerDependencyError';
+    this.packageName = packageName;
+    this.installCommand = installCommand;
+    if (alternative !== undefined) this.alternative = alternative;
   }
 }
 
 export class IndexingError extends TragetiError {
-  readonly assertionId?: string
+  readonly assertionId?: string;
 
   constructor(code: string, message: string, options: { assertionId?: string } = {}) {
-    super(code, message)
-    this.name = 'IndexingError'
-    if (options.assertionId !== undefined) this.assertionId = options.assertionId
+    super(code, message);
+    this.name = 'IndexingError';
+    if (options.assertionId !== undefined) this.assertionId = options.assertionId;
   }
 }
 
 export class RetrievalInputError extends TragetiError {
   constructor(code: string, message: string) {
-    super(code, message)
-    this.name = 'RetrievalInputError'
+    super(code, message);
+    this.name = 'RetrievalInputError';
   }
 }
 
 /** Per-item failure entry shared by IndexBatchResult and ReindexResult. */
 export interface SkippedEntry {
-  assertionId: string
-  reason: string
-  errorCode?: string
+  assertionId: string;
+  reason: string;
+  errorCode?: string;
 }
 
 export class ReindexError extends TragetiError {
-  readonly namespace: string
-  readonly indexed: number
+  readonly namespace: string;
+  readonly indexed: number;
   /** Populated for a REINDEX_PARTIAL_REJECTED error: the per-item skips that
    *  the staging build collected under `onProviderError: 'skip'`. */
-  readonly skipped?: readonly SkippedEntry[]
+  readonly skipped?: readonly SkippedEntry[];
   /** Populated for a REINDEX_PARTIAL_REJECTED error: actionable recovery guidance. */
-  readonly advice?: string
+  readonly advice?: string;
 
   constructor(
     namespace: string,
@@ -268,38 +262,38 @@ export class ReindexError extends TragetiError {
   ) {
     // A string `cause` is library-generated (safe); a raw Error from a
     // provider may carry sensitive payloads, so only its stable code is shown.
-    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`
+    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`;
     super(
       options?.code ?? ErrorCode.REINDEX_ERROR,
       `Reindex failed for namespace "${namespace}" after indexing ${indexed} rows: ${detail}`,
       { cause },
-    )
-    this.name = 'ReindexError'
-    this.namespace = namespace
-    this.indexed = indexed
-    if (options?.skipped) this.skipped = options.skipped
-    if (options?.advice) this.advice = options.advice
+    );
+    this.name = 'ReindexError';
+    this.namespace = namespace;
+    this.indexed = indexed;
+    if (options?.skipped) this.skipped = options.skipped;
+    if (options?.advice) this.advice = options.advice;
   }
 }
 
 export class EmbeddingProviderError extends TragetiError {
-  readonly providerName: string
-  readonly indexed: number
+  readonly providerName: string;
+  readonly indexed: number;
 
   constructor(providerName: string, indexed: number, cause: unknown, extraMessage?: string) {
-    const tail = extraMessage ? ` ${extraMessage}` : ''
+    const tail = extraMessage ? ` ${extraMessage}` : '';
     // A raw provider Error message may carry remote payloads, prompt
     // fragments, query text, request IDs, or secrets — never interpolate it.
     // A string `cause` is library-generated (safe by construction).
-    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`
+    const detail = typeof cause === 'string' ? cause : `cause code: ${errorCodeOf(cause)}`;
     super(
       ErrorCode.EMBEDDING_PROVIDER_ERROR,
       `Embedding provider "${providerName}" failed after ${indexed} rows: ${detail}.${tail}`,
       { cause },
-    )
-    this.name = 'EmbeddingProviderError'
-    this.providerName = providerName
-    this.indexed = indexed
+    );
+    this.name = 'EmbeddingProviderError';
+    this.providerName = providerName;
+    this.indexed = indexed;
   }
 }
 
@@ -312,10 +306,10 @@ export class EmbeddingProviderError extends TragetiError {
  */
 export function errorCodeOf(err: unknown): string {
   if (err !== null && typeof err === 'object' && 'code' in err) {
-    const code: unknown = err.code
+    const code: unknown = err.code;
     if (typeof code === 'string' && code.length > 0) {
-      return code.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 64)
+      return code.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 64);
     }
   }
-  return 'UNKNOWN'
+  return 'UNKNOWN';
 }

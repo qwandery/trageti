@@ -1,4 +1,4 @@
-import type { Database } from 'better-sqlite3'
+import type { Database } from 'better-sqlite3';
 import type {
   Assertion,
   AssertionLink,
@@ -6,18 +6,20 @@ import type {
   GraphAdapterTraversalOptions,
   PathOptions,
   TraversalOptions,
-} from '../domain/types.js'
-import type { AssertionRepository } from '../db/repositories/AssertionRepository.js'
-import {
-  DEFAULT_GRAPH_CONNECTED_DEPTH,
-  DEFAULT_GRAPH_PATH_DEPTH,
-} from '../internal/retrieval-defaults.js'
+} from '../domain/types.js';
+import type { AssertionRepository } from '../db/repositories/AssertionRepository.js';
+import { DEFAULT_GRAPH_CONNECTED_DEPTH, DEFAULT_GRAPH_PATH_DEPTH } from '../internal/retrieval-defaults.js';
+import { ErrorCode, RetrievalInputError } from '../errors/index.js';
+import { nonNegativeIntegerOptionError } from '../internal/validate.js';
+
+function validateMaxDepth(maxDepth: number | undefined): void {
+  if (maxDepth === undefined) return;
+  const err = nonNegativeIntegerOptionError(maxDepth, 'maxDepth');
+  if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH, err);
+}
 
 /** Build the adapter-facing options from public store options, defaulting maxDepth. */
-function toAdapterOptions(
-  options: TraversalOptions | PathOptions,
-  defaultDepth: number,
-): GraphAdapterTraversalOptions {
+function toAdapterOptions(options: TraversalOptions | PathOptions, defaultDepth: number): GraphAdapterTraversalOptions {
   return {
     temporalAnchor: options.temporalAnchor,
     maxDepth: options.maxDepth ?? defaultDepth,
@@ -25,7 +27,7 @@ function toAdapterOptions(
     ...(options.includeSuperseded !== undefined && {
       includeSuperseded: options.includeSuperseded,
     }),
-  }
+  };
 }
 
 export function getConnected(
@@ -34,30 +36,28 @@ export function getConnected(
   adapter: GraphQueryAdapter,
   options: TraversalOptions,
 ): Assertion[] {
+  validateMaxDepth(options.maxDepth);
   const links = adapter.findConnected(
     db,
     options.namespace,
     [options.fromAssertionId],
     toAdapterOptions(options, DEFAULT_GRAPH_CONNECTED_DEPTH),
-  )
+  );
 
   // Collect the distinct destination assertions reached by traversal — the
   // `toId` of each link — excluding the origin itself (spec §677).
-  const ids = [...new Set(links.map((l) => l.toId))].filter((id) => id !== options.fromAssertionId)
+  const ids = [...new Set(links.map((l) => l.toId))].filter((id) => id !== options.fromAssertionId);
 
-  return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null)
+  return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null);
 }
 
-export function findPath(
-  db: Database,
-  adapter: GraphQueryAdapter,
-  options: PathOptions,
-): AssertionLink[] | null {
+export function findPath(db: Database, adapter: GraphQueryAdapter, options: PathOptions): AssertionLink[] | null {
+  validateMaxDepth(options.maxDepth);
   return adapter.findPath(
     db,
     options.namespace,
     options.fromAssertionId,
     options.toAssertionId,
     toAdapterOptions(options, DEFAULT_GRAPH_PATH_DEPTH),
-  )
+  );
 }
