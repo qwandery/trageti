@@ -146,6 +146,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
       vectorApplied,
       bm25Applied,
     });
+  const applyVector = strategy !== 'bm25' && hasQueryEmbedding;
+  const embeddingTable = applyVector ? ctx.getEmbeddingTable(query.namespace) : null;
+  const vectorCanRun = applyVector && embeddingTable !== null;
+  const applyBm25 = strategy !== 'vector' && hasQueryText;
 
   // Per-step wall-clock: each call returns the ms elapsed since the previous
   // call, i.e. the duration of the step just completed.
@@ -231,30 +235,33 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     tookMs: sinceStep(),
   });
 
-  // Step 1: Temporal filter (applies in all strategies).
-  const step1 = runStep1(db, query);
+  // Step 1: Temporal filter (applies in all strategies). BM25-only and
+  // hybrid fallback push these predicates into the FTS query instead of
+  // materializing every temporal candidate id in JS first.
+  const useFtsBoundedTemporalSelection = !vectorCanRun && applyBm25 && hasQueryText;
+  const step1 = useFtsBoundedTemporalSelection ? [] : runStep1(db, query);
+  const temporalCandidateCount = useFtsBoundedTemporalSelection ? countStep1(db, query) : step1.length;
   debugStep(query, ctx.logger, 'temporal-filter', {
-    candidateCount: step1.length,
+    candidateCount: temporalCandidateCount,
     tookMs: sinceStep(),
   });
-  if (step1.length === 0) {
+  if (temporalCandidateCount === 0) {
     return {
       results: [],
       meta: emptyMeta(strategy !== 'bm25' && hasQueryEmbedding, strategy !== 'vector' && hasQueryText),
     };
   }
 
-  const candidateJson = buildCandidateJson(step1.map((r) => r.id));
+  const candidateJson = useFtsBoundedTemporalSelection ? null : buildCandidateJson(step1.map((r) => r.id));
   const step1Map = new Map(step1.map((r) => [r.id, r]));
 
   // Step 2: Vector candidate selection (when applicable).
   const step2Rows: Step2Row[] = [];
-  const applyVector = strategy !== 'bm25' && hasQueryEmbedding;
-  const embeddingTable = applyVector ? ctx.getEmbeddingTable(query.namespace) : null;
-  const vectorCanRun = applyVector && embeddingTable !== null;
   if (applyVector && query.queryEmbedding) {
     const rows =
-      embeddingTable === null ? [] : runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample);
+      embeddingTable === null || candidateJson === null
+        ? []
+        : runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample);
     for (const r of rows) step2Rows.push(r);
   }
   debugStep(query, ctx.logger, 'semantic', {
@@ -269,15 +276,15 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   // Step 2 was skipped (bm25 strategy, or hybrid fallback), BM25 selects over
   // the full temporal candidate set.
   const bm25Map = new Map<string, number>();
-  const applyBm25 = strategy !== 'vector' && hasQueryText;
   if (applyBm25 && query.queryText) {
-    const bm25CandidateJson = vectorCanRun ? buildCandidateJson(step2Rows.map((r) => r.assertion_id)) : candidateJson;
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText;
     // BM25-only (Step 2 skipped) selects candidates, so it is ordered + capped
     // by relevance; the hybrid re-rank branch only attaches scores (no limit).
     const bm25Limit = vectorCanRun ? undefined : oversample;
     try {
-      const step3 = runStep3(db, bm25CandidateJson, ftsText, bm25Limit);
+      const step3 = vectorCanRun
+        ? runStep3(db, buildCandidateJson(step2Rows.map((r) => r.assertion_id)), ftsText, bm25Limit)
+        : runStep3Temporal(db, query, ftsText, oversample);
       for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score);
     } catch (err) {
       // A malformed raw FTS5 expression surfaces as a SQLite parse error. Under
@@ -316,10 +323,24 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     return { results: [], meta: emptyMeta(vectorCanRun, applyBm25) };
   }
 
-  const oversampledIds = [...candidateIds].filter((id) => step1Map.has(id));
+  const oversampledIds = useFtsBoundedTemporalSelection
+    ? [...candidateIds]
+    : [...candidateIds].filter((id) => step1Map.has(id));
   const hydrated = ctx.assertionRepo.getByIds(oversampledIds);
   const hydratedById = new Map(hydrated.map((a) => [a.id, a]));
   const semanticById = new Map(step2Rows.map((r) => [r.assertion_id, r.semantic_distance]));
+  if (useFtsBoundedTemporalSelection) {
+    for (const assertion of hydrated) {
+      step1Map.set(assertion.id, {
+        id: assertion.id,
+        content: assertion.content,
+        valid_from: assertion.validFrom,
+        confidence: assertion.confidence,
+        entity_type: assertion.entityType,
+        created_at: assertion.createdAt,
+      });
+    }
+  }
 
   const candidates: Array<{
     id: string;
@@ -456,8 +477,9 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   // omit it entirely otherwise.
   let trajectoryCount = 0;
   if (mode === 'trajectory') {
+    const chainsById = ctx.assertionRepo.getSupersessionChains(results.map((r) => r.id));
     for (const result of results) {
-      const chain = ctx.assertionRepo.getSupersessionChain(result.id);
+      const chain = chainsById.get(result.id) ?? [];
       result.supersessionChain = chain.length > 0 ? chain.slice(0, -1) : [];
       trajectoryCount += result.supersessionChain.length;
     }
@@ -486,6 +508,27 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
   // every assertion that existed by the anchor (closed ones included).
   // NOTE: there is intentionally no `(supersedes_id IS NULL OR valid_until IS
   // NULL)` clause — that would wrongly drop a temporally-valid mid-chain row.
+  const { conditions, params } = buildTemporalPredicate(query);
+
+  const sql = `SELECT a.id, a.content, a.valid_from, a.confidence, a.entity_type, a.created_at
+               FROM trageti_assertions a
+               WHERE ${conditions.join(' AND ')}`;
+
+  return db.prepare<unknown[], Step1Row>(sql).all(...params);
+}
+
+function countStep1(db: Database, query: RetrievalQuery): number {
+  const { conditions, params } = buildTemporalPredicate(query);
+  const row = db
+    .prepare<
+      unknown[],
+      { count: number }
+    >(`SELECT COUNT(*) AS count FROM trageti_assertions a WHERE ${conditions.join(' AND ')}`)
+    .get(...params);
+  return row?.count ?? 0;
+}
+
+function buildTemporalPredicate(query: RetrievalQuery): { conditions: string[]; params: unknown[] } {
   const conditions: string[] = ['a.namespace = ?', 'a.valid_from <= ?'];
   const params: unknown[] = [query.namespace, query.temporalAnchor];
 
@@ -514,11 +557,7 @@ function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {
     params.push(...query.assertionTypes);
   }
 
-  const sql = `SELECT a.id, a.content, a.valid_from, a.confidence, a.entity_type, a.created_at
-               FROM trageti_assertions a
-               WHERE ${conditions.join(' AND ')}`;
-
-  return db.prepare<unknown[], Step1Row>(sql).all(...params);
+  return { conditions, params };
 }
 
 function runStep2(
@@ -554,4 +593,18 @@ function runStep3(db: Database, candidateJson: string, queryText: string, limit?
   `;
   const params: unknown[] = limit !== undefined ? [queryText, candidateJson, limit] : [queryText, candidateJson];
   return db.prepare<unknown[], Step3Row>(sql).all(...params);
+}
+
+function runStep3Temporal(db: Database, query: RetrievalQuery, queryText: string, limit: number): Step3Row[] {
+  const { conditions, params } = buildTemporalPredicate(query);
+  const sql = `
+    SELECT a.id AS assertion_id, bm25(trageti_fulltext) AS bm25_score
+    FROM trageti_fulltext
+    JOIN trageti_assertions a ON a.rowid = trageti_fulltext.rowid
+    WHERE trageti_fulltext MATCH ?
+      AND ${conditions.join(' AND ')}
+    ORDER BY bm25(trageti_fulltext) ASC
+    LIMIT ?
+  `;
+  return db.prepare<unknown[], Step3Row>(sql).all(queryText, ...params, limit);
 }
