@@ -1,12 +1,12 @@
 // Annotated query set for alex-place. Demonstrates snapshot retrieval,
 // trajectory retrieval, graph-expanded retrieval, and sparse entity follow-up.
 
-import type { RetrievalQuery } from 'trageti'
-import { NAMESPACE } from './data/episodes.js'
+import type { RetrievalQuery } from 'trageti';
+import { NAMESPACE } from './data/episodes.js';
 
 export interface RetrieveCase {
-  annotation: string
-  query: RetrievalQuery
+  annotation: string;
+  query: RetrievalQuery;
 }
 
 export const literatureSemanticQuery: RetrieveCase = {
@@ -21,7 +21,7 @@ export const literatureSemanticQuery: RetrieveCase = {
     maxDepth: 1,
     limit: 25,
   },
-}
+};
 
 export const dadSemanticQuery: RetrieveCase = {
   annotation: '"What would Dad think?" (semantic retrieval)',
@@ -33,12 +33,11 @@ export const dadSemanticQuery: RetrieveCase = {
     mode: 'snapshot',
     limit: 25,
   },
-}
+};
 
 export const retrieveQueries: readonly RetrieveCase[] = [
   {
-    annotation:
-      '"What did Alex know about making sourdough on January 20, 2026?" (early snapshot)',
+    annotation: '"What did Alex know about making sourdough on January 20, 2026?" (early snapshot)',
     query: {
       namespace: NAMESPACE,
       queryText: 'What did Alex know about making sourdough on January 20, 2026?',
@@ -133,4 +132,4 @@ export const retrieveQueries: readonly RetrieveCase[] = [
       limit: 25,
     },
   },
-]
+];

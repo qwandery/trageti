@@ -1,6 +1,6 @@
-import type { Episode } from 'trageti'
+import type { Episode } from 'trageti';
 
-export const NAMESPACE = 'alex-journal'
+export const NAMESPACE = 'alex-journal';
 
 export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
   {
@@ -33,7 +33,8 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 4,
     occurredAt: '2026-02-08T18:00:00Z',
     type: 'journal',
-    content: 'A room-temperature proof with younger levain improves the sourdough but may not transfer to other starters.',
+    content:
+      'A room-temperature proof with younger levain improves the sourdough but may not transfer to other starters.',
   },
   {
     id: 'journal-5',
@@ -57,7 +58,8 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 7,
     occurredAt: '2026-03-01T20:00:00Z',
     type: 'journal',
-    content: 'First ramen broth attempt is thin and weak; Alex suspects short cooking, water ratio, and insufficient boil.',
+    content:
+      'First ramen broth attempt is thin and weak; Alex suspects short cooking, water ratio, and insufficient boil.',
   },
   {
     id: 'journal-8',
@@ -105,7 +107,8 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 13,
     occurredAt: '2026-04-09T18:00:00Z',
     type: 'journal',
-    content: 'Eighty percent hydration solves whole wheat for this flour, but the bread-flour method does not transfer directly.',
+    content:
+      'Eighty percent hydration solves whole wheat for this flour, but the bread-flour method does not transfer directly.',
   },
   {
     id: 'journal-14',
@@ -113,7 +116,8 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 14,
     occurredAt: '2026-04-16T22:00:00Z',
     type: 'journal',
-    content: 'First dinner party feedback: Sam finds the bread sour, Priya discusses browning, and Jordan likes the simple salad dressing.',
+    content:
+      'First dinner party feedback: Sam finds the bread sour, Priya discusses browning, and Jordan likes the simple salad dressing.',
   },
   {
     id: 'ref-maillard',
@@ -161,6 +165,7 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     position: 20,
     occurredAt: '2026-06-03T23:00:00Z',
     type: 'journal',
-    content: 'Third dinner party: Sam likes the sourdough, Priya sees improved knife work, and Alex can imagine the restaurant someday.',
+    content:
+      'Third dinner party: Sam likes the sourdough, Priya sees improved knife work, and Alex can imagine the restaurant someday.',
   },
-]
+];

@@ -3,10 +3,10 @@
 // commits; the manifest is the only manual selection step.
 
 export interface Keyframe {
-  hash: string
-  position: number
-  label: string
-  date: string
+  hash: string;
+  position: number;
+  label: string;
+  date: string;
 }
 
 export const keyframes: readonly Keyframe[] = [
@@ -20,4 +20,4 @@ export const keyframes: readonly Keyframe[] = [
   { hash: 'cfeb3ac', position: 8, label: 'v0.3 remediation R1 fail-closed contracts', date: '2026-05-19' },
   { hash: '608f13e', position: 9, label: 'v0.3 remediation R6 schema rename', date: '2026-05-20' },
   { hash: 'ba34a58', position: 10, label: 'v0.3 polish determinism and graph fixes', date: '2026-05-21' },
-]
+];

@@ -1,5 +1,5 @@
-import type { TemporalStore } from '../../src/store/TemporalStore.js'
-import type { NewAssertionCitation } from '../../src/domain/types.js'
+import type { TemporalStore } from '../../src/store/TemporalStore.js';
+import type { NewAssertionCitation } from '../../src/domain/types.js';
 
 /**
  * Build a default citation for a writeAssertion call. Tests that need richer
@@ -18,7 +18,7 @@ export function citationFor(
     episodeId,
     sourceRef,
     excerpt: null,
-  }
+  };
 }
 
 /**
@@ -41,7 +41,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     occurredAt: '2024-01-01T00:00:00Z',
     type: 'document',
     content: 'Episode 1 content',
-  })
+  });
   await store.writeEpisode({
     id: 'ep-2',
     namespace,
@@ -49,7 +49,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     occurredAt: '2024-01-05T00:00:00Z',
     type: 'document',
     content: 'Episode 2 content',
-  })
+  });
   await store.writeEpisode({
     id: 'ep-3',
     namespace,
@@ -57,7 +57,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     occurredAt: '2024-01-10T00:00:00Z',
     type: 'document',
     content: 'Episode 3 content',
-  })
+  });
 
   // Active assertions
   await store.writeAssertion({
@@ -73,7 +73,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-alpha',
     entityType: 'concept',
     citations: [citationFor('a-1', 'ep-1')],
-  })
+  });
   await store.writeAssertion({
     id: 'a-2',
     namespace,
@@ -87,7 +87,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-beta',
     entityType: 'concept',
     citations: [citationFor('a-2', 'ep-1')],
-  })
+  });
   await store.writeAssertion({
     id: 'a-3',
     namespace,
@@ -101,7 +101,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-alpha',
     entityType: 'concept',
     citations: [citationFor('a-3', 'ep-2')],
-  })
+  });
   await store.writeAssertion({
     id: 'a-4',
     namespace,
@@ -115,7 +115,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: null,
     entityType: 'relationship',
     citations: [citationFor('a-4', 'ep-2')],
-  })
+  });
   await store.writeAssertion({
     id: 'a-5',
     namespace,
@@ -129,7 +129,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-gamma',
     entityType: 'concept',
     citations: [citationFor('a-5', 'ep-3')],
-  })
+  });
 
   // Supersession chain 1: a-6 superseded by a-7 (atomic via writeAssertion)
   await store.writeAssertion({
@@ -145,7 +145,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-delta',
     entityType: 'concept',
     citations: [citationFor('a-6', 'ep-1')],
-  })
+  });
   await store.writeAssertion({
     id: 'a-7',
     namespace,
@@ -159,7 +159,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-delta',
     entityType: 'concept',
     citations: [citationFor('a-7', 'ep-2')],
-  })
+  });
 
   // Supersession chain 2: a-8 superseded with no replacement (explicit)
   await store.writeAssertion({
@@ -175,8 +175,8 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     entityId: 'entity-epsilon',
     entityType: 'concept',
     citations: [citationFor('a-8', 'ep-1')],
-  })
-  await store.advanced.closeAssertion('a-8', { validUntil: 10 })
+  });
+  await store.advanced.closeAssertion('a-8', { validUntil: 10 });
 
   // Links
   await store.writeLink({
@@ -188,7 +188,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     validFrom: 1,
     validUntil: null,
     sourceEpisodeId: 'ep-1',
-  })
+  });
   await store.writeLink({
     id: 'l-2',
     namespace,
@@ -198,7 +198,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     validFrom: 5,
     validUntil: null,
     sourceEpisodeId: 'ep-2',
-  })
+  });
   await store.writeLink({
     id: 'l-3',
     namespace,
@@ -208,7 +208,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     validFrom: 5,
     validUntil: null,
     sourceEpisodeId: 'ep-2',
-  })
+  });
   await store.writeLink({
     id: 'l-4',
     namespace,
@@ -218,7 +218,7 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     validFrom: 10,
     validUntil: null,
     sourceEpisodeId: 'ep-3',
-  })
+  });
   await store.writeLink({
     id: 'l-5',
     namespace,
@@ -228,5 +228,5 @@ export async function loadScenario(store: TemporalStore, namespace: string): Pro
     validFrom: 5,
     validUntil: null,
     sourceEpisodeId: 'ep-2',
-  })
+  });
 }

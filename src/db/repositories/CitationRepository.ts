@@ -1,18 +1,18 @@
-import type { Database } from 'better-sqlite3'
-import type { AssertionCitation, NewAssertionCitation } from '../../domain/types.js'
-import { buildCandidateJson } from '../candidates.js'
-import { ErrorCode, TragetiError } from '../../errors/index.js'
+import type { Database } from 'better-sqlite3';
+import type { AssertionCitation, NewAssertionCitation } from '../../domain/types.js';
+import { buildCandidateJson } from '../candidates.js';
+import { ErrorCode, TragetiError } from '../../errors/index.js';
 
 interface CitationRow {
-  id: string
-  assertion_id: string
-  episode_id: string
-  source_ref: string
-  excerpt: string | null
-  excerpt_start: string | null
-  excerpt_end: string | null
-  metadata: string | null
-  created_at: string
+  id: string;
+  assertion_id: string;
+  episode_id: string;
+  source_ref: string;
+  excerpt: string | null;
+  excerpt_start: string | null;
+  excerpt_end: string | null;
+  metadata: string | null;
+  created_at: string;
 }
 
 function rowToCitation(row: CitationRow): AssertionCitation {
@@ -23,13 +23,13 @@ function rowToCitation(row: CitationRow): AssertionCitation {
     sourceRef: row.source_ref,
     excerpt: row.excerpt,
     createdAt: row.created_at,
-  }
-  if (row.excerpt_start !== null) cit.excerptStart = row.excerpt_start
-  if (row.excerpt_end !== null) cit.excerptEnd = row.excerpt_end
+  };
+  if (row.excerpt_start !== null) cit.excerptStart = row.excerpt_start;
+  if (row.excerpt_end !== null) cit.excerptEnd = row.excerpt_end;
   if (row.metadata !== null) {
-    cit.metadata = JSON.parse(row.metadata) as Record<string, unknown>
+    cit.metadata = JSON.parse(row.metadata) as Record<string, unknown>;
   }
-  return cit
+  return cit;
 }
 
 /**
@@ -38,10 +38,10 @@ function rowToCitation(row: CitationRow): AssertionCitation {
  * TemporalStore.writeAssertion) own the transaction boundary.
  */
 export class CitationRepository {
-  private readonly db: Database
+  private readonly db: Database;
 
   constructor(db: Database) {
-    this.db = db
+    this.db = db;
   }
 
   insertMany(assertionId: string, citations: NewAssertionCitation[]): AssertionCitation[] {
@@ -49,7 +49,7 @@ export class CitationRepository {
       `INSERT INTO trageti_citations
          (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+    );
     for (const cit of citations) {
       stmt.run(
         cit.id,
@@ -61,9 +61,9 @@ export class CitationRepository {
         cit.excerptEnd ?? null,
         cit.metadata !== undefined ? JSON.stringify(cit.metadata) : null,
         new Date().toISOString(),
-      )
+      );
     }
-    return this.getByAssertionId(assertionId)
+    return this.getByAssertionId(assertionId);
   }
 
   insertOne(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation {
@@ -83,46 +83,38 @@ export class CitationRepository {
         citation.excerptEnd ?? null,
         citation.metadata !== undefined ? JSON.stringify(citation.metadata) : null,
         new Date().toISOString(),
-      )
-    const row = this.db
-      .prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE id = ?')
-      .get(citation.id)
+      );
+    const row = this.db.prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE id = ?').get(citation.id);
     if (!row) {
-      throw new TragetiError(
-        ErrorCode.INTERNAL_INVARIANT,
-        `Citation "${citation.id}" not found after insert`,
-      )
+      throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Citation "${citation.id}" not found after insert`);
     }
-    return rowToCitation(row)
+    return rowToCitation(row);
   }
 
   getByAssertionId(assertionId: string): AssertionCitation[] {
     const rows = this.db
-      .prepare<
-        [string],
-        CitationRow
-      >('SELECT * FROM trageti_citations WHERE assertion_id = ? ORDER BY created_at, id')
-      .all(assertionId)
-    return rows.map(rowToCitation)
+      .prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE assertion_id = ? ORDER BY created_at, id')
+      .all(assertionId);
+    return rows.map(rowToCitation);
   }
 
   getByAssertionIds(ids: readonly string[]): Map<string, AssertionCitation[]> {
-    const result = new Map<string, AssertionCitation[]>()
-    if (ids.length === 0) return result
-    const json = buildCandidateJson(ids)
+    const result = new Map<string, AssertionCitation[]>();
+    if (ids.length === 0) return result;
+    const json = buildCandidateJson(ids);
     const rows = this.db
       .prepare<[string], CitationRow>(
         `SELECT * FROM trageti_citations
          WHERE assertion_id IN (SELECT value FROM json_each(?))
          ORDER BY created_at, id`,
       )
-      .all(json)
+      .all(json);
     for (const row of rows) {
-      const list = result.get(row.assertion_id) ?? []
-      list.push(rowToCitation(row))
-      result.set(row.assertion_id, list)
+      const list = result.get(row.assertion_id) ?? [];
+      list.push(rowToCitation(row));
+      result.set(row.assertion_id, list);
     }
-    return result
+    return result;
   }
 
   /**
@@ -136,7 +128,7 @@ export class CitationRepository {
         `DELETE FROM trageti_citations
          WHERE assertion_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)`,
       )
-      .run(namespace)
+      .run(namespace);
   }
 
   getCountByNamespace(namespace: string): number {
@@ -147,7 +139,7 @@ export class CitationRepository {
          JOIN trageti_assertions a ON a.id = c.assertion_id
          WHERE a.namespace = ?`,
       )
-      .get(namespace)
-    return row?.cnt ?? 0
+      .get(namespace);
+    return row?.cnt ?? 0;
   }
 }

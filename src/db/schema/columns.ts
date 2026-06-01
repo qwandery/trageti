@@ -1,4 +1,4 @@
-import type { LibraryTable } from '../../domain/types.js'
+import type { LibraryTable } from '../../domain/types.js';
 
 /**
  * Canonical list of library-owned columns per table.
@@ -32,4 +32,4 @@ export const LIBRARY_COLUMNS: Readonly<Record<LibraryTable, readonly string[]>> 
     'source_episode_id',
     'created_at',
   ],
-}
+};

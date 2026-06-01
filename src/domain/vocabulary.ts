@@ -6,10 +6,9 @@ export const RecommendedAssertionTypes = Object.freeze({
   REGRESSION: 'regression',
   ABSENCE: 'absence',
   PATTERN: 'pattern',
-} as const)
+} as const);
 
-export type RecommendedAssertionType =
-  (typeof RecommendedAssertionTypes)[keyof typeof RecommendedAssertionTypes]
+export type RecommendedAssertionType = (typeof RecommendedAssertionTypes)[keyof typeof RecommendedAssertionTypes];
 
 /**
  * Recommended link-type vocabulary. Two families:
@@ -41,6 +40,6 @@ export const RecommendedLinkTypes = Object.freeze({
   CONTEXTUALIZES: 'contextualizes',
   QUALIFIES: 'qualifies',
   MEASURES: 'measures',
-} as const)
+} as const);
 
-export type RecommendedLinkType = (typeof RecommendedLinkTypes)[keyof typeof RecommendedLinkTypes]
+export type RecommendedLinkType = (typeof RecommendedLinkTypes)[keyof typeof RecommendedLinkTypes];

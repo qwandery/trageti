@@ -1,6 +1,6 @@
-import type { Episode } from 'trageti'
+import type { Episode } from 'trageti';
 
-export const NAMESPACE = 'trageti-history'
+export const NAMESPACE = 'trageti-history';
 
 export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
   {
@@ -93,4 +93,4 @@ export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
     content:
       'v0.3 polish fixes snapshot supersession behavior, improves FTS5 errors, orders startup steps correctly, adds named defaults, and tightens graph determinism. Source document: sources/kf-9..kf-10.md.',
   },
-]
+];

@@ -7,5 +7,5 @@
  *   WHERE assertion_id IN (SELECT value FROM json_each(:candidateIds))
  */
 export function buildCandidateJson(ids: readonly string[]): string {
-  return JSON.stringify(ids)
+  return JSON.stringify(ids);
 }

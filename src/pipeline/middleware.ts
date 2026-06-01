@@ -1,4 +1,4 @@
-import type { RetrievalQuery, RetrievalResult, RetrievalMiddleware } from '../domain/types.js'
+import type { RetrievalQuery, RetrievalResult, RetrievalMiddleware } from '../domain/types.js';
 
 /**
  * Applies middleware chains around a retrieval function.
@@ -14,19 +14,19 @@ export function applyMiddleware(
   query: RetrievalQuery,
   fn: (q: RetrievalQuery) => RetrievalResult,
 ): RetrievalResult {
-  const all = [...globalMiddleware, ...callMiddleware]
+  const all = [...globalMiddleware, ...callMiddleware];
 
-  let q = query
+  let q = query;
   for (const mw of all) {
-    if (mw.before) q = mw.before(q)
+    if (mw.before) q = mw.before(q);
   }
 
-  const result = fn(q)
-  let results = result.results
+  const result = fn(q);
+  let results = result.results;
 
   for (const mw of [...all].reverse()) {
-    if (mw.after) results = mw.after(results, q)
+    if (mw.after) results = mw.after(results, q);
   }
 
-  return { results, meta: result.meta }
+  return { results, meta: result.meta };
 }

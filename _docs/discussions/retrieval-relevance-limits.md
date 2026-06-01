@@ -71,17 +71,17 @@ These ideas should be evaluated at the specification level before implementation
 
 ```ts
 interface RetrievalQuery {
-  candidateLimit?: number
-  resultLimit?: number
+  candidateLimit?: number;
+  resultLimit?: number;
   relevance?: {
-    relativeToBest?: number
-    maxDropFromBest?: number
-    minResults?: number
-    maxResults?: number
-  }
+    relativeToBest?: number;
+    maxDropFromBest?: number;
+    minResults?: number;
+    maxResults?: number;
+  };
   presentation?: {
-    order?: 'ranked' | 'temporal'
-  }
+    order?: 'ranked' | 'temporal';
+  };
 }
 ```
 
@@ -106,4 +106,3 @@ the demos, then update the v0.3+ specification with a deliberate design for:
 - result caps
 - presentation ordering
 - context assembly behavior
-

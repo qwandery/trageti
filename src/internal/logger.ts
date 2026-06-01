@@ -15,38 +15,35 @@
  *     TRGT_DEPRECATED_USAGE per-symbol, etc.) do not flood.
  */
 
-export type LogFields = Record<string, unknown>
+export type LogFields = Record<string, unknown>;
 
 export interface Logger {
-  debug(code: string, fields?: LogFields): void
-  info(code: string, fields?: LogFields): void
-  warn(code: string, fields?: LogFields): void
-  error(code: string, fields?: LogFields): void
+  debug(code: string, fields?: LogFields): void;
+  info(code: string, fields?: LogFields): void;
+  warn(code: string, fields?: LogFields): void;
+  error(code: string, fields?: LogFields): void;
   /** Optional. When present, called from TemporalStore.close(). */
-  flush?(): void | Promise<void>
+  flush?(): void | Promise<void>;
 }
 
 export interface Metrics {
-  incr(name: string, fields?: Record<string, string | number>): void
-  observe(name: string, value: number, fields?: Record<string, string | number>): void
+  incr(name: string, fields?: Record<string, string | number>): void;
+  observe(name: string, value: number, fields?: Record<string, string | number>): void;
 }
 
 function formatFields(fields?: LogFields): string {
-  if (!fields) return ''
-  const parts: string[] = []
+  if (!fields) return '';
+  const parts: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
-    if (v === undefined) continue
-    const s =
-      typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-        ? String(v)
-        : JSON.stringify(v)
-    parts.push(`${k}=${s}`)
+    if (v === undefined) continue;
+    const s = typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
+    parts.push(`${k}=${s}`);
   }
-  return parts.length > 0 ? ' ' + parts.join(' ') : ''
+  return parts.length > 0 ? ' ' + parts.join(' ') : '';
 }
 
 function emit(level: string, code: string, fields?: LogFields): void {
-  process.stderr.write(`[trageti:${level}] code=${code}${formatFields(fields)}\n`)
+  process.stderr.write(`[trageti:${level}] code=${code}${formatFields(fields)}\n`);
 }
 
 export class ConsoleLogger implements Logger {
@@ -57,10 +54,10 @@ export class ConsoleLogger implements Logger {
     /* silent */
   }
   warn(code: string, fields?: LogFields): void {
-    emit('warn', code, fields)
+    emit('warn', code, fields);
   }
   error(code: string, fields?: LogFields): void {
-    emit('error', code, fields)
+    emit('error', code, fields);
   }
 }
 
@@ -73,18 +70,18 @@ export class NoopLogger implements Logger {
 
 // ─── Once-per-process suppression ───────────────────────────────────────────
 
-const emittedOnce = new Set<string>()
+const emittedOnce = new Set<string>();
 
 /** Returns true if this is the first time the key has been seen this process. */
 export function emitOnce(key: string): boolean {
-  if (emittedOnce.has(key)) return false
-  emittedOnce.add(key)
-  return true
+  if (emittedOnce.has(key)) return false;
+  emittedOnce.add(key);
+  return true;
 }
 
 /** Test-only: reset the once-suppression registry. Not exported from package. */
 export function resetEmitOnceRegistry(): void {
-  emittedOnce.clear()
+  emittedOnce.clear();
 }
 
 // ─── Process-default logger ─────────────────────────────────────────────────
@@ -103,25 +100,22 @@ export function resetEmitOnceRegistry(): void {
 // process-default reflects whichever was constructed last — acceptable, since
 // it only affects standalone default components, never plumbed store calls.
 
-let defaultLogger: Logger = new ConsoleLogger()
+let defaultLogger: Logger = new ConsoleLogger();
 
 /** Internal: replace the process-default logger. Called by every
  *  `TemporalStore` constructor so standalone default components (see audit
  *  note above) honor the user's chosen logger. */
 export function setDefaultLogger(logger: Logger): void {
-  defaultLogger = logger
+  defaultLogger = logger;
 }
 
 export function getDefaultLogger(): Logger {
-  return defaultLogger
+  return defaultLogger;
 }
 
 /** Phase-1 shim. Routes to the process-default logger as a warn. */
-export function structuredWarn(
-  code: string,
-  meta: Record<string, string | number | boolean>,
-): void {
-  defaultLogger.warn(`TRGT_${code}`, meta)
+export function structuredWarn(code: string, meta: Record<string, string | number | boolean>): void {
+  defaultLogger.warn(`TRGT_${code}`, meta);
 }
 
 // ─── Metrics no-op guard ────────────────────────────────────────────────────
@@ -131,12 +125,8 @@ export function structuredWarn(
  * unset (spec §1111-1121: "no default implementation; emission is a no-op
  * that must not allocate fallback collectors or write to the logger").
  */
-export function incr(
-  metrics: Metrics | undefined,
-  name: string,
-  fields?: Record<string, string | number>,
-): void {
-  if (metrics) metrics.incr(name, fields)
+export function incr(metrics: Metrics | undefined, name: string, fields?: Record<string, string | number>): void {
+  if (metrics) metrics.incr(name, fields);
 }
 
 export function observe(
@@ -145,5 +135,5 @@ export function observe(
   value: number,
   fields?: Record<string, string | number>,
 ): void {
-  if (metrics) metrics.observe(name, value, fields)
+  if (metrics) metrics.observe(name, value, fields);
 }

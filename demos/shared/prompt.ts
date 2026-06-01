@@ -1,4 +1,4 @@
-import type { Assertion, Episode } from 'trageti'
+import type { Assertion, Episode } from 'trageti';
 
 /**
  * Default extraction prompt. Instructs the LLM to extract self-contained,
@@ -16,7 +16,7 @@ export function buildExtractionPrompt(
   const existing =
     existingAssertions.length === 0
       ? '(no prior assertions)'
-      : existingAssertions.map((a) => `- ${a.id}: ${a.content}`).join('\n')
+      : existingAssertions.map((a) => `- ${a.id}: ${a.content}`).join('\n');
   const episodeContext = episode
     ? `Current episode:
 - id: ${episode.id}
@@ -28,18 +28,20 @@ export function buildExtractionPrompt(
 Use the current episode id in every new assertion, citation, and link id. For
 example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
 `
-    : ''
-  const idPattern = episode ? `a-${episode.id}-<index>` : 'a-<episodeId>-<index>'
-  const citationPattern = episode ? `c-a-${episode.id}-<index>-0` : 'c-<assertionId>-0'
-  const linkPattern = episode ? `link-${episode.id}-<index>` : 'link-<episodeId>-<index>'
-  const namespaceValue = namespace ?? episode?.namespace ?? '<same as episode>'
-  const validFromValue = episode ? String(episode.position) : '<episode.position>'
-  const sourceEpisodeValue = episode?.id ?? '<episode.id>'
+    : '';
+  const idPattern = episode ? `a-${episode.id}-<index>` : 'a-<episodeId>-<index>';
+  const citationPattern = episode ? `c-a-${episode.id}-<index>-0` : 'c-<assertionId>-0';
+  const linkPattern = episode ? `link-${episode.id}-<index>` : 'link-<episodeId>-<index>';
+  const namespaceValue = namespace ?? episode?.namespace ?? '<same as episode>';
+  const validFromValue = episode ? String(episode.position) : '<episode.position>';
+  const sourceEpisodeValue = episode?.id ?? '<episode.id>';
   const sourceText = citationSources
-    ? `\nRegistered citation spans. Copy sourceRef, excerptStart, and excerptEnd exactly from one of these spans; do not calculate offsets yourself:\n${renderCitationSpans(citationSources)}\n\nRegistered citation source documents:\n${Object.entries(citationSources)
+    ? `\nRegistered citation spans. Copy sourceRef, excerptStart, and excerptEnd exactly from one of these spans; do not calculate offsets yourself:\n${renderCitationSpans(citationSources)}\n\nRegistered citation source documents:\n${Object.entries(
+        citationSources,
+      )
         .map(([sourceRef, text]) => `--- sourceRef: ${sourceRef} ---\n${text}`)
         .join('\n\n')}\n`
-    : ''
+    : '';
   return `You are extracting structured temporal assertions from a document.
 
 Existing assertions (for supersession or link decisions):
@@ -103,27 +105,27 @@ Rules:
 - New assertion IDs must not reuse any ID listed under Existing assertions.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.
-- Emit JSON only - no prose, no markdown fences.`
+- Emit JSON only - no prose, no markdown fences.`;
 }
 
 function renderCitationSpans(citationSources: Record<string, string>): string {
   return Object.entries(citationSources)
     .flatMap(([sourceRef, text]) => sourceToSpans(sourceRef, text))
-    .join('\n')
+    .join('\n');
 }
 
 function sourceToSpans(sourceRef: string, text: string): string[] {
-  const spans: string[] = []
-  const paragraphPattern = /[^\n](?:.*(?:\n(?!\n).*)*)/g
+  const spans: string[] = [];
+  const paragraphPattern = /[^\n](?:.*(?:\n(?!\n).*)*)/g;
   for (const match of text.matchAll(paragraphPattern)) {
-    const raw = match[0]
-    const excerpt = raw?.trim()
-    if (!excerpt || excerpt.length < 24 || excerpt.startsWith('```')) continue
-    const start = match.index ?? 0
-    const end = start + raw.length
+    const raw = match[0];
+    const excerpt = raw?.trim();
+    if (!excerpt || excerpt.length < 24 || excerpt.startsWith('```')) continue;
+    const start = match.index ?? 0;
+    const end = start + raw.length;
     spans.push(
       `- sourceRef=${sourceRef}; excerptStart=${String(start)}; excerptEnd=${String(end)}; text="${excerpt.replace(/\s+/g, ' ').slice(0, 280)}"`,
-    )
+    );
   }
-  return spans
+  return spans;
 }

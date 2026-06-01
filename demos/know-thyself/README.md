@@ -1,6 +1,6 @@
 # know-thyself
 
-*trageti ingests its own development history and answers questions about its own evolution.*
+_trageti ingests its own development history and answers questions about its own evolution._
 
 This demo ingests reviewed source documents generated from ten `trageti`
 keyframe commits, from the v0.1 implementation through v0.3 remediation and
@@ -26,13 +26,13 @@ rerun.
 The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
 configuration. Extraction and embedding are separate capabilities:
 
-| Variable | Meaning |
-|---|---|
-| `DEMO_EXTRACT_PROVIDER` | `fixture`, `anthropic`, or `openai-compatible` |
-| `DEMO_EMBED_PROVIDER` | `fixture`, `openai-compatible`, or `ollama-native` |
-| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs |
-| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL` | Provider-specific model names |
-| `DEMO_EMBED_DIMENSION` | Embedding dimension; defaults to `768` |
+| Variable                                        | Meaning                                            |
+| ----------------------------------------------- | -------------------------------------------------- |
+| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`     |
+| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native` |
+| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                 |
+| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                      |
+| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; defaults to `768`             |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the

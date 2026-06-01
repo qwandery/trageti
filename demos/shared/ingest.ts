@@ -2,52 +2,47 @@
 // Indexing (vector embedding into sqlite-vec) is left to the caller, who knows
 // whether to supply pre-computed vectors or rely on a configured EmbeddingProvider.
 
-import type {
-  TemporalStore,
-  Episode,
-  Assertion,
-  AssertionLink,
-  NewAssertionInput,
-} from 'trageti'
-import { buildExtractionPrompt } from './prompt.js'
-import { parseExtraction } from './parse.js'
-import type { ExtractionProvider } from './providers.js'
+import type { TemporalStore, Episode, Assertion, AssertionLink, NewAssertionInput } from 'trageti';
+import { buildExtractionPrompt } from './prompt.js';
+import { parseExtraction } from './parse.js';
+import type { ExtractionProvider } from './providers.js';
 
 export interface IngestOptions {
-  store: TemporalStore
-  episode: Omit<Episode, 'createdAt'>
-  document: string
-  citationSources?: Record<string, string>
-  existingAssertions?: Assertion[]
-  extractor: ExtractionProvider
-  namespace: string
+  store: TemporalStore;
+  episode: Omit<Episode, 'createdAt'>;
+  document: string;
+  citationSources?: Record<string, string>;
+  existingAssertions?: Assertion[];
+  extractor: ExtractionProvider;
+  namespace: string;
   /** Replaces the default extraction prompt entirely. */
-  promptOverride?: string
+  promptOverride?: string;
 }
 
 export interface ExtractionResult {
-  assertions: NewAssertionInput[]
-  links: Array<Omit<AssertionLink, 'createdAt'>>
+  assertions: NewAssertionInput[];
+  links: Array<Omit<AssertionLink, 'createdAt'>>;
 }
 
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
-  const { store, episode, document, citationSources, existingAssertions, extractor, promptOverride, namespace } = options
+  const { store, episode, document, citationSources, existingAssertions, extractor, promptOverride, namespace } =
+    options;
   const prompt =
-    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources)
-  const raw = await extractor.extract(prompt, { episodeId: episode.id })
-  const result = parseExtraction(raw)
-  const cited = resolveCitationExcerpts(result, document, citationSources)
-  validateExtractionResult(cited, existingAssertions ?? [])
+    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources);
+  const raw = await extractor.extract(prompt, { episodeId: episode.id });
+  const result = parseExtraction(raw);
+  const cited = resolveCitationExcerpts(result, document, citationSources);
+  validateExtractionResult(cited, existingAssertions ?? []);
 
-  const normalized = normalizeExtractionResult(cited, namespace, episode)
-  await store.writeEpisode(episode)
+  const normalized = normalizeExtractionResult(cited, namespace, episode);
+  await store.writeEpisode(episode);
   for (const a of normalized.assertions) {
-    await store.writeAssertion(a)
+    await store.writeAssertion(a);
   }
   for (const l of normalized.links) {
-    await store.writeLink(l)
+    await store.writeLink(l);
   }
-  return normalized
+  return normalized;
 }
 
 export function resolveCitationExcerpts(
@@ -58,39 +53,41 @@ export function resolveCitationExcerpts(
   return {
     assertions: result.assertions.map((a) => ({
       ...a,
-      citations: Array.isArray(a.citations) ? a.citations.map((c) => {
-        if (c.excerpt !== null && c.excerpt !== undefined) {
-          throw new Error(
-            `Extraction result failed citation validation:\n` +
-              `- citation "${c.id}" supplied excerpt text directly; provide excerptStart/excerptEnd and set excerpt to null`,
-          )
-        }
-        const source = resolveCitationSource(c.sourceRef, document, citationSources)
-        const start = parseOffset(c.excerptStart)
-        const end = parseOffset(c.excerptEnd)
-        if (start === null || end === null || start < 0 || end <= start || end > source.content.length) {
-          throw new Error(
-            `Extraction result failed citation validation:\n` +
-              `- citation "${c.id}" has invalid excerptStart/excerptEnd offsets for source "${source.id}" length ${String(source.content.length)}`,
-          )
-        }
-        const excerpt = source.content.slice(start, end)
-        if (excerpt.trim().length === 0) {
-          throw new Error(
-            `Extraction result failed citation validation:\n` +
-              `- citation "${c.id}" offsets resolve to empty source text`,
-          )
-        }
-        return {
-          ...c,
-          excerpt,
-          excerptStart: String(start),
-          excerptEnd: String(end),
-        }
-      }) : a.citations,
+      citations: Array.isArray(a.citations)
+        ? a.citations.map((c) => {
+            if (c.excerpt !== null && c.excerpt !== undefined) {
+              throw new Error(
+                `Extraction result failed citation validation:\n` +
+                  `- citation "${c.id}" supplied excerpt text directly; provide excerptStart/excerptEnd and set excerpt to null`,
+              );
+            }
+            const source = resolveCitationSource(c.sourceRef, document, citationSources);
+            const start = parseOffset(c.excerptStart);
+            const end = parseOffset(c.excerptEnd);
+            if (start === null || end === null || start < 0 || end <= start || end > source.content.length) {
+              throw new Error(
+                `Extraction result failed citation validation:\n` +
+                  `- citation "${c.id}" has invalid excerptStart/excerptEnd offsets for source "${source.id}" length ${String(source.content.length)}`,
+              );
+            }
+            const excerpt = source.content.slice(start, end);
+            if (excerpt.trim().length === 0) {
+              throw new Error(
+                `Extraction result failed citation validation:\n` +
+                  `- citation "${c.id}" offsets resolve to empty source text`,
+              );
+            }
+            return {
+              ...c,
+              excerpt,
+              excerptStart: String(start),
+              excerptEnd: String(end),
+            };
+          })
+        : a.citations,
     })),
     links: result.links,
-  }
+  };
 }
 
 function resolveCitationSource(
@@ -98,18 +95,18 @@ function resolveCitationSource(
   document: string,
   citationSources?: Record<string, string>,
 ): { id: string; content: string } {
-  if (!citationSources) return { id: 'episode document', content: document }
-  const direct = citationSources[sourceRef]
-  if (direct !== undefined) return { id: sourceRef, content: direct }
-  const baseRef = sourceRef.split('#')[0]
+  if (!citationSources) return { id: 'episode document', content: document };
+  const direct = citationSources[sourceRef];
+  if (direct !== undefined) return { id: sourceRef, content: direct };
+  const baseRef = sourceRef.split('#')[0];
   if (baseRef) {
-    const base = citationSources[baseRef]
-    if (base !== undefined) return { id: baseRef, content: base }
+    const base = citationSources[baseRef];
+    if (base !== undefined) return { id: baseRef, content: base };
   }
   throw new Error(
     `Extraction result failed citation validation:\n` +
       `- citation sourceRef "${sourceRef}" does not match a registered source document`,
-  )
+  );
 }
 
 function normalizeExtractionResult(
@@ -136,67 +133,67 @@ function normalizeExtractionResult(
       validFrom: episode.position,
       validUntil: l.validUntil ?? null,
     })),
-  }
+  };
 }
 
 export function validateExtractionResult(result: ExtractionResult, existingAssertions: readonly Assertion[]): void {
-  const errors: string[] = []
-  const assertionIds = new Set<string>()
-  const knownIds = new Set(existingAssertions.map((a) => a.id))
-  const citationIds = new Set<string>()
-  const linkIds = new Set<string>()
+  const errors: string[] = [];
+  const assertionIds = new Set<string>();
+  const knownIds = new Set(existingAssertions.map((a) => a.id));
+  const citationIds = new Set<string>();
+  const linkIds = new Set<string>();
 
-  if (!Array.isArray(result.assertions)) errors.push('assertions must be an array')
-  if (!Array.isArray(result.links)) errors.push('links must be an array')
+  if (!Array.isArray(result.assertions)) errors.push('assertions must be an array');
+  if (!Array.isArray(result.links)) errors.push('links must be an array');
 
   for (const a of result.assertions) {
-    if (!nonEmpty(a.id)) errors.push('assertion.id is required')
-    if (!nonEmpty(a.type)) errors.push(`assertion "${a.id}" type is required`)
-    if (!nonEmpty(a.content)) errors.push(`assertion "${a.id}" content is required`)
-    if (!Number.isFinite(a.confidence)) errors.push(`assertion "${a.id}" confidence must be numeric`)
+    if (!nonEmpty(a.id)) errors.push('assertion.id is required');
+    if (!nonEmpty(a.type)) errors.push(`assertion "${a.id}" type is required`);
+    if (!nonEmpty(a.content)) errors.push(`assertion "${a.id}" content is required`);
+    if (!Number.isFinite(a.confidence)) errors.push(`assertion "${a.id}" confidence must be numeric`);
     if (!Array.isArray(a.citations) || a.citations.length === 0) {
-      errors.push(`assertion "${a.id}" citations must be a non-empty array`)
+      errors.push(`assertion "${a.id}" citations must be a non-empty array`);
     } else {
       for (const c of a.citations) {
-        if (!nonEmpty(c.id)) errors.push(`assertion "${a.id}" citation.id is required`)
-        if (nonEmpty(c.id) && citationIds.has(c.id)) errors.push(`duplicate citation id "${c.id}"`)
-        if (nonEmpty(c.id)) citationIds.add(c.id)
-        if (!nonEmpty(c.sourceRef)) errors.push(`citation "${c.id}" sourceRef is required`)
-        if (c.excerpt !== null && !nonEmpty(c.excerpt)) errors.push(`citation "${c.id}" excerpt is required`)
+        if (!nonEmpty(c.id)) errors.push(`assertion "${a.id}" citation.id is required`);
+        if (nonEmpty(c.id) && citationIds.has(c.id)) errors.push(`duplicate citation id "${c.id}"`);
+        if (nonEmpty(c.id)) citationIds.add(c.id);
+        if (!nonEmpty(c.sourceRef)) errors.push(`citation "${c.id}" sourceRef is required`);
+        if (c.excerpt !== null && !nonEmpty(c.excerpt)) errors.push(`citation "${c.id}" excerpt is required`);
       }
     }
     if (nonEmpty(a.id)) {
-      if (assertionIds.has(a.id)) errors.push(`duplicate assertion id "${a.id}"`)
-      if (knownIds.has(a.id)) errors.push(`assertion id "${a.id}" already exists`)
-      assertionIds.add(a.id)
+      if (assertionIds.has(a.id)) errors.push(`duplicate assertion id "${a.id}"`);
+      if (knownIds.has(a.id)) errors.push(`assertion id "${a.id}" already exists`);
+      assertionIds.add(a.id);
     }
   }
 
   for (const l of result.links) {
-    if (!nonEmpty(l.id)) errors.push('link.id is required')
-    if (nonEmpty(l.id) && linkIds.has(l.id)) errors.push(`duplicate link id "${l.id}"`)
-    if (nonEmpty(l.id)) linkIds.add(l.id)
-    if (!nonEmpty(l.fromId)) errors.push(`link "${l.id}" fromId is required`)
-    if (!nonEmpty(l.toId)) errors.push(`link "${l.id}" toId is required`)
-    if (!nonEmpty(l.linkType)) errors.push(`link "${l.id}" linkType is required`)
+    if (!nonEmpty(l.id)) errors.push('link.id is required');
+    if (nonEmpty(l.id) && linkIds.has(l.id)) errors.push(`duplicate link id "${l.id}"`);
+    if (nonEmpty(l.id)) linkIds.add(l.id);
+    if (!nonEmpty(l.fromId)) errors.push(`link "${l.id}" fromId is required`);
+    if (!nonEmpty(l.toId)) errors.push(`link "${l.id}" toId is required`);
+    if (!nonEmpty(l.linkType)) errors.push(`link "${l.id}" linkType is required`);
     for (const endpoint of [l.fromId, l.toId]) {
       if (nonEmpty(endpoint) && !assertionIds.has(endpoint) && !knownIds.has(endpoint)) {
-        errors.push(`link "${l.id}" endpoint "${endpoint}" does not reference a known assertion`)
+        errors.push(`link "${l.id}" endpoint "${endpoint}" does not reference a known assertion`);
       }
     }
   }
 
   if (errors.length > 0) {
-    throw new Error(`Extraction result failed validation:\n${errors.map((e) => `- ${e}`).join('\n')}`)
+    throw new Error(`Extraction result failed validation:\n${errors.map((e) => `- ${e}`).join('\n')}`);
   }
 }
 
 function nonEmpty(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function parseOffset(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isInteger(value)) return value
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
-  return Number.parseInt(value, 10)
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  return Number.parseInt(value, 10);
 }

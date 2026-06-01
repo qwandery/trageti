@@ -1,25 +1,25 @@
-import type { Database } from 'better-sqlite3'
-import type { Episode } from '../../domain/types.js'
-import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js'
+import type { Database } from 'better-sqlite3';
+import type { Episode } from '../../domain/types.js';
+import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js';
 
 interface EpisodeRow {
-  id: string
-  namespace: string
-  position: number
-  occurred_at: string
-  type: string
-  content: string
-  created_at: string
-  [key: string]: unknown
+  id: string;
+  namespace: string;
+  position: number;
+  occurred_at: string;
+  type: string;
+  content: string;
+  created_at: string;
+  [key: string]: unknown;
 }
 
 export class EpisodeRepository {
-  private readonly db: Database
-  private readonly extensionColumns: readonly string[]
+  private readonly db: Database;
+  private readonly extensionColumns: readonly string[];
 
   constructor(db: Database, extensionColumns: readonly string[] = []) {
-    this.db = db
-    this.extensionColumns = extensionColumns
+    this.db = db;
+    this.extensionColumns = extensionColumns;
   }
 
   insert(episode: Omit<Episode, 'createdAt'>): Episode {
@@ -29,12 +29,12 @@ export class EpisodeRepository {
           [string],
           { max_pos: number | null }
         >('SELECT MAX(position) AS max_pos FROM trageti_episodes WHERE namespace = ?')
-        .get(episode.namespace)
-      const maxPos = max?.max_pos ?? null
+        .get(episode.namespace);
+      const maxPos = max?.max_pos ?? null;
       if (maxPos !== null && episode.position <= maxPos) {
         throw new ValidationError([
           `Episode position ${String(episode.position)} for namespace "${episode.namespace}" must be strictly greater than the existing max position ${String(maxPos)} (positions must increase monotonically within a namespace per spec v0.2).`,
-        ])
+        ]);
       }
       this.db
         .prepare(
@@ -49,31 +49,24 @@ export class EpisodeRepository {
           episode.type,
           episode.content,
           new Date().toISOString(),
-        )
-      const row = this.db
-        .prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?')
-        .get(episode.id)
+        );
+      const row = this.db.prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?').get(episode.id);
       if (!row) {
-        throw new TragetiError(
-          ErrorCode.INTERNAL_INVARIANT,
-          `Episode "${episode.id}" not found after insert`,
-        )
+        throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Episode "${episode.id}" not found after insert`);
       }
-      return this.rowToEpisode(row)
-    })()
+      return this.rowToEpisode(row);
+    })();
   }
 
   getById(id: string): Episode | null {
-    const row = this.db
-      .prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?')
-      .get(id)
-    return row ? this.rowToEpisode(row) : null
+    const row = this.db.prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?').get(id);
+    return row ? this.rowToEpisode(row) : null;
   }
 
   private rowToEpisode(row: EpisodeRow): Episode {
-    const extensions: Record<string, unknown> = {}
+    const extensions: Record<string, unknown> = {};
     for (const col of this.extensionColumns) {
-      extensions[col] = row[col] ?? null
+      extensions[col] = row[col] ?? null;
     }
     return {
       id: row.id,
@@ -83,6 +76,6 @@ export class EpisodeRepository {
       type: row.type,
       content: row.content,
       createdAt: row.created_at,
-    }
+    };
   }
 }

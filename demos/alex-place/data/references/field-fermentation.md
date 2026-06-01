@@ -1,6 +1,6 @@
 # Sourdough Notes — chapter excerpt (fictional)
 
-*by Mara Field*
+_by Mara Field_
 
 Sourness in a finished loaf is not the property of any one variable; it is
 the sum of starter maturity, inoculation rate, total fermentation time, and
@@ -13,5 +13,5 @@ but not a single dial labeled "more sour" or "less sour."
 When acidity is higher than you wanted, the productive move is rarely to
 isolate one variable. Look at the schedule end to end. Shorten total
 fermentation. Try a younger levain. Reduce time at cold temperatures. Test
-*two* loaves where only one variable differs at a time, and trust your nose
+_two_ loaves where only one variable differs at a time, and trust your nose
 and your palate over any single rule.

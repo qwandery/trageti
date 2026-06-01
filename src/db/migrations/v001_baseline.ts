@@ -1,18 +1,18 @@
-import type { Database } from 'better-sqlite3'
-import type { FTS5TokenizerConfig, Migration } from '../../domain/types.js'
+import type { Database } from 'better-sqlite3';
+import type { FTS5TokenizerConfig, Migration } from '../../domain/types.js';
 
 const DEFAULT_TOKENIZER: FTS5TokenizerConfig = {
   tokenizer: 'unicode61',
   tokenizerArgs: ['remove_diacritics', '1'],
-}
+};
 
 function buildTokenizeArg(cfg: FTS5TokenizerConfig): string {
-  return [cfg.tokenizer, ...(cfg.tokenizerArgs ?? [])].join(' ')
+  return [cfg.tokenizer, ...(cfg.tokenizerArgs ?? [])].join(' ');
 }
 
 export function createV001BaselineMigration(tokenizerConfig?: FTS5TokenizerConfig): Migration {
-  const tokenizer = tokenizerConfig ?? DEFAULT_TOKENIZER
-  const tokenize = buildTokenizeArg(tokenizer)
+  const tokenizer = tokenizerConfig ?? DEFAULT_TOKENIZER;
+  const tokenize = buildTokenizeArg(tokenizer);
 
   return {
     version: 1,
@@ -109,7 +109,7 @@ export function createV001BaselineMigration(tokenizerConfig?: FTS5TokenizerConfi
           ON trageti_episodes(namespace, position);
         CREATE INDEX IF NOT EXISTS trageti_idx_citations_assertion
           ON trageti_citations(assertion_id);
-      `)
+      `);
 
       db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS trageti_fulltext USING fts5(
@@ -119,7 +119,7 @@ export function createV001BaselineMigration(tokenizerConfig?: FTS5TokenizerConfi
           content_rowid='rowid',
           tokenize='${tokenize}'
         );
-      `)
+      `);
 
       db.exec(`
         CREATE TRIGGER IF NOT EXISTS trageti_fulltext_ai
@@ -141,14 +141,14 @@ export function createV001BaselineMigration(tokenizerConfig?: FTS5TokenizerConfi
             INSERT INTO trageti_fulltext(rowid, assertion_id, content)
             VALUES (new.rowid, new.id, new.content);
           END;
-      `)
+      `);
 
       db.prepare(
         `INSERT INTO trageti_tokenizer (id, tokenizer, tokenizer_args)
          VALUES (1, ?, ?)
          ON CONFLICT(id) DO UPDATE SET tokenizer = excluded.tokenizer,
                                        tokenizer_args = excluded.tokenizer_args`,
-      ).run(tokenizer.tokenizer, JSON.stringify(tokenizer.tokenizerArgs ?? []))
+      ).run(tokenizer.tokenizer, JSON.stringify(tokenizer.tokenizerArgs ?? []));
     },
-  }
+  };
 }

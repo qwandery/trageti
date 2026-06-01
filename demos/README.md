@@ -7,18 +7,18 @@ workflows.
 
 ## Demo overview
 
-| Demo | Corpus | Main features shown |
-|---|---|---|
-| `alex-place` | A cooking journal plus fictional food-science references | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
-| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots |
+| Demo           | Corpus                                                              | Main features shown                                                                                               |
+| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `alex-place`   | A cooking journal plus fictional food-science references            | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
+| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots              |
 
 Both demos share provider handling from `demos/shared/`. Extraction and
 embedding are configured independently:
 
-| Capability | Providers |
-|---|---|
-| Extraction | `fixture`, `anthropic`, `openai-compatible` |
-| Embedding | `fixture`, `openai-compatible`, `ollama-native` |
+| Capability | Providers                                       |
+| ---------- | ----------------------------------------------- |
+| Extraction | `fixture`, `anthropic`, `openai-compatible`     |
+| Embedding  | `fixture`, `openai-compatible`, `ollama-native` |
 
 The demos distinguish source documents from episodes. Source documents are the
 verbatim text that citations quote. Episodes are dated ingestion units and may

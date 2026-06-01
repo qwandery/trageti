@@ -1,6 +1,6 @@
-import type { EmbeddingProvider, EmbedOptions } from '../../domain/types.js'
-import { emitOnce, getDefaultLogger } from '../../internal/logger.js'
-import { createHash } from 'node:crypto'
+import type { EmbeddingProvider, EmbedOptions } from '../../domain/types.js';
+import { emitOnce, getDefaultLogger } from '../../internal/logger.js';
+import { createHash } from 'node:crypto';
 
 /**
  * Deterministic hashed-embedding provider. Intended for tests and zero-dependency
@@ -11,36 +11,36 @@ import { createHash } from 'node:crypto'
  */
 export interface MockEmbeddingProviderOptions {
   /** Embedding dimension to produce. Default 384. */
-  dimension?: number
+  dimension?: number;
 }
 
 export class MockEmbeddingProvider implements EmbeddingProvider {
-  readonly name = 'mock'
-  readonly dimension: number
+  readonly name = 'mock';
+  readonly dimension: number;
 
   constructor(options: MockEmbeddingProviderOptions = {}) {
-    this.dimension = options.dimension ?? 384
+    this.dimension = options.dimension ?? 384;
   }
 
   embed(texts: readonly string[], _options?: EmbedOptions): Promise<Float32Array[]> {
     if (process.env['NODE_ENV'] !== 'test' && emitOnce('TRGT_MOCK_PROVIDER_NON_PRODUCTION')) {
       getDefaultLogger().warn('TRGT_MOCK_PROVIDER_NON_PRODUCTION', {
         message: 'MockEmbeddingProvider is for tests/quickstarts only; do not use in production.',
-      })
+      });
     }
 
     return Promise.resolve(
       texts.map((text) => {
-        const out = new Float32Array(this.dimension)
-        const hash = createHash('sha256').update(text).digest()
+        const out = new Float32Array(this.dimension);
+        const hash = createHash('sha256').update(text).digest();
         // Spread the 32-byte digest across `dimension` floats deterministically.
         for (let i = 0; i < this.dimension; i++) {
-          const byte = hash[i % hash.length] ?? 0
+          const byte = hash[i % hash.length] ?? 0;
           // Map [0, 255] → [-1, 1] (centered at zero so cosine-distance behaves well).
-          out[i] = byte / 127.5 - 1
+          out[i] = byte / 127.5 - 1;
         }
-        return out
+        return out;
       }),
-    )
+    );
   }
 }

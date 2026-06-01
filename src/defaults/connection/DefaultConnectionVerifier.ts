@@ -1,8 +1,8 @@
-import type { Database } from 'better-sqlite3'
-import type { ConnectionVerifier } from '../../domain/types.js'
-import type { Logger } from '../../internal/logger.js'
-import { getDefaultLogger } from '../../internal/logger.js'
-import { ConnectionVerificationError } from '../../errors/index.js'
+import type { Database } from 'better-sqlite3';
+import type { ConnectionVerifier } from '../../domain/types.js';
+import type { Logger } from '../../internal/logger.js';
+import { getDefaultLogger } from '../../internal/logger.js';
+import { ConnectionVerificationError } from '../../errors/index.js';
 
 /**
  * Default connection verifier.
@@ -21,25 +21,25 @@ import { ConnectionVerificationError } from '../../errors/index.js'
  */
 export class DefaultConnectionVerifier implements ConnectionVerifier {
   verify(db: Database, logger?: Logger): void {
-    const log = logger ?? getDefaultLogger()
+    const log = logger ?? getDefaultLogger();
 
     // Foreign keys — enforce, re-check, fail closed.
-    db.pragma('foreign_keys = ON')
-    const fk = db.pragma('foreign_keys', { simple: true }) as number | undefined
+    db.pragma('foreign_keys = ON');
+    const fk = db.pragma('foreign_keys', { simple: true }) as number | undefined;
     if (fk !== 1) {
       throw new ConnectionVerificationError(
         'Foreign-key enforcement could not be enabled (PRAGMA foreign_keys = ON did not take). ' +
           'This usually means the connection has an open transaction, or the SQLite build omits ' +
           'foreign-key support. Provide a custom ConnectionVerifier only if you accept full ' +
           'responsibility for referential integrity.',
-      )
+      );
     }
-    log.debug('TRGT_FOREIGN_KEYS_ENABLED', {})
+    log.debug('TRGT_FOREIGN_KEYS_ENABLED', {});
 
     // WAL mode is strongly recommended but not enforced.
-    const journalMode = (db.pragma('journal_mode', { simple: true }) as string | undefined) ?? ''
+    const journalMode = (db.pragma('journal_mode', { simple: true }) as string | undefined) ?? '';
     if (journalMode.toLowerCase() !== 'wal') {
-      log.warn('TRGT_NON_WAL_MODE', { journalMode })
+      log.warn('TRGT_NON_WAL_MODE', { journalMode });
     }
   }
 }

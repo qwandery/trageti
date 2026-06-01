@@ -1,17 +1,17 @@
-import type { Database } from 'better-sqlite3'
-import type { AssertionLink } from '../../domain/types.js'
-import { ErrorCode, TragetiError } from '../../errors/index.js'
+import type { Database } from 'better-sqlite3';
+import type { AssertionLink } from '../../domain/types.js';
+import { ErrorCode, TragetiError } from '../../errors/index.js';
 
 interface LinkRow {
-  id: string
-  namespace: string
-  from_id: string
-  to_id: string
-  link_type: string
-  valid_from: number
-  valid_until: number | null
-  source_episode_id: string
-  created_at: string
+  id: string;
+  namespace: string;
+  from_id: string;
+  to_id: string;
+  link_type: string;
+  valid_from: number;
+  valid_until: number | null;
+  source_episode_id: string;
+  created_at: string;
 }
 
 function rowToLink(row: LinkRow): AssertionLink {
@@ -25,14 +25,14 @@ function rowToLink(row: LinkRow): AssertionLink {
     validUntil: row.valid_until,
     sourceEpisodeId: row.source_episode_id,
     createdAt: row.created_at,
-  }
+  };
 }
 
 export class LinkRepository {
-  private readonly db: Database
+  private readonly db: Database;
 
   constructor(db: Database) {
-    this.db = db
+    this.db = db;
   }
 
   insert(link: Omit<AssertionLink, 'createdAt'>): AssertionLink {
@@ -51,26 +51,18 @@ export class LinkRepository {
         link.validUntil ?? null,
         link.sourceEpisodeId,
         new Date().toISOString(),
-      )
-    const row = this.db
-      .prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id = ?')
-      .get(link.id)
+      );
+    const row = this.db.prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id = ?').get(link.id);
     if (!row) {
-      throw new TragetiError(
-        ErrorCode.INTERNAL_INVARIANT,
-        `Link "${link.id}" not found after insert`,
-      )
+      throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Link "${link.id}" not found after insert`);
     }
-    return rowToLink(row)
+    return rowToLink(row);
   }
 
   getCount(namespace: string): number {
     const row = this.db
-      .prepare<
-        [string],
-        { cnt: number }
-      >('SELECT COUNT(*) AS cnt FROM trageti_links WHERE namespace = ?')
-      .get(namespace)
-    return row?.cnt ?? 0
+      .prepare<[string], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trageti_links WHERE namespace = ?')
+      .get(namespace);
+    return row?.cnt ?? 0;
   }
 }

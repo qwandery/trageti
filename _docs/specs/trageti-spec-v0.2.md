@@ -106,13 +106,13 @@ An **episode** is a source input event — the raw material from which assertion
 
 ```typescript
 interface Episode {
-  id: string
-  namespace: string
-  position: number // caller-defined ordinal: consistent, comparable, stable
-  occurredAt: string // ISO 8601 — real-world time of the event; display and audit only
-  type: string // caller-defined; opaque to the library
-  content: string // source material; see content size guidance below
-  createdAt: string // ISO 8601 — when the system recorded this episode
+  id: string;
+  namespace: string;
+  position: number; // caller-defined ordinal: consistent, comparable, stable
+  occurredAt: string; // ISO 8601 — real-world time of the event; display and audit only
+  type: string; // caller-defined; opaque to the library
+  content: string; // source material; see content size guidance below
+  createdAt: string; // ISO 8601 — when the system recorded this episode
 }
 ```
 
@@ -128,19 +128,19 @@ An **assertion** is a discrete, interpretable claim derived from one or more epi
 
 ```typescript
 interface Assertion {
-  id: string
-  namespace: string
-  type: string // caller-defined; see recommended taxonomy below
-  content: string // the claim, in natural language
-  validFrom: number // position at which this became true
-  validUntil: number | null // position at which superseded; null = currently valid
-  confidence: number // 0.0–1.0; caller-assigned
-  sourceEpisodeId: string // FK → episodes.id
-  supersedesId: string | null // FK → assertions.id — the assertion this replaces
-  entityId: string | null // optional: groups assertions about the same entity
-  entityType: string | null // optional: caller-defined entity classification
-  citations: AssertionCitation[] // required; at least one; always populated on read
-  createdAt: string // ISO 8601 — when the system recorded this assertion
+  id: string;
+  namespace: string;
+  type: string; // caller-defined; see recommended taxonomy below
+  content: string; // the claim, in natural language
+  validFrom: number; // position at which this became true
+  validUntil: number | null; // position at which superseded; null = currently valid
+  confidence: number; // 0.0–1.0; caller-assigned
+  sourceEpisodeId: string; // FK → episodes.id
+  supersedesId: string | null; // FK → assertions.id — the assertion this replaces
+  entityId: string | null; // optional: groups assertions about the same entity
+  entityType: string | null; // optional: caller-defined entity classification
+  citations: AssertionCitation[]; // required; at least one; always populated on read
+  createdAt: string; // ISO 8601 — when the system recorded this assertion
 }
 ```
 
@@ -158,7 +158,7 @@ const RecommendedAssertionTypes = {
   REGRESSION: 'regression', // a previously resolved state re-emerging
   ABSENCE: 'absence', // something expected that was notably absent
   PATTERN: 'pattern', // an observation that spans multiple episodes
-} as const
+} as const;
 ```
 
 ### AssertionLink
@@ -167,15 +167,15 @@ An **assertion link** is a typed, temporal relationship between two assertions.
 
 ```typescript
 interface AssertionLink {
-  id: string
-  namespace: string
-  fromId: string
-  toId: string
-  linkType: string // caller-defined; see recommended taxonomy below
-  validFrom: number
-  validUntil: number | null // same validity constraint as assertions
-  sourceEpisodeId: string
-  createdAt: string
+  id: string;
+  namespace: string;
+  fromId: string;
+  toId: string;
+  linkType: string; // caller-defined; see recommended taxonomy below
+  validFrom: number;
+  validUntil: number | null; // same validity constraint as assertions
+  sourceEpisodeId: string;
+  createdAt: string;
 }
 
 // Recommended starting vocabulary — not enforced by the library
@@ -192,7 +192,7 @@ const RecommendedLinkTypes = {
   CONTEXTUALIZES: 'contextualizes', // B changes how A should be interpreted
   QUALIFIES: 'qualifies', // B limits or conditions A
   MEASURES: 'measures', // B is a data point in a series including A
-} as const
+} as const;
 ```
 
 **Replacement vs. accumulation.** The accumulation family was added in v0.2
@@ -214,23 +214,23 @@ Citations are the mechanism by which retrieval results are always traceable. Eve
 
 ```typescript
 interface AssertionCitation {
-  id: string
-  assertionId: string // FK → trl_assertions.id
-  episodeId: string // FK → trl_episodes.id — required; validated at write time
-  sourceRef: string // required, non-empty — caller-defined reference string
+  id: string;
+  assertionId: string; // FK → trl_assertions.id
+  episodeId: string; // FK → trl_episodes.id — required; validated at write time
+  sourceRef: string; // required, non-empty — caller-defined reference string
   // format is opaque to the library; e.g.:
   //   "chunk:3"
   //   "0:08:14-0:12:30"
   //   "page:47:paragraph:2"
   //   "commit:a3f9c2:lines:14-28"
   //   "section:introduction"
-  excerpt: string | null // verbatim text from the source passage
+  excerpt: string | null; // verbatim text from the source passage
   // strongly recommended; null permitted but warned on write
-  excerptStart?: string // optional positional anchor within the source
-  excerptEnd?: string // optional positional anchor within the source
+  excerptStart?: string; // optional positional anchor within the source
+  excerptEnd?: string; // optional positional anchor within the source
   // excerptStart/End format is caller-defined and opaque to library
-  metadata?: Record<string, unknown> // any additional caller-defined citation data
-  createdAt: string
+  metadata?: Record<string, unknown>; // any additional caller-defined citation data
+  createdAt: string;
 }
 ```
 
@@ -299,7 +299,7 @@ Register at init time:
 const store = new TemporalStore(db, {
   namespace: 'my-namespace',
   graphAdapter: new MyCypherAdapter(db), // optional; defaults to CTEGraphAdapter
-})
+});
 ```
 
 ### RetrievalScorer
@@ -342,7 +342,7 @@ Register at init time:
 const store = new TemporalStore(db, {
   namespace: 'my-namespace',
   scorer: new MyDomainScorer(), // optional; defaults to DefaultScorer
-})
+});
 ```
 
 ### ContextFormatter
@@ -377,13 +377,13 @@ Register at init time or per `assembleContext()` call:
 const store = new TemporalStore(db, {
   namespace: 'my-namespace',
   defaultFormatter: new MyXmlFormatter(),
-})
+});
 
 // Per call — overrides the default for this call only
 store.assembleContext({
   ...options,
   formatter: new MyXmlFormatter(),
-})
+});
 ```
 
 **Token estimation.** The default formatters use a configurable `tokensPerChar` approximation (default: 0.25). This is a rough estimate and will be wrong for text with unusual tokenization characteristics. Callers who need accurate token counting should implement a custom `ContextFormatter` that uses their actual tokenizer. The `tokenEstimate` field in `FormattedContext` is what the library uses for budget enforcement — a custom formatter controls this value directly.
@@ -423,7 +423,7 @@ const store = new TemporalStore(db, {
     new DefaultAssertionValidator(), // include if you want default validation plus custom
     new MyDomainValidator(),
   ],
-})
+});
 ```
 
 ### ConnectionVerifier
@@ -439,7 +439,7 @@ interface ConnectionVerifier {
    * sqlite-vec loaded. Callers may replace this to adjust requirements
    * or add domain-specific checks.
    */
-  verify(db: Database): void
+  verify(db: Database): void;
 }
 
 class DefaultConnectionVerifier implements ConnectionVerifier {
@@ -458,7 +458,7 @@ Register at init time:
 const store = new TemporalStore(db, {
   namespace: 'my-namespace',
   connectionVerifier: new MyConnectionVerifier(),
-})
+});
 ```
 
 ### RetrievalMiddleware
@@ -467,19 +467,19 @@ Pre- and post-retrieval hooks for logging, caching, mutation, or any other cross
 
 ```typescript
 interface RetrievalMiddleware {
-  before?(query: RetrievalQuery): RetrievalQuery // may mutate or replace the query
-  after?(results: RetrievedAssertion[], query: RetrievalQuery): RetrievedAssertion[]
+  before?(query: RetrievalQuery): RetrievalQuery; // may mutate or replace the query
+  after?(results: RetrievedAssertion[], query: RetrievalQuery): RetrievedAssertion[];
 }
 
 // Example: logging middleware
 class LoggingMiddleware implements RetrievalMiddleware {
   before(query) {
-    console.log('retrieving', query.namespace, query.temporalAnchor)
-    return query
+    console.log('retrieving', query.namespace, query.temporalAnchor);
+    return query;
   }
   after(results, query) {
-    console.log('retrieved', results.length, 'assertions')
-    return results
+    console.log('retrieved', results.length, 'assertions');
+    return results;
   }
 }
 ```
@@ -491,10 +491,10 @@ Register at init time (applied to all retrieve() calls) or per retrieve() call:
 const store = new TemporalStore(db, {
   namespace: 'my-namespace',
   middleware: [new LoggingMiddleware(), new CachingMiddleware()],
-})
+});
 
 // Per call
-store.retrieve({ ...query, middleware: [new DebugMiddleware()] })
+store.retrieve({ ...query, middleware: [new DebugMiddleware()] });
 ```
 
 ### FTS5Tokenizer
@@ -503,15 +503,15 @@ Configures the FTS5 tokenizer used for keyword indexing. Must be set at init tim
 
 ```typescript
 interface FTS5TokenizerConfig {
-  tokenizer: string // FTS5 tokenizer name: 'unicode61' | 'ascii' | 'porter' | custom
-  tokenizerArgs?: string[] // tokenizer-specific arguments
+  tokenizer: string; // FTS5 tokenizer name: 'unicode61' | 'ascii' | 'porter' | custom
+  tokenizerArgs?: string[]; // tokenizer-specific arguments
 }
 
 // Default: unicode61 with diacritics removal
 const defaultTokenizer: FTS5TokenizerConfig = {
   tokenizer: 'unicode61',
   tokenizerArgs: ['remove_diacritics', '1'],
-}
+};
 ```
 
 **Warning:** The tokenizer is fixed at the time the FTS5 virtual table is created. Changing it requires dropping and rebuilding the FTS table, which is a destructive migration. Choose carefully. The library logs a warning if a different tokenizer config is passed to `init()` after the table already exists.
@@ -522,22 +522,22 @@ Registers caller-owned columns and tables alongside the library's schema. This i
 
 ```typescript
 interface ColumnExtension {
-  table: 'trl_assertions' | 'trl_episodes' | 'trl_links'
-  column: string // must not start with 'trl_' or shadow any existing library column
-  definition: string // SQL column definition: type + optional DEFAULT + optional CHECK
-  description?: string // documentation only; not stored in the database
+  table: 'trl_assertions' | 'trl_episodes' | 'trl_links';
+  column: string; // must not start with 'trl_' or shadow any existing library column
+  definition: string; // SQL column definition: type + optional DEFAULT + optional CHECK
+  description?: string; // documentation only; not stored in the database
 }
 
 interface TableExtension {
-  tableName: string // must not start with 'trl_'
-  createSQL: string // full CREATE TABLE IF NOT EXISTS statement
-  referencesNamespace: boolean // if true, deleteNamespace() will warn before proceeding
-  description?: string
+  tableName: string; // must not start with 'trl_'
+  createSQL: string; // full CREATE TABLE IF NOT EXISTS statement
+  referencesNamespace: boolean; // if true, deleteNamespace() will warn before proceeding
+  description?: string;
 }
 
 interface SchemaExtensions {
-  columns?: ColumnExtension[]
-  tables?: TableExtension[]
+  columns?: ColumnExtension[];
+  tables?: TableExtension[];
 }
 ```
 
@@ -547,8 +547,8 @@ Extended columns are surfaced on returned `Assertion` and `Episode` objects as a
 
 ```typescript
 // After registering 'approval_status' on trl_assertions:
-const assertion = store.getAssertions(namespace)[0]
-assertion.extensions.approval_status // string | null
+const assertion = store.getAssertions(namespace)[0];
+assertion.extensions.approval_status; // string | null
 ```
 
 The library never reads or writes extended columns itself. They are `null` in all library-written rows unless the caller sets them separately via direct SQL or a post-write hook.
@@ -601,7 +601,7 @@ const store = new TemporalStore(db, {
       },
     ],
   },
-})
+});
 ```
 
 ---
@@ -612,10 +612,10 @@ Each namespace has its own configuration record, stored in `trl_namespaces`. Thi
 
 ```typescript
 interface NamespaceConfig {
-  namespace: string
-  embeddingDimension: number // fixed per namespace; changing requires full reindex
-  createdAt: string
-  config: Record<string, unknown> // arbitrary caller metadata; stored as JSON
+  namespace: string;
+  embeddingDimension: number; // fixed per namespace; changing requires full reindex
+  createdAt: string;
+  config: Record<string, unknown>; // arbitrary caller metadata; stored as JSON
 }
 ```
 
@@ -627,7 +627,7 @@ Embedding dimension is set when a namespace is first initialized and cannot be c
 store.reindexNamespace(namespace, {
   newDimension: 768,
   embeddingProvider: async (assertionId: string, content: string) => Float32Array,
-})
+});
 ```
 
 ---
@@ -766,27 +766,27 @@ Callers who need to extend the schema — adding application-specific columns to
 ## Initialization
 
 ```typescript
-import { TemporalStore } from 'trageti'
+import { TemporalStore } from 'trageti';
 
 interface TemporalStoreOptions {
-  namespace: string // default namespace for calls that don't specify one
-  embeddingDimension: number // required for new namespaces
-  maxEpisodeContentBytes?: number // content size warning threshold; default 8192; 0 = disabled
-  graphAdapter?: GraphQueryAdapter // default: CTEGraphAdapter
-  scorer?: RetrievalScorer // default: DefaultScorer
-  defaultFormatter?: ContextFormatter // default: ProseFormatter
-  validators?: AssertionValidator[] // default: [DefaultAssertionValidator]
-  connectionVerifier?: ConnectionVerifier // default: DefaultConnectionVerifier
-  middleware?: RetrievalMiddleware[] // default: []
-  fts5Tokenizer?: FTS5TokenizerConfig // default: unicode61 with diacritics removal
-  schemaExtensions?: SchemaExtensions // default: none; see Schema Extensions section
+  namespace: string; // default namespace for calls that don't specify one
+  embeddingDimension: number; // required for new namespaces
+  maxEpisodeContentBytes?: number; // content size warning threshold; default 8192; 0 = disabled
+  graphAdapter?: GraphQueryAdapter; // default: CTEGraphAdapter
+  scorer?: RetrievalScorer; // default: DefaultScorer
+  defaultFormatter?: ContextFormatter; // default: ProseFormatter
+  validators?: AssertionValidator[]; // default: [DefaultAssertionValidator]
+  connectionVerifier?: ConnectionVerifier; // default: DefaultConnectionVerifier
+  middleware?: RetrievalMiddleware[]; // default: []
+  fts5Tokenizer?: FTS5TokenizerConfig; // default: unicode61 with diacritics removal
+  schemaExtensions?: SchemaExtensions; // default: none; see Schema Extensions section
 }
 
 // Caller fully controls the connection before passing it in
-const store = new TemporalStore(db, options)
+const store = new TemporalStore(db, options);
 
 // init() runs connection verification, applies migrations, creates namespace if new
-store.init()
+store.init();
 ```
 
 **Connection requirements.** The default `ConnectionVerifier` requires sqlite-vec to be loaded before `init()` is called, and warns if WAL mode is not enabled. The library does not enforce WAL mode or foreign keys — it warns. Callers who replace `ConnectionVerifier` control all of this. The library documents what it assumes about connection state; the verifier enforces those assumptions.

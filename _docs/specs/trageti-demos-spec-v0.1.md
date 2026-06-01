@@ -1,4 +1,5 @@
 # trageti Demos
+
 ## Specification v0.1
 
 **Status:** Design specification
@@ -64,24 +65,25 @@ The core function. Takes a document, feeds it to an LLM (or reads from a fixture
 
 ```typescript
 interface IngestOptions {
-  store: TemporalStore
-  episode: Omit<Episode, 'createdAt'>
-  document: string
-  existingAssertions?: Assertion[]
-  extract: (prompt: string) => Promise<string>
-  namespace: string
-  promptOverride?: string  // replaces default extraction prompt entirely
+  store: TemporalStore;
+  episode: Omit<Episode, 'createdAt'>;
+  document: string;
+  existingAssertions?: Assertion[];
+  extract: (prompt: string) => Promise<string>;
+  namespace: string;
+  promptOverride?: string; // replaces default extraction prompt entirely
 }
 
 interface ExtractionResult {
-  assertions: NewAssertionInput[]
-  links: Array<Omit<AssertionLink, 'createdAt'>>
+  assertions: NewAssertionInput[];
+  links: Array<Omit<AssertionLink, 'createdAt'>>;
 }
 
-async function ingest(options: IngestOptions): Promise<ExtractionResult>
+async function ingest(options: IngestOptions): Promise<ExtractionResult>;
 ```
 
 The function:
+
 1. Writes the episode via `store.writeEpisode()`
 2. Builds an extraction prompt from the document and existing assertions (or uses `promptOverride`)
 3. Calls the provided `extract` function
@@ -134,34 +136,34 @@ function anthropicExtractor(apiKey: string): (prompt: string) => Promise<string>
         max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
       }),
-    })
-    const data = await response.json()
-    return data.content[0].text
-  }
+    });
+    const data = await response.json();
+    return data.content[0].text;
+  };
 }
 
 /** OpenAI-compatible — covers OpenAI, OpenRouter, Ollama, llama.cpp, LM Studio, etc. */
 function openaiExtractor(options: {
-  baseUrl: string
-  apiKey: string
-  model: string
+  baseUrl: string;
+  apiKey: string;
+  model: string;
 }): (prompt: string) => Promise<string> {
   return async (prompt) => {
     const response = await fetch(`${options.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${options.apiKey}`,
+        Authorization: `Bearer ${options.apiKey}`,
       },
       body: JSON.stringify({
         model: options.model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       }),
-    })
-    const data = await response.json()
-    return data.choices[0].message.content
-  }
+    });
+    const data = await response.json();
+    return data.choices[0].message.content;
+  };
 }
 
 /** Pre-generated fixtures — offline, CI, deterministic */
@@ -169,12 +171,12 @@ function fixtureExtractor(
   fixtures: Record<string, string>,
 ): (prompt: string, options: { episodeId: string }) => Promise<string> {
   return async (_prompt, options) => {
-    const raw = fixtures[options.episodeId]
+    const raw = fixtures[options.episodeId];
     if (!raw) {
-      throw new Error(`No fixture for episode ${options.episodeId}`)
+      throw new Error(`No fixture for episode ${options.episodeId}`);
     }
-    return raw
-  }
+    return raw;
+  };
 }
 ```
 
@@ -199,6 +201,7 @@ npx tsx demos/<name>/generate-fixtures.ts
 ```
 
 The fixture files:
+
 - `fixtures.ts` — extraction output: `Record<string, string>` mapping episode ID to raw LLM response JSON
 - `embeddings.ts` — pre-computed embedding vectors: `Record<string, number[]>` mapping assertion ID to embedding array
 
@@ -212,7 +215,7 @@ Fixtures are regenerated when the extraction prompt changes, when the data chang
 
 ## Demo 1: Trageti Know Thyself!
 
-*trageti ingests its own development history and answers questions about its own evolution.*
+_trageti ingests its own development history and answers questions about its own evolution._
 
 ### Concept
 
@@ -233,7 +236,7 @@ export const keyframes: Keyframe[] = [
   { hash: 'fac4ada', position: 1, label: 'v0.1 implementation', date: '2026-04-29' },
   { hash: '5695df6', position: 2, label: 'v0.2 citations and trajectory retrieval', date: '2026-05-10' },
   // ... additional keyframes through v0.3 implementation, remediation, and polish
-]
+];
 ```
 
 Adding a keyframe is the only manual curation required. Everything else is derived from git.
@@ -310,16 +313,16 @@ Both scripts use the same provider resolver as all other demos. Regeneration is 
 
 ### What It Exercises
 
-| Capability | How it appears |
-|---|---|
-| Supersession | Scoring formula v0.1 → v0.2 → v0.3 |
-| Recontextualization | Case formulation: primary artifact → rejected → demoted to derived view |
-| `deepens` | Each spec version adds detail to core concepts without replacing them |
-| `qualifies` | "Assertions not chunks — but assertions need citations" (v0.2 qualifies v0.1) |
-| Trajectory mode | "How did the citation model evolve?" returns the full chain |
-| Temporal snapshot | "What was the scoring formula as of v0.2?" |
-| BM25 retrieval | Natural keyword queries over technical content |
-| Citations | Every assertion cites offsets in committed source documents; ingestion derives verbatim excerpts |
+| Capability          | How it appears                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| Supersession        | Scoring formula v0.1 → v0.2 → v0.3                                                               |
+| Recontextualization | Case formulation: primary artifact → rejected → demoted to derived view                          |
+| `deepens`           | Each spec version adds detail to core concepts without replacing them                            |
+| `qualifies`         | "Assertions not chunks — but assertions need citations" (v0.2 qualifies v0.1)                    |
+| Trajectory mode     | "How did the citation model evolve?" returns the full chain                                      |
+| Temporal snapshot   | "What was the scoring formula as of v0.2?"                                                       |
+| BM25 retrieval      | Natural keyword queries over technical content                                                   |
+| Citations           | Every assertion cites offsets in committed source documents; ingestion derives verbatim excerpts |
 
 ### Query Set
 
@@ -347,7 +350,7 @@ The demo prints annotated results for each query: the query text, the retrieval 
 
 ## Demo 2: Alex's Place
 
-*An aspiring chef's personal journal — the scattered, determined, sometimes vulnerable record of someone trying to teach themselves what culinary school didn't have time to finish.*
+_An aspiring chef's personal journal — the scattered, determined, sometimes vulnerable record of someone trying to teach themselves what culinary school didn't have time to finish._
 
 ### Concept
 
@@ -379,7 +382,7 @@ The primary data is a single markdown document — `alex.md` — containing Alex
 
 The journal is supplemented by a small set of reference documents that Alex reads and references in their entries:
 
-- A fictional excerpt from Mara Field's *Sourdough Notes* on fermentation timing (referenced in Alex's sourdough arc)
+- A fictional excerpt from Mara Field's _Sourdough Notes_ on fermentation timing (referenced in Alex's sourdough arc)
 - A fictional article by Ren Ito on paitan-style broth emulsions (referenced in the ramen arc)
 - A fictional food-science excerpt on Maillard browning (referenced after Priya's feedback)
 - A knife skills class handout (referenced once, then revised by a YouTube discovery)
@@ -392,60 +395,61 @@ These supplementary documents are ingested as their own episodes at the position
 
 **The sourdough thread**
 
-| Entry | Position | Tone & Content |
-|---|---|---|
-| "Started the starter today" | 1 | Optimistic, slightly nervous. Alex describes mixing flour and water and feeling silly about how excited they are. Mentions this is one of the first things they were working on at school before they left. |
-| "First real bake" | 3 | Disappointed but analytical. Dense crumb, way too sour. Alex lists everything they think went wrong. Suspects the cold retard was too long but isn't sure. "I know it's supposed to take time. I just want it to work." |
-| Field fermentation chapter | 5 | (Supplementary document) Alex reads this after the failed bake. The journal entry around it is excited — "I think I've been letting the cold retard run too long with a too-mature levain. Field says acidity comes from the whole fermentation schedule — starter maturity, inoculation, time, temperature. This changes everything." |
-| "Room temp proof bake" | 8 | Triumphant. Abandoned cold retard entirely. Open crumb, mild flavor, best bake yet. Alex is almost giddy. "If Dad could see this loaf he'd pretend he wasn't impressed and then eat half of it." One line, dropped casually, then Alex moves on to talk about hydration percentages. |
-| "Tried whole wheat today" | 12 | Frustrated. The whole wheat flour wrecked everything — dense, gummy, wouldn't rise properly. Alex knows it's about hydration but can't dial it in. "Back to square one. Except it's not really square one because I know more now. Square two." |
-| "Cracked the whole wheat" | 15 | Relieved. 80% hydration works for whole wheat. But the technique only works with this flour — Alex's bread flour method doesn't transfer. "So now I have two techniques. That's fine. That's actually how it works, I think." |
-| First dinner party (sourdough feedback) | 20 | (See dinner party section) |
-| Third dinner party (Sam says "perfect") | 24 | (See dinner party section) |
+| Entry                                   | Position | Tone & Content                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Started the starter today"             | 1        | Optimistic, slightly nervous. Alex describes mixing flour and water and feeling silly about how excited they are. Mentions this is one of the first things they were working on at school before they left.                                                                                                                            |
+| "First real bake"                       | 3        | Disappointed but analytical. Dense crumb, way too sour. Alex lists everything they think went wrong. Suspects the cold retard was too long but isn't sure. "I know it's supposed to take time. I just want it to work."                                                                                                                |
+| Field fermentation chapter              | 5        | (Supplementary document) Alex reads this after the failed bake. The journal entry around it is excited — "I think I've been letting the cold retard run too long with a too-mature levain. Field says acidity comes from the whole fermentation schedule — starter maturity, inoculation, time, temperature. This changes everything." |
+| "Room temp proof bake"                  | 8        | Triumphant. Abandoned cold retard entirely. Open crumb, mild flavor, best bake yet. Alex is almost giddy. "If Dad could see this loaf he'd pretend he wasn't impressed and then eat half of it." One line, dropped casually, then Alex moves on to talk about hydration percentages.                                                   |
+| "Tried whole wheat today"               | 12       | Frustrated. The whole wheat flour wrecked everything — dense, gummy, wouldn't rise properly. Alex knows it's about hydration but can't dial it in. "Back to square one. Except it's not really square one because I know more now. Square two."                                                                                        |
+| "Cracked the whole wheat"               | 15       | Relieved. 80% hydration works for whole wheat. But the technique only works with this flour — Alex's bread flour method doesn't transfer. "So now I have two techniques. That's fine. That's actually how it works, I think."                                                                                                          |
+| First dinner party (sourdough feedback) | 20       | (See dinner party section)                                                                                                                                                                                                                                                                                                             |
+| Third dinner party (Sam says "perfect") | 24       | (See dinner party section)                                                                                                                                                                                                                                                                                                             |
 
 **The miso ramen thread**
 
-| Entry | Position | Tone & Content |
-|---|---|---|
-| "Ate at Kintaro tonight" | 6 | Reverent. Alex and Jordan went to a ramen shop and Alex can't stop thinking about the broth. "Milky, almost creamy, but not heavy. Fat and gelatin suspended all through it, I'm sure of it. I need to figure out how they did this." Detailed sensory notes — Alex is already reverse-engineering in their head. |
-| "First attempt: disaster" | 9 | Honest, slightly humorous. "The broth was thin and cloudy but not the right kind of cloudy. Jordan said it tasted like 'pork water.' Not wrong." Alex lists what they used and suspects the cook was too short, the water ratio was off, and the boil never got vigorous enough. |
-| Ito paitan article | 11 | (Supplementary document) Alex reads this and has a revelation. Journal entry: "It's the BOIL. The vigorous boil forces fat, gelatin, and tiny solids into suspension. Kintaro wasn't doing it wrong with the cloudiness — they were doing it RIGHT. My broth wasn't cloudy enough." |
-| "Second attempt: holy s***" | 14 | All-caps energy. Rolling boil for 8 hours. "The broth is WHITE. It's THICK. It coats the back of a spoon. I literally called Jordan over to look at it and they said 'it looks like milk' and I said EXACTLY." Still not quite Kintaro-level but dramatically closer. |
-| "Noodle experiment" | 18 | Mixed results. Broth technique is dialed now but the noodles were wrong — Alex used baking soda instead of kansui water. "The online recipe said baking soda could substitute. Maybe it can if you do it right, but the way I did it was not right. The texture was rubbery and the flavor was slightly metallic." |
-| "Mrs. Park's tare trick" | 23 | Mrs. Park watches Alex make the tare and says, gently, "Toast the miso first." Alex tries it. "I don't know how to describe the difference except that the flavor went from flat to... dimensional? Like it suddenly had a front and a back." Alex connects this to the browning-chemistry reference they'd read earlier. |
+| Entry                          | Position | Tone & Content                                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Ate at Kintaro tonight"       | 6        | Reverent. Alex and Jordan went to a ramen shop and Alex can't stop thinking about the broth. "Milky, almost creamy, but not heavy. Fat and gelatin suspended all through it, I'm sure of it. I need to figure out how they did this." Detailed sensory notes — Alex is already reverse-engineering in their head.         |
+| "First attempt: disaster"      | 9        | Honest, slightly humorous. "The broth was thin and cloudy but not the right kind of cloudy. Jordan said it tasted like 'pork water.' Not wrong." Alex lists what they used and suspects the cook was too short, the water ratio was off, and the boil never got vigorous enough.                                          |
+| Ito paitan article             | 11       | (Supplementary document) Alex reads this and has a revelation. Journal entry: "It's the BOIL. The vigorous boil forces fat, gelatin, and tiny solids into suspension. Kintaro wasn't doing it wrong with the cloudiness — they were doing it RIGHT. My broth wasn't cloudy enough."                                       |
+| "Second attempt: holy s\*\*\*" | 14       | All-caps energy. Rolling boil for 8 hours. "The broth is WHITE. It's THICK. It coats the back of a spoon. I literally called Jordan over to look at it and they said 'it looks like milk' and I said EXACTLY." Still not quite Kintaro-level but dramatically closer.                                                     |
+| "Noodle experiment"            | 18       | Mixed results. Broth technique is dialed now but the noodles were wrong — Alex used baking soda instead of kansui water. "The online recipe said baking soda could substitute. Maybe it can if you do it right, but the way I did it was not right. The texture was rubbery and the flavor was slightly metallic."        |
+| "Mrs. Park's tare trick"       | 23       | Mrs. Park watches Alex make the tare and says, gently, "Toast the miso first." Alex tries it. "I don't know how to describe the difference except that the flavor went from flat to... dimensional? Like it suddenly had a front and a back." Alex connects this to the browning-chemistry reference they'd read earlier. |
 
 **Knife skills (2 entries)**
 
-| Entry | Position | Tone & Content |
-|---|---|---|
-| "Took the knife class" | 7 | Enthusiastic but self-conscious. Alex describes the instructor's pinch grip, claw hand, and high rocking technique. "The grip makes sense, but the rocking motion felt wrong with my knife, like I was fighting the blade instead of guiding it. But everyone else seemed fine with it so I didn't say anything." |
-| YouTube discovery | 10 | Relieved, almost vindicated. Alex finds a video explaining that a santoku's flatter profile often works better with push cuts, chops, and shorter slicing motions than with a high rock. "Different blade, different motion. I've been trying to use my knife like it's someone else's knife. No wonder it felt wrong." |
+| Entry                  | Position | Tone & Content                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Took the knife class" | 7        | Enthusiastic but self-conscious. Alex describes the instructor's pinch grip, claw hand, and high rocking technique. "The grip makes sense, but the rocking motion felt wrong with my knife, like I was fighting the blade instead of guiding it. But everyone else seemed fine with it so I didn't say anything."       |
+| YouTube discovery      | 10       | Relieved, almost vindicated. Alex finds a video explaining that a santoku's flatter profile often works better with push cuts, chops, and shorter slicing motions than with a high rock. "Different blade, different motion. I've been trying to use my knife like it's someone else's knife. No wonder it felt wrong." |
 
 **Dinner parties (3 entries)**
 
-| Entry | Position | Tone & Content |
-|---|---|---|
-| First dinner party | 20 | Long entry, mixed emotions. Alex cooked for Sam, Priya, Jordan. Sourdough, a roasted chicken, a salad. Priya's feedback on browning technique is a highlight — she explains Maillard chemistry offhand and Alex is taking mental notes. Sam says the bread is "a little sour for me" and Alex tries not to care and clearly does. Jordan says the salad dressing was the best thing on the table. "I spent six hours on that chicken and the DRESSING is the best thing." Small moment of self-awareness: "Maybe Jordan's been right this whole time about keeping it simple." |
-| Second dinner — Mrs. Park's visit | 22 | Alex makes kimchi jjigae for Mrs. Park. It doesn't go badly, exactly, but Alex can tell Mrs. Park is being polite. Later, Mrs. Park says the recipe Alex used has too much sugar and not enough gochugaru. "She said it like it was nothing, like she was telling me the weather. But I could tell — that recipe I've been following is wrong. Not wrong for someone's version of it, but wrong for what this dish is supposed to be." Alex spends the next two weeks researching traditional kimchi jjigae preparation. "The aged kimchi is the base, not a garnish. I had it backwards." |
-| Third dinner party | 24 | Triumphant. Sam says the sourdough is perfect. Alex writes about it for half a page. Priya notices Alex's knife work has improved and says so. Jordan makes the salad dressing this time. "The food was good tonight. I think it might have been actually good, not just good-for-me good. For the first time I could see it — the restaurant, the kitchen, whatever it ends up being. It felt possible. Not close. But possible. Someday. Eventually." |
+| Entry                             | Position | Tone & Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| First dinner party                | 20       | Long entry, mixed emotions. Alex cooked for Sam, Priya, Jordan. Sourdough, a roasted chicken, a salad. Priya's feedback on browning technique is a highlight — she explains Maillard chemistry offhand and Alex is taking mental notes. Sam says the bread is "a little sour for me" and Alex tries not to care and clearly does. Jordan says the salad dressing was the best thing on the table. "I spent six hours on that chicken and the DRESSING is the best thing." Small moment of self-awareness: "Maybe Jordan's been right this whole time about keeping it simple."             |
+| Second dinner — Mrs. Park's visit | 22       | Alex makes kimchi jjigae for Mrs. Park. It doesn't go badly, exactly, but Alex can tell Mrs. Park is being polite. Later, Mrs. Park says the recipe Alex used has too much sugar and not enough gochugaru. "She said it like it was nothing, like she was telling me the weather. But I could tell — that recipe I've been following is wrong. Not wrong for someone's version of it, but wrong for what this dish is supposed to be." Alex spends the next two weeks researching traditional kimchi jjigae preparation. "The aged kimchi is the base, not a garnish. I had it backwards." |
+| Third dinner party                | 24       | Triumphant. Sam says the sourdough is perfect. Alex writes about it for half a page. Priya notices Alex's knife work has improved and says so. Jordan makes the salad dressing this time. "The food was good tonight. I think it might have been actually good, not just good-for-me good. For the first time I could see it — the restaurant, the kitchen, whatever it ends up being. It felt possible. Not close. But possible. Someday. Eventually."                                                                                                                                    |
 
 **Food science reading (3 entries, ingested as supplementary documents)**
 
-| Position | Source | How Alex encounters it |
-|---|---|---|
-| 5 | Field — fermentation chapter | After failed sourdough bake |
-| 11 | Ito — paitan broth emulsions | After failed ramen attempt |
-| 16 | Food-science excerpt — Maillard browning | After Priya's browning comment at first dinner party |
+| Position | Source                                   | How Alex encounters it                               |
+| -------- | ---------------------------------------- | ---------------------------------------------------- |
+| 5        | Field — fermentation chapter             | After failed sourdough bake                          |
+| 11       | Ito — paitan broth emulsions             | After failed ramen attempt                           |
+| 16       | Food-science excerpt — Maillard browning | After Priya's browning comment at first dinner party |
 
 **Commercial product tasting (1 entry)**
 
-| Position | Tone & Content |
-|---|---|
-| 13 | Alex buys a fresh ramen kit from the grocery store. "The noodles are exactly the texture I want. Springy, slightly alkaline. If a grocery kit can do this, then kansui is probably part of what I'm missing — but it can't be the whole thing. Flour, hydration, sheeting, resting. Technique problem." Short entry, purely analytical. |
+| Position | Tone & Content                                                                                                                                                                                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13       | Alex buys a fresh ramen kit from the grocery store. "The noodles are exactly the texture I want. Springy, slightly alkaline. If a grocery kit can do this, then kansui is probably part of what I'm missing — but it can't be the whole thing. Flour, hydration, sheeting, resting. Technique problem." Short entry, purely analytical. |
 
 ### Expected Assertion Totals
 
 ~70 assertions across ~25 episodes:
+
 - ~8 supersessions (technique abandoned or understanding replaced)
 - ~18 `deepens` links (most common — understanding accumulates)
 - ~10 `qualifies` links (works but only under specific conditions)
@@ -457,19 +461,19 @@ These supplementary documents are ingested as their own episodes at the position
 
 ### What It Exercises
 
-| Capability | How it appears |
-|---|---|
-| Supersession | Cold retard abandoned for room-temp proof |
-| `deepens` | Each ramen attempt builds on the last; food science explains observations |
-| `qualifies` | "High hydration works but only with bread flour" |
-| `contradicts` | Mrs. Park vs. online recipe; Sam vs. Alex's self-assessment |
-| `contextualizes` | Food science articles reframing experimental observations |
-| `measures` | Sourdough metrics tracked across 8 bakes |
-| `resolution` | Sam's sourness complaint resolved by third dinner party |
-| `pattern` | Jordan consistently prefers simpler dishes (observable across 3 dinner parties) |
-| Trajectory mode | "How has my ramen broth technique evolved?" |
-| Temporal snapshot | "What did my guests think at the March dinner?" |
-| Multiple citations | The pattern assertion about Jordan cites all three dinner party episodes |
+| Capability          | How it appears                                                                  |
+| ------------------- | ------------------------------------------------------------------------------- |
+| Supersession        | Cold retard abandoned for room-temp proof                                       |
+| `deepens`           | Each ramen attempt builds on the last; food science explains observations       |
+| `qualifies`         | "High hydration works but only with bread flour"                                |
+| `contradicts`       | Mrs. Park vs. online recipe; Sam vs. Alex's self-assessment                     |
+| `contextualizes`    | Food science articles reframing experimental observations                       |
+| `measures`          | Sourdough metrics tracked across 8 bakes                                        |
+| `resolution`        | Sam's sourness complaint resolved by third dinner party                         |
+| `pattern`           | Jordan consistently prefers simpler dishes (observable across 3 dinner parties) |
+| Trajectory mode     | "How has my ramen broth technique evolved?"                                     |
+| Temporal snapshot   | "What did my guests think at the March dinner?"                                 |
+| Multiple citations  | The pattern assertion about Jordan cites all three dinner party episodes        |
 | `expandLinks: true` | "What food science explains my cloudy broth?" pulls the contextualization chain |
 
 ### Query Set
@@ -544,19 +548,20 @@ demos/
 
 Each demo supports three execution modes determined by environment:
 
-| Mode | Trigger | Behavior |
-|---|---|---|
-| **Live (Anthropic)** | `ANTHROPIC_API_KEY` set | Anthropic Messages API. Highest quality. |
-| **Live (OpenAI)** | `OPENAI_API_KEY` set | OpenAI API or any compatible endpoint. |
-| **Live (OpenRouter)** | `OPENROUTER_API_KEY` set | OpenRouter (OpenAI-compatible, many models). |
-| **Live (Ollama)** | `OLLAMA_HOST` set or Ollama running on localhost | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality. |
-| **Fixture** | None of the above available | Committed fixture files. Deterministic, offline, CI-safe. |
+| Mode                  | Trigger                                          | Behavior                                                                 |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| **Live (Anthropic)**  | `ANTHROPIC_API_KEY` set                          | Anthropic Messages API. Highest quality.                                 |
+| **Live (OpenAI)**     | `OPENAI_API_KEY` set                             | OpenAI API or any compatible endpoint.                                   |
+| **Live (OpenRouter)** | `OPENROUTER_API_KEY` set                         | OpenRouter (OpenAI-compatible, many models).                             |
+| **Live (Ollama)**     | `OLLAMA_HOST` set or Ollama running on localhost | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality. |
+| **Fixture**           | None of the above available                      | Committed fixture files. Deterministic, offline, CI-safe.                |
 
 The fixture path is the default — demos must always work without any external dependency. The README for each demo documents all modes.
 
 ### CI Integration
 
 The demos run in CI using fixtures. The CI job:
+
 1. Installs dependencies
 2. Runs each demo via `npx tsx demos/<name>/index.ts`
 3. Asserts that the exit code is 0 and that expected query results appear in stdout

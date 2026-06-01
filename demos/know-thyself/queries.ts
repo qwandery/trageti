@@ -2,12 +2,12 @@
 // trajectory retrieval, data-integrity evolution, vectorless retrieval, schema
 // migration history, and graph/determinism refinements.
 
-import type { RetrievalQuery } from 'trageti'
-import { NAMESPACE } from './data/episodes.js'
+import type { RetrievalQuery } from 'trageti';
+import { NAMESPACE } from './data/episodes.js';
 
 export interface RetrieveCase {
-  annotation: string
-  query: RetrievalQuery
+  annotation: string;
+  query: RetrievalQuery;
 }
 
 export const retrieveQueries: readonly RetrieveCase[] = [
@@ -85,7 +85,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
       limit: 25,
     },
   },
-]
+];
 
 // Position-based snapshot: this uses store.getTemporalSnapshot directly because
 // the question is "what was true at position N," not a similarity search.
@@ -95,4 +95,4 @@ export const snapshotAtV01 = {
     namespace: NAMESPACE,
     atPosition: 1,
   },
-}
+};

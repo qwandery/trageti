@@ -86,43 +86,43 @@ One possible shape:
 
 ```ts
 interface SourceDocument {
-  id: string
-  namespace: string
-  uri?: string
-  contentHash: string
-  content?: string
+  id: string;
+  namespace: string;
+  uri?: string;
+  contentHash: string;
+  content?: string;
 }
 
 interface Episode {
-  id: string
-  namespace: string
-  sourceDocumentId?: string
+  id: string;
+  namespace: string;
+  sourceDocumentId?: string;
   sourceSpan?: {
-    start: number
-    end: number
-    unit: 'utf16-code-unit' | 'byte' | 'line-column'
-  }
+    start: number;
+    end: number;
+    unit: 'utf16-code-unit' | 'byte' | 'line-column';
+  };
 }
 
 type CitationInput =
   | {
-      id: string
-      episodeId: string
-      sourceDocumentId: string
-      sourceRef?: string
+      id: string;
+      episodeId: string;
+      sourceDocumentId: string;
+      sourceRef?: string;
       sourceSpan: {
-        start: number
-        end: number
-        unit: 'utf16-code-unit' | 'byte' | 'line-column'
-      }
+        start: number;
+        end: number;
+        unit: 'utf16-code-unit' | 'byte' | 'line-column';
+      };
     }
   | {
-      id: string
-      episodeId: string
-      sourceRef: string
-      excerptOverride: string
-      overrideReason: string
-    }
+      id: string;
+      episodeId: string;
+      sourceRef: string;
+      excerptOverride: string;
+      overrideReason: string;
+    };
 ```
 
 Open design questions:

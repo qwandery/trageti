@@ -2,10 +2,10 @@
 // by a small deterministic hash; regenerate via generate-fixtures.ts against a
 // real embedder for semantic ranking.
 
-import { parseExtraction } from '../../shared/parse.js'
-import { fixtures } from './fixtures.js'
+import { parseExtraction } from '../../shared/parse.js';
+import { fixtures } from './fixtures.js';
 
-export const EMBEDDING_DIMENSION = 768
+export const EMBEDDING_DIMENSION = 768;
 
 export const QUERY_TEXTS: readonly string[] = [
   'What did Alex know about making sourdough on January 20, 2026?',
@@ -19,46 +19,46 @@ export const QUERY_TEXTS: readonly string[] = [
   'What does the literature say about sourdough acidity and fermentation schedule?',
   'What would Dad think?',
   'cooking progress',
-]
+];
 
 function hashEmbed(text: string): number[] {
-  const out = new Array(EMBEDDING_DIMENSION).fill(0) as number[]
-  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  const out = new Array(EMBEDDING_DIMENSION).fill(0) as number[];
+  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   for (let i = 0; i < tokens.length; i++) {
-    addFeature(out, tokens[i] ?? '', 1)
-    if (i + 1 < tokens.length) addFeature(out, `${tokens[i]} ${tokens[i + 1]}`, 0.5)
+    addFeature(out, tokens[i] ?? '', 1);
+    if (i + 1 < tokens.length) addFeature(out, `${tokens[i]} ${tokens[i + 1]}`, 0.5);
   }
-  let mag = 0
-  for (let i = 0; i < EMBEDDING_DIMENSION; i++) mag += (out[i] ?? 0) * (out[i] ?? 0)
-  mag = Math.sqrt(mag) || 1
-  for (let i = 0; i < EMBEDDING_DIMENSION; i++) out[i] = (out[i] ?? 0) / mag
-  return out
+  let mag = 0;
+  for (let i = 0; i < EMBEDDING_DIMENSION; i++) mag += (out[i] ?? 0) * (out[i] ?? 0);
+  mag = Math.sqrt(mag) || 1;
+  for (let i = 0; i < EMBEDDING_DIMENSION; i++) out[i] = (out[i] ?? 0) / mag;
+  return out;
 }
 
 function addFeature(out: number[], feature: string, weight: number): void {
-  let hash = 2166136261
+  let hash = 2166136261;
   for (let i = 0; i < feature.length; i++) {
-    hash ^= feature.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
+    hash ^= feature.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
   }
-  const idx = Math.abs(hash) % EMBEDDING_DIMENSION
-  out[idx] = (out[idx] ?? 0) + weight
+  const idx = Math.abs(hash) % EMBEDDING_DIMENSION;
+  out[idx] = (out[idx] ?? 0) + weight;
 }
 
-const _assertionEmbeddings: Record<string, number[]> = {}
+const _assertionEmbeddings: Record<string, number[]> = {};
 for (const episodeId of Object.keys(fixtures)) {
-  const raw = fixtures[episodeId]
-  if (raw === undefined) continue
-  const { assertions } = parseExtraction(raw)
+  const raw = fixtures[episodeId];
+  if (raw === undefined) continue;
+  const { assertions } = parseExtraction(raw);
   for (const a of assertions) {
-    _assertionEmbeddings[a.id] = hashEmbed(a.content)
+    _assertionEmbeddings[a.id] = hashEmbed(a.content);
   }
 }
 
-const _queryEmbeddings: Record<string, number[]> = {}
+const _queryEmbeddings: Record<string, number[]> = {};
 for (const q of QUERY_TEXTS) {
-  _queryEmbeddings[q] = hashEmbed(q)
+  _queryEmbeddings[q] = hashEmbed(q);
 }
 
-export const assertionEmbeddings: Readonly<Record<string, number[]>> = _assertionEmbeddings
-export const queryEmbeddings: Readonly<Record<string, number[]>> = _queryEmbeddings
+export const assertionEmbeddings: Readonly<Record<string, number[]>> = _assertionEmbeddings;
+export const queryEmbeddings: Readonly<Record<string, number[]>> = _queryEmbeddings;

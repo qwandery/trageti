@@ -7,7 +7,7 @@ Date: 2026-05-20
 
 ## Commit message
 
-v0.3 remediation R6: spec amendment, trageti_ table rename (migration v005), final gate green
+v0.3 remediation R6: spec amendment, trageti\_ table rename (migration v005), final gate green
 
 ## git diff --stat
 
@@ -24,7 +24,7 @@ v0.3 remediation R6: spec amendment, trageti_ table rename (migration v005), fin
 
 ## Material change summary
 
-Remediation R6 adds migration v004 for timestamps and migration v005 for renaming live database tables from the old trl_ prefix to the trageti_ prefix. This makes the physical schema align with the library name and current spec.
+Remediation R6 adds migration v004 for timestamps and migration v005 for renaming live database tables from the old trl* prefix to the trageti* prefix. This makes the physical schema align with the library name and current spec.
 
 The remediation also updates the spec and verification documents so the implemented schema, docs, and tests agree.
 
@@ -42,7 +42,7 @@ Migration v005 renames every live trl_ table to the trageti_ prefix and preserve
 Migration v004 adds timestamp columns needed by the v0.3 schema contract.
 ```
 
-### _docs/specs/trageti-spec-v0.3-verification.md
+### \_docs/specs/trageti-spec-v0.3-verification.md
 
 ```txt
 The verification document is refreshed so spec claims match the implemented migrations and repository behavior.

@@ -21,4 +21,4 @@ export const aggregations: Record<string, string> = {
     'Remediation R6 adds timestamp migration v004, table rename migration v005, and aligns verification docs with the implemented trageti_ schema.',
   'kf-9..kf-10':
     'The polish commit fixes snapshot supersession behavior, improves FTS5 errors, corrects startup step order, adds named defaults, and tightens graph determinism.',
-}
+};

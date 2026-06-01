@@ -28,13 +28,13 @@ Coverage thresholds become part of release readiness, making test coverage an en
 
 ## Selected important file diffs
 
-### _docs/migration-v0.2-to-v0.3.md
+### \_docs/migration-v0.2-to-v0.3.md
 
 ```txt
 The migration guide documents how callers move from v0.2 to v0.3, including async APIs and retrieval result changes.
 ```
 
-### _docs/specs/trageti-spec-v0.3-verification.md
+### \_docs/specs/trageti-spec-v0.3-verification.md
 
 ```txt
 The verification matrix records which v0.3 requirements are implemented and tested before release.

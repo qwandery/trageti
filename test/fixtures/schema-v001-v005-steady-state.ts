@@ -1,16 +1,16 @@
 export interface ExpectedSchemaObject {
-  type: string
-  name: string
-  tableName: string
-  sql: string
+  type: string;
+  name: string;
+  tableName: string;
+  sql: string;
 }
 
 export interface ExpectedSchemaColumn {
-  name: string
-  type: string
-  notnull: number
-  defaultValue: string | null
-  pk: number
+  name: string;
+  type: string;
+  notnull: number;
+  defaultValue: string | null;
+  pk: number;
 }
 
 export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
@@ -110,75 +110,74 @@ export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
     tableName: 'trageti_tokenizer',
     sql: "CREATE TABLE trageti_tokenizer ( id INTEGER PRIMARY KEY CHECK (id = 1), tokenizer TEXT NOT NULL, tokenizer_args TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL DEFAULT (datetime('now')) )",
   },
-]
+];
 
-export const EXPECTED_STEADY_STATE_COLUMNS: Readonly<Record<string, readonly ExpectedSchemaColumn[]>> =
-  {
-    trageti_assertions: [
-      { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'content', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'valid_from', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'valid_until', type: 'REAL', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'confidence', type: 'REAL', notnull: 1, defaultValue: '1.0', pk: 0 },
-      { name: 'source_episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'supersedes_id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'entity_id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'entity_type', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-    ],
-    trageti_citations: [
-      { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'assertion_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'source_ref', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'excerpt', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'excerpt_start', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'excerpt_end', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'metadata', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-    ],
-    trageti_episodes: [
-      { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'position', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'occurred_at', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'content', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-    ],
-    trageti_fulltext: [
-      { name: 'assertion_id', type: '', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'content', type: '', notnull: 0, defaultValue: null, pk: 0 },
-    ],
-    trageti_links: [
-      { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'from_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'to_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'link_type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'valid_from', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'valid_until', type: 'REAL', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'source_episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-    ],
-    trageti_namespaces: [
-      { name: 'namespace', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'embedding_dimension', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'embedding_table', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
-      { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-      { name: 'config', type: 'TEXT', notnull: 1, defaultValue: "'{}'", pk: 0 },
-    ],
-    trageti_schema_version: [
-      { name: 'version', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'applied_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-      { name: 'description', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-    ],
-    trageti_tokenizer: [
-      { name: 'id', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 1 },
-      { name: 'tokenizer', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
-      { name: 'tokenizer_args', type: 'TEXT', notnull: 1, defaultValue: "'[]'", pk: 0 },
-      { name: 'updated_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
-    ],
-  }
+export const EXPECTED_STEADY_STATE_COLUMNS: Readonly<Record<string, readonly ExpectedSchemaColumn[]>> = {
+  trageti_assertions: [
+    { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'content', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'valid_from', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'valid_until', type: 'REAL', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'confidence', type: 'REAL', notnull: 1, defaultValue: '1.0', pk: 0 },
+    { name: 'source_episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'supersedes_id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'entity_id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'entity_type', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+  trageti_citations: [
+    { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'assertion_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'source_ref', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'excerpt', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'excerpt_start', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'excerpt_end', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'metadata', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+  trageti_episodes: [
+    { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'position', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'occurred_at', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'content', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+  trageti_fulltext: [
+    { name: 'assertion_id', type: '', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'content', type: '', notnull: 0, defaultValue: null, pk: 0 },
+  ],
+  trageti_links: [
+    { name: 'id', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'namespace', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'from_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'to_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'link_type', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'valid_from', type: 'REAL', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'valid_until', type: 'REAL', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'source_episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+  trageti_namespaces: [
+    { name: 'namespace', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'embedding_dimension', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'embedding_table', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
+    { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+    { name: 'config', type: 'TEXT', notnull: 1, defaultValue: "'{}'", pk: 0 },
+  ],
+  trageti_schema_version: [
+    { name: 'version', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'applied_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+    { name: 'description', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+  ],
+  trageti_tokenizer: [
+    { name: 'id', type: 'INTEGER', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'tokenizer', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'tokenizer_args', type: 'TEXT', notnull: 1, defaultValue: "'[]'", pk: 0 },
+    { name: 'updated_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+};
