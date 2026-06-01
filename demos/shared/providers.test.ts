@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import type { TemporalStore, Episode, NewAssertionInput, AssertionLink } from 'trageti'
-import { ingest } from './ingest.js'
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { TemporalStore, Episode, NewAssertionInput, AssertionLink } from 'trageti';
+import { ingest } from './ingest.js';
 import {
+  createOpenAICompatibleEmbeddingProvider,
   createFixtureExtractionProvider,
   resolveDemoProviders,
   type ExtractionProvider,
-} from './providers.js'
+} from './providers.js';
 
 const fixture = JSON.stringify({
   assertions: [
@@ -17,7 +18,9 @@ const fixture = JSON.stringify({
       validFrom: 999,
       confidence: 0.9,
       sourceEpisodeId: 'wrong-episode',
-      citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: null, excerptStart: '0', excerptEnd: '3' }],
+      citations: [
+        { id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: null, excerptStart: '0', excerptEnd: '3' },
+      ],
     },
   ],
   links: [
@@ -31,14 +34,18 @@ const fixture = JSON.stringify({
       sourceEpisodeId: 'wrong-episode',
     },
   ],
-})
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('demo providers', () => {
   it('fixture extraction is keyed by episode id', async () => {
-    const provider = createFixtureExtractionProvider({ a: 'A', b: 'B' })
-    await expect(provider.extract('', { episodeId: 'b' })).resolves.toBe('B')
-    await expect(provider.extract('', { episodeId: 'missing' })).rejects.toThrow('missing')
-  })
+    const provider = createFixtureExtractionProvider({ a: 'A', b: 'B' });
+    await expect(provider.extract('', { episodeId: 'b' })).resolves.toBe('B');
+    await expect(provider.extract('', { episodeId: 'missing' })).rejects.toThrow('missing');
+  });
 
   it('defaults to fixture extraction and embedding with no live env', () => {
     const providers = resolveDemoProviders({
@@ -48,11 +55,11 @@ describe('demo providers', () => {
       queryTexts: ['q'],
       embeddingDimension: 2,
       env: {},
-    })
-    expect(providers.isLive).toBe(false)
-    expect(providers.extractor.provenance.kind).toBe('fixture')
-    expect(providers.embedder.provenance.kind).toBe('fixture')
-  })
+    });
+    expect(providers.isLive).toBe(false);
+    expect(providers.extractor.provenance.kind).toBe('fixture');
+    expect(providers.embedder.provenance.kind).toBe('fixture');
+  });
 
   it('maps extraction and embedding providers independently', () => {
     const providers = resolveDemoProviders({
@@ -67,17 +74,61 @@ describe('demo providers', () => {
         DEMO_EMBED_PROVIDER: 'ollama-native',
         OLLAMA_HOST: 'http://localhost:11434',
       },
-    })
-    expect(providers.extractor.provenance.kind).toBe('anthropic')
-    expect(providers.embedder.provenance.kind).toBe('ollama-native')
-  })
-})
+    });
+    expect(providers.extractor.provenance.kind).toBe('anthropic');
+    expect(providers.embedder.provenance.kind).toBe('ollama-native');
+  });
+
+  it('passes embedding AbortSignal through to fetch', async () => {
+    let captured: RequestInit | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        captured = init;
+        return new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 });
+      }),
+    );
+    const signal = new AbortController().signal;
+    const embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      dimension: 2,
+    });
+
+    await embedder.provider.embed(['hello'], { signal });
+
+    expect(captured?.signal).toBe(signal);
+  });
+
+  it('does not include raw upstream response bodies in HTTP errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('SECRET UPSTREAM BODY', { status: 500, statusText: 'Nope' })),
+    );
+    const embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      dimension: 2,
+    });
+
+    try {
+      await embedder.provider.embed(['hello']);
+      throw new Error('expected embed to fail');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toContain('failed HTTP 500 Nope');
+      expect(message).not.toContain('SECRET');
+    }
+  });
+});
 
 describe('ingest normalization', () => {
   it('normalizes caller-owned assertion, citation, and link fields', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(fixture)
-    const episode = makeEpisode()
+    const store = new FakeStore();
+    const extractor = providerReturning(fixture);
+    const episode = makeEpisode();
 
     await ingest({
       store: store as unknown as TemporalStore,
@@ -103,24 +154,24 @@ describe('ingest normalization', () => {
         },
       ],
       extractor,
-    })
+    });
 
-    expect(store.assertions[0]?.namespace).toBe('correct')
-    expect(store.assertions[0]?.sourceEpisodeId).toBe('ep-1')
-    expect(store.assertions[0]?.validFrom).toBe(3)
-    expect(store.assertions[0]?.citations[0]?.episodeId).toBe('ep-1')
-    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('doc')
-    expect(store.assertions[0]?.citations[0]?.excerptStart).toBe('0')
-    expect(store.assertions[0]?.citations[0]?.excerptEnd).toBe('3')
-    expect(store.links[0]?.namespace).toBe('correct')
-    expect(store.links[0]?.sourceEpisodeId).toBe('ep-1')
-    expect(store.links[0]?.validFrom).toBe(3)
-    expect(store.links[0]?.validUntil).toBeNull()
-  })
+    expect(store.assertions[0]?.namespace).toBe('correct');
+    expect(store.assertions[0]?.sourceEpisodeId).toBe('ep-1');
+    expect(store.assertions[0]?.validFrom).toBe(3);
+    expect(store.assertions[0]?.citations[0]?.episodeId).toBe('ep-1');
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('doc');
+    expect(store.assertions[0]?.citations[0]?.excerptStart).toBe('0');
+    expect(store.assertions[0]?.citations[0]?.excerptEnd).toBe('3');
+    expect(store.links[0]?.namespace).toBe('correct');
+    expect(store.links[0]?.sourceEpisodeId).toBe('ep-1');
+    expect(store.links[0]?.validFrom).toBe(3);
+    expect(store.links[0]?.validUntil).toBeNull();
+  });
 
   it('rejects malformed extraction before writing an episode', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({ assertions: [{ id: 'a' }], links: [] }))
+    const store = new FakeStore();
+    const extractor = providerReturning(JSON.stringify({ assertions: [{ id: 'a' }], links: [] }));
     await expect(
       ingest({
         store: store as unknown as TemporalStore,
@@ -129,27 +180,29 @@ describe('ingest normalization', () => {
         namespace: 'correct',
         extractor,
       }),
-    ).rejects.toThrow('Extraction result failed validation')
-    expect(store.episodes).toHaveLength(0)
-  })
+    ).rejects.toThrow('Extraction result failed validation');
+    expect(store.episodes).toHaveLength(0);
+  });
 
   it('rejects direct citation excerpt text before writing an episode', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({
-      assertions: [
-        {
-          id: 'a-1',
-          namespace: 'wrong',
-          type: 'fact',
-          content: 'content',
-          validFrom: 999,
-          confidence: 0.9,
-          sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'made up' }],
-        },
-      ],
-      links: [],
-    }))
+    const store = new FakeStore();
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: 'made up' }],
+          },
+        ],
+        links: [],
+      }),
+    );
 
     await expect(
       ingest({
@@ -159,27 +212,38 @@ describe('ingest normalization', () => {
         namespace: 'correct',
         extractor,
       }),
-    ).rejects.toThrow('supplied excerpt text directly')
-    expect(store.episodes).toHaveLength(0)
-  })
+    ).rejects.toThrow('supplied excerpt text directly');
+    expect(store.episodes).toHaveLength(0);
+  });
 
   it('resolves citation excerpts from a registered source document', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({
-      assertions: [
-        {
-          id: 'a-1',
-          namespace: 'wrong',
-          type: 'fact',
-          content: 'content',
-          validFrom: 999,
-          confidence: 0.9,
-          sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'source.md', excerpt: null, excerptStart: '6', excerptEnd: '11' }],
-        },
-      ],
-      links: [],
-    }))
+    const store = new FakeStore();
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'wrong-episode',
+                sourceRef: 'source.md',
+                excerpt: null,
+                excerptStart: '6',
+                excerptEnd: '11',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
 
     await ingest({
       store: store as unknown as TemporalStore,
@@ -188,28 +252,39 @@ describe('ingest normalization', () => {
       namespace: 'correct',
       citationSources: { 'source.md': 'hello world' },
       extractor,
-    })
+    });
 
-    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('world')
-  })
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('world');
+  });
 
   it('rejects an unknown citation source before writing an episode', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({
-      assertions: [
-        {
-          id: 'a-1',
-          namespace: 'wrong',
-          type: 'fact',
-          content: 'content',
-          validFrom: 999,
-          confidence: 0.9,
-          sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'missing.md', excerpt: null, excerptStart: '0', excerptEnd: '4' }],
-        },
-      ],
-      links: [],
-    }))
+    const store = new FakeStore();
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'wrong-episode',
+                sourceRef: 'missing.md',
+                excerpt: null,
+                excerptStart: '0',
+                excerptEnd: '4',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
 
     await expect(
       ingest({
@@ -220,27 +295,38 @@ describe('ingest normalization', () => {
         citationSources: { 'source.md': 'hello world' },
         extractor,
       }),
-    ).rejects.toThrow('does not match a registered source document')
-    expect(store.episodes).toHaveLength(0)
-  })
+    ).rejects.toThrow('does not match a registered source document');
+    expect(store.episodes).toHaveLength(0);
+  });
 
   it('rejects invalid citation offsets before writing an episode', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({
-      assertions: [
-        {
-          id: 'a-1',
-          namespace: 'wrong',
-          type: 'fact',
-          content: 'content',
-          validFrom: 999,
-          confidence: 0.9,
-          sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-1', episodeId: 'wrong-episode', sourceRef: 'source.md', excerpt: null, excerptStart: '7', excerptEnd: '3' }],
-        },
-      ],
-      links: [],
-    }))
+    const store = new FakeStore();
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'wrong-episode',
+                sourceRef: 'source.md',
+                excerpt: null,
+                excerptStart: '7',
+                excerptEnd: '3',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
 
     await expect(
       ingest({
@@ -251,27 +337,38 @@ describe('ingest normalization', () => {
         citationSources: { 'source.md': 'hello world' },
         extractor,
       }),
-    ).rejects.toThrow('invalid excerptStart/excerptEnd offsets')
-    expect(store.episodes).toHaveLength(0)
-  })
+    ).rejects.toThrow('invalid excerptStart/excerptEnd offsets');
+    expect(store.episodes).toHaveLength(0);
+  });
 
   it('rejects assertion IDs that collide with prior assertions before writing an episode', async () => {
-    const store = new FakeStore()
-    const extractor = providerReturning(JSON.stringify({
-      assertions: [
-        {
-          id: 'a-0',
-          namespace: 'wrong',
-          type: 'fact',
-          content: 'duplicate id',
-          validFrom: 999,
-          confidence: 0.9,
-          sourceEpisodeId: 'wrong-episode',
-          citations: [{ id: 'c-dup', episodeId: 'wrong-episode', sourceRef: 'src', excerpt: null, excerptStart: '0', excerptEnd: '3' }],
-        },
-      ],
-      links: [],
-    }))
+    const store = new FakeStore();
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-0',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'duplicate id',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-dup',
+                episodeId: 'wrong-episode',
+                sourceRef: 'src',
+                excerpt: null,
+                excerptStart: '0',
+                excerptEnd: '3',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
 
     await expect(
       ingest({
@@ -299,10 +396,10 @@ describe('ingest normalization', () => {
         ],
         extractor,
       }),
-    ).rejects.toThrow('already exists')
-    expect(store.episodes).toHaveLength(0)
-  })
-})
+    ).rejects.toThrow('already exists');
+    expect(store.episodes).toHaveLength(0);
+  });
+});
 
 describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
   const minOptions = {
@@ -311,19 +408,19 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
     queryEmbeddings: {},
     queryTexts: [] as string[],
     embeddingDimension: 4,
-  }
+  };
 
   it('throws when ANTHROPIC_API_KEY is set without an embedding provider', () => {
-    expect(() =>
-      resolveDemoProviders({ ...minOptions, env: { ANTHROPIC_API_KEY: 'sk-ant-test' } }),
-    ).toThrow('Live extraction requires a live embedding provider')
-  })
+    expect(() => resolveDemoProviders({ ...minOptions, env: { ANTHROPIC_API_KEY: 'sk-ant-test' } })).toThrow(
+      'Live extraction requires a live embedding provider',
+    );
+  });
 
   it('throws when OPENROUTER_API_KEY is set without an embedding provider', () => {
-    expect(() =>
-      resolveDemoProviders({ ...minOptions, env: { OPENROUTER_API_KEY: 'sk-or-test' } }),
-    ).toThrow('Live extraction requires a live embedding provider')
-  })
+    expect(() => resolveDemoProviders({ ...minOptions, env: { OPENROUTER_API_KEY: 'sk-or-test' } })).toThrow(
+      'Live extraction requires a live embedding provider',
+    );
+  });
 
   it('throws when DEMO_EXTRACT_PROVIDER=anthropic and DEMO_EMBED_PROVIDER=fixture', () => {
     expect(() =>
@@ -331,8 +428,8 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
         ...minOptions,
         env: { DEMO_EXTRACT_PROVIDER: 'anthropic', DEMO_EMBED_PROVIDER: 'fixture', ANTHROPIC_API_KEY: 'sk-ant-test' },
       }),
-    ).toThrow('Live extraction requires a live embedding provider')
-  })
+    ).toThrow('Live extraction requires a live embedding provider');
+  });
 
   it('throws when DEMO_EXTRACT_PROVIDER=openai-compatible and DEMO_EMBED_PROVIDER=fixture', () => {
     expect(() =>
@@ -345,8 +442,8 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
           OPENAI_API_KEY: 'sk-test',
         },
       }),
-    ).toThrow('Live extraction requires a live embedding provider')
-  })
+    ).toThrow('Live extraction requires a live embedding provider');
+  });
 
   it('does NOT throw when DEMO_EXTRACT_PROVIDER=fixture and DEMO_EMBED_PROVIDER=openai-compatible', () => {
     expect(() =>
@@ -360,9 +457,9 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
           OPENAI_API_KEY: 'sk-test',
         },
       }),
-    ).not.toThrow()
-  })
-})
+    ).not.toThrow();
+  });
+});
 
 function providerReturning(raw: string): ExtractionProvider {
   return {
@@ -370,9 +467,9 @@ function providerReturning(raw: string): ExtractionProvider {
     label: 'test',
     provenance: { kind: 'fixture', configHash: 'test' },
     extract() {
-      return Promise.resolve(raw)
+      return Promise.resolve(raw);
     },
-  }
+  };
 }
 
 function makeEpisode(): Omit<Episode, 'createdAt'> {
@@ -383,26 +480,26 @@ function makeEpisode(): Omit<Episode, 'createdAt'> {
     occurredAt: '2026-01-01T00:00:00Z',
     type: 'test',
     content: 'doc',
-  }
+  };
 }
 
 class FakeStore {
-  readonly episodes: Array<Omit<Episode, 'createdAt'>> = []
-  readonly assertions: NewAssertionInput[] = []
-  readonly links: Array<Omit<AssertionLink, 'createdAt'>> = []
+  readonly episodes: Array<Omit<Episode, 'createdAt'>> = [];
+  readonly assertions: NewAssertionInput[] = [];
+  readonly links: Array<Omit<AssertionLink, 'createdAt'>> = [];
 
   writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
-    this.episodes.push(episode)
-    return Promise.resolve({ ...episode, createdAt: '' })
+    this.episodes.push(episode);
+    return Promise.resolve({ ...episode, createdAt: '' });
   }
 
   writeAssertion(assertion: NewAssertionInput): Promise<never> {
-    this.assertions.push(assertion)
-    return Promise.resolve(undefined as never)
+    this.assertions.push(assertion);
+    return Promise.resolve(undefined as never);
   }
 
   writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<never> {
-    this.links.push(link)
-    return Promise.resolve(undefined as never)
+    this.links.push(link);
+    return Promise.resolve(undefined as never);
   }
 }
