@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- terminal sanitization intentionally targets control bytes */
 const ANSI_ESCAPE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const UNSAFE_CONTROL = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/g;
 

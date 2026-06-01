@@ -83,9 +83,9 @@ describe('demo providers', () => {
     let captured: RequestInit | undefined;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
         captured = init;
-        return new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 });
+        return Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 }));
       }),
     );
     const signal = new AbortController().signal;
@@ -104,7 +104,7 @@ describe('demo providers', () => {
   it('does not include raw upstream response bodies in HTTP errors', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('SECRET UPSTREAM BODY', { status: 500, statusText: 'Nope' })),
+      vi.fn(() => Promise.resolve(new Response('SECRET UPSTREAM BODY', { status: 500, statusText: 'Nope' }))),
     );
     const embedder = createOpenAICompatibleEmbeddingProvider({
       baseUrl: 'https://example.invalid/v1',
