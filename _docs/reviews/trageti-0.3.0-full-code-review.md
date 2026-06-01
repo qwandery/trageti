@@ -13,38 +13,38 @@ This document consolidates the initial comprehensive review and a second verific
 
 ## Findings
 
-| Priority | Issue | Location |
-|----------|-------|----------|
-| P0 | `reindexNamespace({ strategy: 'staging-swap', batchSize: 0 })` can replace a complete vector index with an empty vec0 table and drop the old index. | `src/pipeline/reindex.ts:49` |
-| P1 | `indexBatch(..., { onProviderError: 'fail-fast', batchSize: 0 })` can hang forever. | `src/store/TemporalStore.ts:687` |
-| P1 | `rebuildFts({ batchSize: 0 })` can enter a non-terminating transaction loop after dropping/recreating FTS. | `src/store/TemporalStore.ts:1116` |
-| P1 | Reindex staging table names use only `Date.now()` and are blindly dropped before creation, so same-ms/concurrent runs can collide destructively. | `src/pipeline/reindex.ts:71` |
-| P1 | `deleteNamespace()` deletes only links owned by the namespace, leaving permitted cross-namespace link FKs that can block deletion. | `src/store/TemporalStore.ts:1005` |
-| P1 | `writeLink()` does not enforce that `sourceEpisodeId` belongs to the link namespace. | `src/store/TemporalStore.ts:487` |
-| P1 | `reindexNamespace()` bypasses the vec0 readiness guard, so missing `sqlite-vec` can surface raw SQLite errors instead of the typed peer-dependency path. | `src/pipeline/reindex.ts:73` |
-| P1 | Direct `DefaultScorer.score()` inverts raw negative BM25 relevance, ranking weaker keyword matches above stronger ones when `scoreBatch()` is bypassed. | `src/defaults/scoring/DefaultScorer.ts:51` |
-| P1 | Async provider-backed operations can resume after `close()` has marked the store closed and closed the owned database. | `src/store/TemporalStore.ts:535`, `src/store/TemporalStore.ts:1278` |
-| P2 | Retrieval calls `ensureVectorReady()` through `getEmbeddingTable`, allowing a read path to create vec0 tables. | `src/store/TemporalStore.ts:1454` |
-| P2 | `assembleContext()` accepts fractional `tokenBudget` values despite the public positive-integer contract. | `src/pipeline/assemble.ts:23` |
-| P2 | `getConnected()` and `findPath()` pass invalid `maxDepth` values directly to the graph adapter; only `retrieve()` validates `maxDepth`. | `src/pipeline/graph.ts:23` |
-| P2 | Retrieval accepts non-finite `minConfidence` and temporal-window endpoints because it checks only range/order, not finiteness. | `src/pipeline/retrieve.ts:204`, `src/pipeline/retrieve.ts:214` |
-| P2 | Runtime type validation for public assertion/citation fields is incomplete, leading to raw `TypeError`s or database constraint errors instead of typed validation errors. | `src/defaults/validation/DefaultAssertionValidator.ts:56`, `src/store/TemporalStore.ts:1304` |
-| P2 | BM25-only retrieval materializes all temporal candidates into JS/JSON before FTS narrows the result set. | `src/pipeline/retrieve.ts:267` |
-| P2 | Trajectory retrieval performs one recursive supersession-chain query per result. | `src/pipeline/retrieve.ts:454` |
-| P2 | `findPath()` materializes all matching paths before choosing the shortest deterministic result. | `src/defaults/graph/CTEGraphAdapter.ts:194` |
-| P2 | Reindex uses `LIMIT/OFFSET` pagination across awaited provider calls, causing superlinear scans and unstable traversal under concurrent writes. | `src/pipeline/reindex.ts:108` |
-| P2 | Reindex skip mode embeds one assertion per provider call, defeating the batch-oriented provider contract. | `src/pipeline/reindex.ts:142` |
-| P2 | Demo provider errors include raw upstream response bodies in thrown errors. | `demos/shared/providers.ts:485` |
-| P2 | Demo embedding providers accept `EmbedOptions` but do not pass abort signals to `fetch()`. | `demos/shared/providers.ts:179`, `demos/shared/providers.ts:223` |
-| P2 | Demo terminal sanitizers normalize punctuation but do not strip ANSI/control sequences. | `demos/shared/output.ts:440`, `demos/shared/runtime.ts:232` |
-| P2 | Fixture-generation scripts do not carry forward prior assertions when prompting or validating each episode. | `demos/alex-place/generate-fixtures.ts:32`, `demos/know-thyself/generate-fixtures.ts:32` |
-| P2 | `explain()` manually duplicates vector-routing checks and can drift from `resolveQueryEmbedding()`. | `src/store/TemporalStore.ts:1228` |
-| P2 | FTS rebuild DDL is duplicated between `rebuildFts()` and `applyFtsTokenizer()`. | `src/store/TemporalStore.ts:1123`, `src/store/TemporalStore.ts:1517` |
-| P3 | If v005 is retained, it reads persisted tokenizer metadata and interpolates it into FTS5 DDL without validation. | `src/db/migrations/v005_rename.ts:67` |
-| P3 | If v005 is retained, it can leave live embedding tables under the legacy `trl_` prefix when `sqlite-vec` is unavailable. | `src/db/migrations/v005_rename.ts:176` |
-| P3 | `DefaultScorer.scoreBatch()` uses `bm25NormalisedById` for a map keyed by candidate index, not assertion id. | `src/defaults/scoring/DefaultScorer.ts:75` |
-| P3 | Generated planning/review artifacts are committed under `_docs/plans`, making durable project docs harder to trust. | `_docs/plans/review-c-src-qwandery-trageti-docs-specs-peaceful-ember.md:1` |
-| P3 | `retrieveCore()` and `indexBatch()` are large multi-phase functions that concentrate validation, routing, persistence, scoring, metrics, and expansion logic. | `src/pipeline/retrieve.ts:126`, `src/store/TemporalStore.ts:558` |
+| Priority | Issue                                                                                                                                                                     | Location                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| P0       | `reindexNamespace({ strategy: 'staging-swap', batchSize: 0 })` can replace a complete vector index with an empty vec0 table and drop the old index.                       | `src/pipeline/reindex.ts:49`                                                                 |
+| P1       | `indexBatch(..., { onProviderError: 'fail-fast', batchSize: 0 })` can hang forever.                                                                                       | `src/store/TemporalStore.ts:687`                                                             |
+| P1       | `rebuildFts({ batchSize: 0 })` can enter a non-terminating transaction loop after dropping/recreating FTS.                                                                | `src/store/TemporalStore.ts:1116`                                                            |
+| P1       | Reindex staging table names use only `Date.now()` and are blindly dropped before creation, so same-ms/concurrent runs can collide destructively.                          | `src/pipeline/reindex.ts:71`                                                                 |
+| P1       | `deleteNamespace()` deletes only links owned by the namespace, leaving permitted cross-namespace link FKs that can block deletion.                                        | `src/store/TemporalStore.ts:1005`                                                            |
+| P1       | `writeLink()` does not enforce that `sourceEpisodeId` belongs to the link namespace.                                                                                      | `src/store/TemporalStore.ts:487`                                                             |
+| P1       | `reindexNamespace()` bypasses the vec0 readiness guard, so missing `sqlite-vec` can surface raw SQLite errors instead of the typed peer-dependency path.                  | `src/pipeline/reindex.ts:73`                                                                 |
+| P1       | Direct `DefaultScorer.score()` inverts raw negative BM25 relevance, ranking weaker keyword matches above stronger ones when `scoreBatch()` is bypassed.                   | `src/defaults/scoring/DefaultScorer.ts:51`                                                   |
+| P1       | Async provider-backed operations can resume after `close()` has marked the store closed and closed the owned database.                                                    | `src/store/TemporalStore.ts:535`, `src/store/TemporalStore.ts:1278`                          |
+| P2       | Retrieval calls `ensureVectorReady()` through `getEmbeddingTable`, allowing a read path to create vec0 tables.                                                            | `src/store/TemporalStore.ts:1454`                                                            |
+| P2       | `assembleContext()` accepts fractional `tokenBudget` values despite the public positive-integer contract.                                                                 | `src/pipeline/assemble.ts:23`                                                                |
+| P2       | `getConnected()` and `findPath()` pass invalid `maxDepth` values directly to the graph adapter; only `retrieve()` validates `maxDepth`.                                   | `src/pipeline/graph.ts:23`                                                                   |
+| P2       | Retrieval accepts non-finite `minConfidence` and temporal-window endpoints because it checks only range/order, not finiteness.                                            | `src/pipeline/retrieve.ts:204`, `src/pipeline/retrieve.ts:214`                               |
+| P2       | Runtime type validation for public assertion/citation fields is incomplete, leading to raw `TypeError`s or database constraint errors instead of typed validation errors. | `src/defaults/validation/DefaultAssertionValidator.ts:56`, `src/store/TemporalStore.ts:1304` |
+| P2       | BM25-only retrieval materializes all temporal candidates into JS/JSON before FTS narrows the result set.                                                                  | `src/pipeline/retrieve.ts:267`                                                               |
+| P2       | Trajectory retrieval performs one recursive supersession-chain query per result.                                                                                          | `src/pipeline/retrieve.ts:454`                                                               |
+| P2       | `findPath()` materializes all matching paths before choosing the shortest deterministic result.                                                                           | `src/defaults/graph/CTEGraphAdapter.ts:194`                                                  |
+| P2       | Reindex uses `LIMIT/OFFSET` pagination across awaited provider calls, causing superlinear scans and unstable traversal under concurrent writes.                           | `src/pipeline/reindex.ts:108`                                                                |
+| P2       | Reindex skip mode embeds one assertion per provider call, defeating the batch-oriented provider contract.                                                                 | `src/pipeline/reindex.ts:142`                                                                |
+| P2       | Demo provider errors include raw upstream response bodies in thrown errors.                                                                                               | `demos/shared/providers.ts:485`                                                              |
+| P2       | Demo embedding providers accept `EmbedOptions` but do not pass abort signals to `fetch()`.                                                                                | `demos/shared/providers.ts:179`, `demos/shared/providers.ts:223`                             |
+| P2       | Demo terminal sanitizers normalize punctuation but do not strip ANSI/control sequences.                                                                                   | `demos/shared/output.ts:440`, `demos/shared/runtime.ts:232`                                  |
+| P2       | Fixture-generation scripts do not carry forward prior assertions when prompting or validating each episode.                                                               | `demos/alex-place/generate-fixtures.ts:32`, `demos/know-thyself/generate-fixtures.ts:32`     |
+| P2       | `explain()` manually duplicates vector-routing checks and can drift from `resolveQueryEmbedding()`.                                                                       | `src/store/TemporalStore.ts:1228`                                                            |
+| P2       | FTS rebuild DDL is duplicated between `rebuildFts()` and `applyFtsTokenizer()`.                                                                                           | `src/store/TemporalStore.ts:1123`, `src/store/TemporalStore.ts:1517`                         |
+| P3       | If v005 is retained, it reads persisted tokenizer metadata and interpolates it into FTS5 DDL without validation.                                                          | `src/db/migrations/v005_rename.ts:67`                                                        |
+| P3       | If v005 is retained, it can leave live embedding tables under the legacy `trl_` prefix when `sqlite-vec` is unavailable.                                                  | `src/db/migrations/v005_rename.ts:176`                                                       |
+| P3       | `DefaultScorer.scoreBatch()` uses `bm25NormalisedById` for a map keyed by candidate index, not assertion id.                                                              | `src/defaults/scoring/DefaultScorer.ts:75`                                                   |
+| P3       | Generated planning/review artifacts are committed under `_docs/plans`, making durable project docs harder to trust.                                                       | `_docs/plans/review-c-src-qwandery-trageti-docs-specs-peaceful-ember.md:1`                   |
+| P3       | `retrieveCore()` and `indexBatch()` are large multi-phase functions that concentrate validation, routing, persistence, scoring, metrics, and expansion logic.             | `src/pipeline/retrieve.ts:126`, `src/store/TemporalStore.ts:558`                             |
 
 ## Details
 
@@ -59,13 +59,9 @@ This is a concrete data-loss/correctness issue: a caller typo in a public option
 **Suggested fix:**
 
 ```ts
-const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE
+const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
 if (!Number.isInteger(batchSize) || batchSize <= 0) {
-  throw new ReindexError(
-    namespace,
-    0,
-    `batchSize must be a positive integer, got ${String(batchSize)}`,
-  )
+  throw new ReindexError(namespace, 0, `batchSize must be a positive integer, got ${String(batchSize)}`);
 }
 ```
 
@@ -78,7 +74,7 @@ Validate before any staging table DDL. Add a regression test that creates a popu
 v005 reads `tokenizer` and `tokenizer_args` from the legacy database, casts parsed JSON directly to `string[]`, joins it into `tokenize`, and interpolates the result into:
 
 ```ts
-tokenize='${tokenize}'
+tokenize = '${tokenize}';
 ```
 
 Unlike normal init/rebuild paths, this migration path does not call `validateTokenizer()`. A tampered or attacker-supplied legacy DB can store tokenizer metadata containing quotes or statement delimiters and trigger SQL injection during automatic migration.
@@ -89,24 +85,18 @@ This is not release-blocking for the current project context because there are n
 
 ```ts
 function parseStoredTokenizer(meta: { tokenizer: string; tokenizer_args: string }): FTS5TokenizerConfig {
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(meta.tokenizer_args)
+    parsed = JSON.parse(meta.tokenizer_args);
   } catch {
-    throw new MigrationCompatibilityError(
-      'fts-tokenizer',
-      'Stored FTS tokenizer args are invalid JSON.',
-    )
+    throw new MigrationCompatibilityError('fts-tokenizer', 'Stored FTS tokenizer args are invalid JSON.');
   }
   if (!Array.isArray(parsed) || !parsed.every((arg): arg is string => typeof arg === 'string')) {
-    throw new MigrationCompatibilityError(
-      'fts-tokenizer',
-      'Stored FTS tokenizer args must be an array of strings.',
-    )
+    throw new MigrationCompatibilityError('fts-tokenizer', 'Stored FTS tokenizer args must be an array of strings.');
   }
-  const config = { tokenizer: meta.tokenizer, tokenizerArgs: parsed }
-  validateTokenizer(config, 'rebuild')
-  return config
+  const config = { tokenizer: meta.tokenizer, tokenizerArgs: parsed };
+  validateTokenizer(config, 'rebuild');
+  return config;
 }
 ```
 
@@ -128,9 +118,9 @@ If `batchSize` is zero, `off` never advances. Negative values also produce broke
 **Suggested fix:**
 
 ```ts
-const batchSize = options.batchSize ?? 64
+const batchSize = options.batchSize ?? 64;
 if (!Number.isInteger(batchSize) || batchSize <= 0) {
-  throw new ValidationError([`batchSize must be a positive integer, got ${String(batchSize)}`])
+  throw new ValidationError([`batchSize must be a positive integer, got ${String(batchSize)}`]);
 }
 ```
 
@@ -145,9 +135,9 @@ Use the same helper for `indexBatch()`, `reindexNamespace()`, and `rebuildFts()`
 **Suggested fix:**
 
 ```ts
-const batchSize = options.batchSize ?? 1000
+const batchSize = options.batchSize ?? 1000;
 if (!Number.isInteger(batchSize) || batchSize <= 0) {
-  throw new ValidationError([`batchSize must be a positive integer, got ${String(batchSize)}`])
+  throw new ValidationError([`batchSize must be a positive integer, got ${String(batchSize)}`]);
 }
 ```
 
@@ -160,7 +150,7 @@ Validate before any FTS DDL.
 The staging table name is:
 
 ```ts
-`${namespaceToEmbeddingTable(namespace)}_staging_${String(Date.now())}`
+`${namespaceToEmbeddingTable(namespace)}_staging_${String(Date.now())}`;
 ```
 
 Two reindex operations for the same namespace starting in the same millisecond can compute the same table. The next line blindly drops that table before creating it, so one run can delete another run's staging table. This undermines the staging-swap safety guarantee.
@@ -168,9 +158,9 @@ Two reindex operations for the same namespace starting in the same millisecond c
 **Suggested fix:**
 
 ```ts
-const runId = crypto.randomUUID()
-targetTable = `${namespaceToEmbeddingTable(namespace)}_staging_${runId}`
-embeddingRepo.ensureVec0Table(targetTable, newDimension)
+const runId = crypto.randomUUID();
+targetTable = `${namespaceToEmbeddingTable(namespace)}_staging_${runId}`;
+embeddingRepo.ensureVec0Table(targetTable, newDimension);
 ```
 
 Consider a per-namespace reindex lock as well; concurrent rebuilds of the same namespace do not produce useful independent results.
@@ -190,13 +180,17 @@ A link stored in namespace `A` can point to an assertion or episode in namespace
 **Suggested fix:**
 
 ```ts
-this.db.prepare(`
+this.db
+  .prepare(
+    `
   DELETE FROM trageti_links
   WHERE namespace = ?
      OR from_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)
      OR to_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)
      OR source_episode_id IN (SELECT id FROM trageti_episodes WHERE namespace = ?)
-`).run(namespace, namespace, namespace, namespace)
+`,
+  )
+  .run(namespace, namespace, namespace, namespace);
 ```
 
 Add tests for deleting a namespace that is the target of a cross-namespace link and the source episode of a link owned by another namespace.
@@ -211,15 +205,13 @@ Add tests for deleting a namespace that is the target of a cross-namespace link 
 
 ```ts
 const sourceEpisode = this.db
-  .prepare<[string, string], { id: string }>(
-    'SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?',
-  )
-  .get(link.sourceEpisodeId, link.namespace)
+  .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
+  .get(link.sourceEpisodeId, link.namespace);
 
 if (!sourceEpisode) {
   throw new ValidationError([
     `link.sourceEpisodeId "${link.sourceEpisodeId}" does not reference an episode in namespace "${link.namespace}"`,
-  ])
+  ]);
 }
 ```
 
@@ -230,7 +222,7 @@ if (!sourceEpisode) {
 The store has a central `ensureVectorReady()` guard that checks vectorless namespaces and `sqlite-vec` availability. `reindexNamespace()` goes directly to:
 
 ```ts
-embeddingRepo.ensureVec0Table(targetTable, newDimension)
+embeddingRepo.ensureVec0Table(targetTable, newDimension);
 ```
 
 If `sqlite-vec` is not loaded, this can surface a raw SQLite `vec0` module error instead of the library's typed `MissingPeerDependencyError` path. This violates the v0.3 public error contract.
@@ -246,7 +238,7 @@ Route reindex through a store-level readiness/provisioning helper before enterin
 The comments correctly note that FTS5 BM25 scores are negative and more-negative is better. The direct `score()` fallback computes:
 
 ```ts
-const bm25 = 1 / (1 + Math.abs(candidate.bm25Score))
+const bm25 = 1 / (1 + Math.abs(candidate.bm25Score));
 ```
 
 That makes `-1` score above `-10`. `scoreBatch()` handles this correctly by mapping the most negative score to `1`; the direct fallback does not.
@@ -254,7 +246,7 @@ That makes `-1` score above `-10`. `scoreBatch()` handles this correctly by mapp
 **Suggested fix:**
 
 ```ts
-const bm25 = 1 - 1 / (1 + Math.abs(candidate.bm25Score))
+const bm25 = 1 - 1 / (1 + Math.abs(candidate.bm25Score));
 ```
 
 Add direct `score()` tests for two candidates where the only difference is BM25 score.
@@ -268,9 +260,9 @@ Provider-backed operations await external work and then resume with database wri
 Example path:
 
 ```ts
-const p = store.indexAssertion('a1') // awaits provider.embed()
-await store.close()                  // may close db
-await p                              // resumes and calls embeddingRepo.insert(...)
+const p = store.indexAssertion('a1'); // awaits provider.embed()
+await store.close(); // may close db
+await p; // resumes and calls embeddingRepo.insert(...)
 ```
 
 There is no second `requireNotClosed()` after the provider await and no in-flight operation guard.
@@ -319,3 +311,25 @@ Do not cut v0.3.0 until the P0 and P1 findings are fixed and covered by focused 
 If legacy migrations remain in the beta/public package, also add a low-priority hardening pass for tampered tokenizer metadata and mixed-prefix vector-table migration behavior. If migrations are flattened, remove the v005-specific findings from the active release checklist.
 
 After that, address P2 validation/performance/demo-hardening issues before expanding the public API further.
+
+## Remediation Status
+
+Status as of 2026-06-01: all active findings above have been addressed on
+`develop-v0.3-demos`.
+
+| Finding cluster                                                                            | Status                   | Fix commit(s)        | Verification                                                                                                                          |
+| ------------------------------------------------------------------------------------------ | ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy v005 migration risks                                                                | Superseded by flattening | `ce0bc4d`, `cf16756` | `migrations.test.ts`, `migration-internals.test.ts`, `store-lifecycle.test.ts`, `e2e.test.ts`, `store-edge-cases.test.ts`             |
+| P0/P1 invalid `batchSize`, staging collision, reindex readiness, pagination, skip batching | Fixed                    | `809ddb0`            | `reindex.test.ts`, `reindex-options.test.ts`, `store-edge-cases.test.ts`                                                              |
+| `close()` in-flight lifecycle                                                              | Fixed                    | `809ddb0`            | `store-edge-cases.test.ts`, `store-lifecycle.test.ts`                                                                                 |
+| `deleteNamespace()` / `writeLink()` cross-namespace integrity                              | Fixed                    | `809ddb0`            | `store-edge-cases.test.ts`, `vectorless-namespace.test.ts`                                                                            |
+| Vector retrieval read-path provisioning                                                    | Fixed                    | `809ddb0`            | `no-sqlite-vec.test.ts`, `vectorless-namespace.test.ts`, `store-edge-cases.test.ts`                                                   |
+| Numeric/type validation and BM25 scoring                                                   | Fixed                    | `809ddb0`            | `retrieve-validation.test.ts`, `context-assembly.test.ts`, `graph-traversal.test.ts`, `default-scorer.test.ts`, `scorer-edge.test.ts` |
+| Retrieval/graph performance findings                                                       | Fixed                    | `5d2d45f`            | `retrieve-validation.test.ts`, `graph-traversal.test.ts`, `context-assembly.test.ts`                                                  |
+| Demo provider, terminal sanitizer, and fixture generation findings                         | Fixed                    | `d5bc6a8`            | `demos/shared/providers.test.ts`, `demos/shared/runtime.test.ts`, `demos/shared/generate-fixtures.test.ts`                            |
+| Generated `_docs/plans` artifacts                                                          | Fixed                    | pending docs commit  | Removed from `_docs/plans`; durable status retained in this section                                                                   |
+
+Residual note: the broad maintainability recommendation to keep splitting
+large orchestration functions should continue opportunistically, but the
+reviewed correctness, validation, performance, and demo-hardening risks have
+focused fixes and regression coverage.

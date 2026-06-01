@@ -33,6 +33,29 @@ better operational visibility.
 
 ---
 
+### v0.3 Amendment — 2026-06-01 — Baseline migration reset
+
+This is a sanctioned pre-beta amendment. There are no known consuming
+applications on v0.2.x or earlier, so the implemented v0.3 migration model is
+flattened to one baseline migration at schema version `1`.
+
+This amendment supersedes the earlier language that made migrations v004 and
+v005 part of the public v0.3 contract. The distributable v0.3 package creates
+the steady-state `trageti_` schema directly and does not provide automatic
+upgrade support for prototype `trl_` databases. The former v001-v005 chain is
+retained only as historical design context and as the source of the golden
+steady-state schema fixture used to verify the baseline.
+
+The baseline schema includes the current table naming, required citation
+storage, nullable vector namespace metadata with the both-null-or-both-non-null
+CHECK, canonical `created_at` columns, `trageti_fulltext` with sync triggers,
+`trageti_tokenizer`, all `trageti_idx_*` indexes, and per-namespace vec0 tables
+when vector storage is provisioned. `getCurrentSchemaVersion()` returns `1`,
+and `getMigrations()` returns one applied baseline descriptor on initialized
+databases.
+
+---
+
 ### v0.3 Amendment — 2026-05-20 — Table-naming overhaul
 
 This is a sanctioned amendment to the v0.3 specification, recorded here rather
@@ -45,19 +68,19 @@ public-API rename (see item 1).
 **1. The `trl_` prefix is replaced by `trageti_` for every library table.**
 The rename map:
 
-| Original (v0.3 as published) | Amended (steady state)      | Renamed by           |
-| ---------------------------- | --------------------------- | -------------------- |
-| `trl_namespaces`             | `trageti_namespaces`        | migration v005       |
-| `trl_episodes`               | `trageti_episodes`          | migration v005       |
-| `trl_assertions`             | `trageti_assertions`        | migration v005       |
-| `trl_links`                  | `trageti_links`             | migration v005       |
-| `trl_citations`              | `trageti_citations`         | migration v005       |
-| `trl_fts` (FTS5 virtual)     | `trageti_fulltext`          | migration v005       |
-| `trl_fts_meta` (tokenizer)   | `trageti_tokenizer`         | migration v005       |
-| `trl_idx_*` (indexes)        | `trageti_idx_*`             | migration v005       |
-| `trl_fts_a{i,d,u}` triggers  | `trageti_fulltext_a{i,d,u}` | migration v005       |
-| `trl_embeddings_<hash>` vec0 | `trageti_embeddings_<hash>` | migration v005       |
-| `trl_schema_version`         | `trageti_schema_version`    | the migration runner |
+| Original (v0.3 as published) | Amended (steady state)      | Created by         |
+| ---------------------------- | --------------------------- | ------------------ |
+| `trl_namespaces`             | `trageti_namespaces`        | baseline migration |
+| `trl_episodes`               | `trageti_episodes`          | baseline migration |
+| `trl_assertions`             | `trageti_assertions`        | baseline migration |
+| `trl_links`                  | `trageti_links`             | baseline migration |
+| `trl_citations`              | `trageti_citations`         | baseline migration |
+| `trl_fts` (FTS5 virtual)     | `trageti_fulltext`          | baseline migration |
+| `trl_fts_meta` (tokenizer)   | `trageti_tokenizer`         | baseline migration |
+| `trl_idx_*` (indexes)        | `trageti_idx_*`             | baseline migration |
+| `trl_fts_a{i,d,u}` triggers  | `trageti_fulltext_a{i,d,u}` | baseline migration |
+| `trl_embeddings_<hash>` vec0 | `trageti_embeddings_<hash>` | baseline migration |
+| `trl_schema_version`         | `trageti_schema_version`    | baseline migration |
 
 The `LibraryTable` union — and therefore `ColumnExtension.table` — becomes
 `'trageti_assertions' | 'trageti_episodes' | 'trageti_links'`. The reserved
@@ -79,7 +102,11 @@ lives in the `trageti_namespaces.embedding_table` column — no code re-derives
 a table name from the namespace hash. After a staging-swap reindex the stored
 name deliberately diverges from the hash-derived name.
 
-**4. Migrations v004 and v005 are part of the public contract.**
+**4. Superseded migration-chain note.**
+
+The 2026-06-01 baseline migration reset supersedes this section for the active
+v0.3 beta contract. The historical v004/v005 description below is retained as
+design lineage for the schema fixture, not as supported upgrade behavior.
 
 - **Migration v004 — canonical timestamp backfill.** A standard
   (non-FK-toggle) migration that rewrites existing `created_at` columns to
@@ -524,13 +551,13 @@ the `sqlite-vec` peer dependency.
 Install: `npm install trageti better-sqlite3 sqlite-vec`
 
 ```typescript
-import { TemporalStore, MockEmbeddingProvider } from 'trageti'
+import { TemporalStore, MockEmbeddingProvider } from 'trageti';
 
 const store = await TemporalStore.create({
   database: 'rag.db',
   namespace: 'demo',
   embeddingProvider: new MockEmbeddingProvider({ dimension: 384 }),
-})
+});
 
 await store.writeEpisode({
   id: 'ep-1',
@@ -539,7 +566,7 @@ await store.writeEpisode({
   type: 'note',
   occurredAt: '2026-05-11T09:00:00Z',
   content: 'Initial intake notes.',
-})
+});
 await store.writeAssertion({
   id: 'a-1',
   namespace: 'demo',
@@ -556,18 +583,18 @@ await store.writeAssertion({
       excerpt: 'occasional insomnia',
     },
   ],
-})
+});
 // Provider derives the embedding from assertion.content (no `embedding`
 // field supplied, so MockEmbeddingProvider is consulted).
-await store.indexBatch([{ assertionId: 'a-1' }])
+await store.indexBatch([{ assertionId: 'a-1' }]);
 
 const { results, meta } = await store.retrieve({
   namespace: 'demo',
   queryText: 'sleep problems',
   temporalAnchor: 1,
-})
+});
 
-await store.close()
+await store.close();
 ```
 
 For a real RAG path, replace `MockEmbeddingProvider` with a production adapter
@@ -588,14 +615,14 @@ and run on bare `better-sqlite3`.
 Install: `npm install trageti better-sqlite3` (no `sqlite-vec`)
 
 ```typescript
-import { TemporalStore } from 'trageti'
+import { TemporalStore } from 'trageti';
 
 const store = await TemporalStore.create({
   database: 'rag.db',
   namespace: 'compliance',
   prepare: { loadSqliteVec: false },
   // No embeddingDimension, no embeddingProvider — namespace is vectorless.
-})
+});
 
 await store.writeEpisode({
   id: 'ep-1',
@@ -604,7 +631,7 @@ await store.writeEpisode({
   type: 'document',
   occurredAt: '2026-05-11T09:00:00Z',
   content: 'Annual liability waiver, revision 7.',
-})
+});
 await store.writeAssertion({
   id: 'a-1',
   namespace: 'compliance',
@@ -621,7 +648,7 @@ await store.writeAssertion({
       excerpt: 'waives liability for ordinary negligence',
     },
   ],
-})
+});
 // indexBatch is NOT called — vectorless namespaces don't index vectors.
 
 const { results, meta } = await store.retrieve({
@@ -629,7 +656,7 @@ const { results, meta } = await store.retrieve({
   queryText: 'liability waiver',
   retrievalStrategy: 'bm25', // explicit; clearer intent than relying on hybrid fallback
   temporalAnchor: 100,
-})
+});
 // meta.vectorApplied === false; meta.bm25Applied === true.
 
 // Equivalent path via hybrid fallback (no provider + queryText only → BM25):
@@ -638,7 +665,7 @@ const { results, meta } = await store.retrieve({
 // Either form is supported. 'bm25' is preferred when the deployment is
 // permanently vectorless because intent is explicit at the call site.
 
-await store.close()
+await store.close();
 ```
 
 ---
@@ -687,22 +714,22 @@ v0.3 keeps the v0.2 episode shape:
 
 ```typescript
 interface Episode {
-  id: string
-  namespace: string
+  id: string;
+  namespace: string;
   /** Caller-defined ordinal: consistent, comparable, stable within a
    *  namespace. This is the unit `temporalAnchor` is expressed in
    *  throughout retrieval. */
-  position: number
+  position: number;
   /** ISO 8601 — real-world time of the event; display and audit only.
    *  Never used for ordering or retrieval filtering — that is what
    *  position is for. */
-  occurredAt: string
+  occurredAt: string;
   /** Caller-defined; opaque to the library. */
-  type: string
-  content: string
+  type: string;
+  content: string;
   /** ISO 8601 — when the system recorded this episode. Filled by the
    *  store on write; the write-side input shape omits this field. */
-  createdAt: string
+  createdAt: string;
 }
 ```
 
@@ -717,20 +744,20 @@ from v0.2:
 
 ```typescript
 interface Assertion {
-  id: string
-  namespace: string
-  type: string
-  content: string
-  validFrom: number
-  validUntil: number | null
-  confidence: number
-  sourceEpisodeId: string
-  supersedesId: string | null
-  entityId: string | null
-  entityType: string | null
-  citations: AssertionCitation[]
-  createdAt: string
-  extensions: Record<string, unknown>
+  id: string;
+  namespace: string;
+  type: string;
+  content: string;
+  validFrom: number;
+  validUntil: number | null;
+  confidence: number;
+  sourceEpisodeId: string;
+  supersedesId: string | null;
+  entityId: string | null;
+  entityType: string | null;
+  citations: AssertionCitation[];
+  createdAt: string;
+  extensions: Record<string, unknown>;
 }
 ```
 
@@ -742,39 +769,39 @@ when they were `null`.
 ```typescript
 /** Caller-facing. Nullable fields are optional; omitted = null at the boundary. */
 interface NewAssertionInput {
-  id: string
-  namespace: string
-  type: string
-  content: string
-  validFrom: number
-  confidence: number
-  sourceEpisodeId: string
-  citations: NewAssertionCitation[]
-  validUntil?: number | null
-  supersedesId?: string | null
-  entityId?: string | null
-  entityType?: string | null
+  id: string;
+  namespace: string;
+  type: string;
+  content: string;
+  validFrom: number;
+  confidence: number;
+  sourceEpisodeId: string;
+  citations: NewAssertionCitation[];
+  validUntil?: number | null;
+  supersedesId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
 }
 
 /** Validator/repository-facing. Nullable fields are required (null permitted),
  *  guaranteed by writeAssertion()'s normalization step. */
 interface NormalizedNewAssertion {
-  id: string
-  namespace: string
-  type: string
-  content: string
-  validFrom: number
-  validUntil: number | null
-  confidence: number
-  sourceEpisodeId: string
-  supersedesId: string | null
-  entityId: string | null
-  entityType: string | null
-  citations: NewAssertionCitation[]
+  id: string;
+  namespace: string;
+  type: string;
+  content: string;
+  validFrom: number;
+  validUntil: number | null;
+  confidence: number;
+  sourceEpisodeId: string;
+  supersedesId: string | null;
+  entityId: string | null;
+  entityType: string | null;
+  citations: NewAssertionCitation[];
 }
 
 /** Deprecated alias of NewAssertionInput, retained for one minor; removed in v0.4. */
-type NewAssertion = NewAssertionInput
+type NewAssertion = NewAssertionInput;
 ```
 
 **Normalization order.** `writeAssertion(input: NewAssertionInput)` MUST coerce
@@ -803,21 +830,21 @@ from v0.2:
 
 ```typescript
 interface AssertionCitation {
-  id: string
+  id: string;
   /** FK → trageti_assertions.id */
-  assertionId: string
+  assertionId: string;
   /** FK → trageti_episodes.id (must share the assertion's namespace) */
-  episodeId: string
+  episodeId: string;
   /** Caller-defined non-empty reference string; format opaque to the library. */
-  sourceRef: string
+  sourceRef: string;
   /** Verbatim text from the source passage. Strongly recommended; null
    *  permitted but warned on write (or rejected when
    *  validation.requireCitationExcerpt is true). */
-  excerpt: string | null
-  excerptStart?: string
-  excerptEnd?: string
-  metadata?: Record<string, unknown>
-  createdAt: string
+  excerpt: string | null;
+  excerptStart?: string;
+  excerptEnd?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
 }
 ```
 
@@ -826,11 +853,11 @@ Two write-side input shapes:
 ```typescript
 /** Inline citation passed to writeAssertion(). The store fills in
  *  assertionId (from the parent assertion's id) and createdAt. */
-type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>
+type NewAssertionCitation = Omit<AssertionCitation, 'assertionId' | 'createdAt'>;
 
 /** Late-citation input passed to store.writeCitation(). Caller supplies
  *  assertionId explicitly because the parent assertion already exists. */
-type NewLateCitation = Omit<AssertionCitation, 'createdAt'>
+type NewLateCitation = Omit<AssertionCitation, 'createdAt'>;
 ```
 
 Use `NewAssertionCitation` when adding citations to a new assertion in the
@@ -857,22 +884,22 @@ windows and source episode references.
 
 ```typescript
 interface AssertionLink {
-  id: string
-  namespace: string
+  id: string;
+  namespace: string;
   /** Source assertion. */
-  fromId: string
+  fromId: string;
   /** Target assertion. */
-  toId: string
+  toId: string;
   /** Caller-defined; opaque to the library. Recommended values include
    *  'deepens', 'qualifies', 'contextualizes', 'contradicts', 'measures' —
    *  but any string is allowed. */
-  linkType: string
-  validFrom: number
-  validUntil: number | null
+  linkType: string;
+  validFrom: number;
+  validUntil: number | null;
   /** FK → trageti_episodes.id (must share the link's namespace). */
-  sourceEpisodeId: string
+  sourceEpisodeId: string;
   /** ISO 8601 — filled by the store on write. */
-  createdAt: string
+  createdAt: string;
 }
 ```
 
@@ -893,20 +920,9 @@ or `null`.
 
 ```typescript
 interface GraphQueryAdapter {
-  findConnected(
-    db: Database,
-    namespace: string,
-    fromIds: string[],
-    options: TraversalOptions,
-  ): AssertionLink[]
+  findConnected(db: Database, namespace: string, fromIds: string[], options: TraversalOptions): AssertionLink[];
 
-  findPath(
-    db: Database,
-    namespace: string,
-    fromId: string,
-    toId: string,
-    options: PathOptions,
-  ): AssertionLink[] | null
+  findPath(db: Database, namespace: string, fromId: string, toId: string, options: PathOptions): AssertionLink[] | null;
 }
 ```
 
@@ -946,36 +962,36 @@ remains the preferred hook for cross-candidate normalization.
 
 ```typescript
 interface ScoredCandidate {
-  assertion: Assertion
+  assertion: Assertion;
   /** Cosine distance from sqlite-vec; lower = more similar.
    *  Null in retrievalStrategy: 'bm25' or when the vector step was skipped
    *  via hybrid fallback (see Retrieval Implementation). */
-  semanticDistance: number | null
+  semanticDistance: number | null;
   /** FTS5 BM25 score; null if no queryText was supplied or the candidate
    *  did not match. More-negative = better match. */
-  bm25Score: number | null
+  bm25Score: number | null;
   /** assertion.validFrom, for recency calculations. */
-  position: number
+  position: number;
 }
 
 interface RetrievalScorer {
-  score(candidate: ScoredCandidate, context: ScoringContext): number
-  scoreBatch?(candidates: readonly ScoredCandidate[], context: ScoringContext): number[]
+  score(candidate: ScoredCandidate, context: ScoringContext): number;
+  scoreBatch?(candidates: readonly ScoredCandidate[], context: ScoringContext): number[];
 }
 
 interface ScoringContext {
   /** The temporal anchor the active retrieval query was issued at. */
-  temporalAnchor: number
+  temporalAnchor: number;
   /** Min and max validFrom across the namespace's *active* assertions at
    *  call time. Used for recency normalization. When the namespace has
    *  zero active assertions, both fields equal each other (any value); a
    *  degenerate range collapses recency to 1 per the DefaultScorer
    *  contract. */
-  namespacePositionRange: { min: number; max: number }
+  namespacePositionRange: { min: number; max: number };
   /** The full RetrievalQuery being scored. Custom scorers may read any
    *  field (e.g. minConfidence, entityTypes) to compose domain-specific
    *  weights. */
-  query: RetrievalQuery
+  query: RetrievalQuery;
 }
 ```
 
@@ -1052,15 +1068,15 @@ validators are domain validators and run after library integrity checks.
 
 ```typescript
 interface AssertionValidator {
-  validate(assertion: NormalizedNewAssertion): ValidationResult
+  validate(assertion: NormalizedNewAssertion): ValidationResult;
 }
 
 interface ValidationResult {
-  valid: boolean
+  valid: boolean;
   /** Human-readable validation errors. Library-defined codes flow through
    *  `ValidationError.code` when thrown; per-message classification is at
    *  the validator's discretion. */
-  errors: string[]
+  errors: string[];
 }
 ```
 
@@ -1094,14 +1110,14 @@ interface FTS5TokenizerConfig {
   /** Built-in: 'unicode61' | 'ascii' | 'porter' | 'trigram'. Anything else
    *  is treated as a custom tokenizer name and requires
    *  trustedCustomTokenizer: true. */
-  tokenizer: 'unicode61' | 'ascii' | 'porter' | 'trigram' | string
+  tokenizer: 'unicode61' | 'ascii' | 'porter' | 'trigram' | string;
   /** Validated against a strict character class for built-in tokenizers.
    *  For custom tokenizers (with trustedCustomTokenizer: true), passed
    *  through verbatim. */
-  tokenizerArgs?: string[]
+  tokenizerArgs?: string[];
   /** Required when tokenizer is anything other than a built-in. Marks the
    *  config as trusted-code; the library will not attempt to validate args. */
-  trustedCustomTokenizer?: boolean
+  trustedCustomTokenizer?: boolean;
 }
 ```
 
@@ -1136,37 +1152,37 @@ added in a future version for configuration-driven products (Open Question).
 
 ```typescript
 interface SchemaExtensions {
-  columns?: ColumnExtension[]
-  tables?: TableExtension[]
+  columns?: ColumnExtension[];
+  tables?: TableExtension[];
 }
 
 interface ColumnExtension {
   /** Library-managed table to extend. */
-  table: 'trageti_assertions' | 'trageti_episodes' | 'trageti_links'
+  table: 'trageti_assertions' | 'trageti_episodes' | 'trageti_links';
   /** Custom column name. Must not start with `trageti_` and must not collide
    *  with any library-defined column on the target table. */
-  column: string
+  column: string;
   /** Trusted-code SQL fragment: type, optional DEFAULT, optional CHECK,
    *  etc. Library applies as ALTER TABLE ADD COLUMN. Never source from
    *  user input. */
-  definition: string
-  description?: string
+  definition: string;
+  description?: string;
 }
 
 interface TableExtension {
-  tableName: string
+  tableName: string;
   /** Trusted-code SQL: a single idempotent CREATE TABLE statement.
    *  Library applies this verbatim. Never source from user input. */
-  createSQL: string
+  createSQL: string;
   /** When true, the extension stores rows scoped to a namespace and MUST
    *  pair with namespaceColumn so deleteNamespace() can remove them. */
-  referencesNamespace?: boolean
+  referencesNamespace?: boolean;
   /** The column on this table that holds the namespace name. Required when
    *  referencesNamespace is true. The library generates and prepares
    *  `DELETE FROM <quoted tableName> WHERE <quoted namespaceColumn> = ?`
    *  for use during deleteNamespace(). */
-  namespaceColumn?: string
-  description?: string
+  namespaceColumn?: string;
+  description?: string;
 }
 ```
 
@@ -1196,14 +1212,14 @@ Embedding providers are additive. Manual vector indexing remains supported.
 
 ```typescript
 interface EmbeddingProvider {
-  readonly name: string
-  readonly dimension: number
-  embed(texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]>
+  readonly name: string;
+  readonly dimension: number;
+  embed(texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]>;
 }
 
 interface EmbedOptions {
-  signal?: AbortSignal
-  purpose?: 'assertion' | 'query' | 'reindex'
+  signal?: AbortSignal;
+  purpose?: 'assertion' | 'query' | 'reindex';
 }
 ```
 
@@ -1317,14 +1333,14 @@ opt-in is the documented way to relax it — and the only way.
 
 ```typescript
 interface Logger {
-  debug(code: string, fields?: Record<string, unknown>): void
-  info(code: string, fields?: Record<string, unknown>): void
-  warn(code: string, fields?: Record<string, unknown>): void
-  error(code: string, fields?: Record<string, unknown>): void
+  debug(code: string, fields?: Record<string, unknown>): void;
+  info(code: string, fields?: Record<string, unknown>): void;
+  warn(code: string, fields?: Record<string, unknown>): void;
+  error(code: string, fields?: Record<string, unknown>): void;
   /** Optional. When present, awaited during `store.close()` so buffered
    *  records are written before the store resolves. May be synchronous or
    *  return a Promise; the library awaits the result either way. */
-  flush?(): void | Promise<void>
+  flush?(): void | Promise<void>;
 }
 ```
 
@@ -1359,8 +1375,8 @@ default implementation:
 
 ```typescript
 interface Metrics {
-  incr(name: string, fields?: Record<string, string | number>): void
-  observe(name: string, value: number, fields?: Record<string, string | number>): void
+  incr(name: string, fields?: Record<string, string | number>): void;
+  observe(name: string, value: number, fields?: Record<string, string | number>): void;
 }
 ```
 
@@ -1378,43 +1394,43 @@ no-op and must not allocate fallback collectors or write to the logger.
 
 ```typescript
 interface TemporalStoreOptions {
-  namespace: string
+  namespace: string;
   /** Required for vector-configured namespaces; omit (or pair with no
    *  embeddingProvider) for vectorless namespaces. */
-  embeddingDimension?: number
+  embeddingDimension?: number;
   /** When supplied, makes the namespace vector-configured. Provider's
    *  dimension is the namespace dimension unless embeddingDimension is also
    *  supplied; supplying both with different values throws. */
-  embeddingProvider?: EmbeddingProvider
-  maxEpisodeContentBytes?: number
-  graphAdapter?: GraphQueryAdapter
-  scorer?: RetrievalScorer
-  defaultFormatter?: ContextFormatter
-  validators?: AssertionValidator[]
-  connectionVerifier?: ConnectionVerifier
-  middleware?: RetrievalMiddleware[]
-  fts5Tokenizer?: FTS5TokenizerConfig
-  schemaExtensions?: SchemaExtensions
-  logger?: Logger
-  metrics?: Metrics
-  validation?: ValidationOptions
+  embeddingProvider?: EmbeddingProvider;
+  maxEpisodeContentBytes?: number;
+  graphAdapter?: GraphQueryAdapter;
+  scorer?: RetrievalScorer;
+  defaultFormatter?: ContextFormatter;
+  validators?: AssertionValidator[];
+  connectionVerifier?: ConnectionVerifier;
+  middleware?: RetrievalMiddleware[];
+  fts5Tokenizer?: FTS5TokenizerConfig;
+  schemaExtensions?: SchemaExtensions;
+  logger?: Logger;
+  metrics?: Metrics;
+  validation?: ValidationOptions;
 }
 
 interface ValidationOptions {
   /** When true, citations with `excerpt: null` are rejected at write time
    *  instead of warned. Recommended for regulated-domain deployments
    *  (medical, legal, mental health, law enforcement). Default: false. */
-  requireCitationExcerpt?: boolean
+  requireCitationExcerpt?: boolean;
 }
 
 /** Read-side namespace metadata returned by introspection helpers. */
 interface NamespaceConfig {
-  namespace: string
+  namespace: string;
   /** Null for vectorless namespaces. */
-  embeddingDimension: number | null
-  createdAt: string
+  embeddingDimension: number | null;
+  createdAt: string;
   /** Caller-defined arbitrary metadata; stored as JSON in trageti_namespaces.config. */
-  config: Record<string, unknown>
+  config: Record<string, unknown>;
 }
 ```
 
@@ -1549,13 +1565,13 @@ containing the migration version and cause.
 
 ```typescript
 interface Migration {
-  version: number
-  name: string
+  version: number;
+  name: string;
   /** When true, this migration runs OUTSIDE the wrapping transaction so it
    *  can toggle PRAGMA foreign_keys. The migration body MUST NOT BEGIN or
    *  COMMIT — the FK-toggle runner owns the transaction. */
-  requiresForeignKeyToggle?: boolean
-  up(db: Database): void
+  requiresForeignKeyToggle?: boolean;
+  up(db: Database): void;
 }
 ```
 
@@ -1654,15 +1670,15 @@ const store = await TemporalStore.create({
   database: 'rag.db',
   namespace: 'case-123',
   embeddingProvider: provider,
-})
+});
 ```
 
 ```typescript
 interface CreateOptions extends TemporalStoreOptions {
   /** Filename, ':memory:', or an already-prepared better-sqlite3 Database. */
-  database: string | Database
+  database: string | Database;
   /** Forwarded to prepareDatabase() when `database` is a string. */
-  prepare?: PrepareDatabaseOptions
+  prepare?: PrepareDatabaseOptions;
   /** Controls whether store.close() also closes the underlying
    *  better-sqlite3 Database handle.
    *
@@ -1677,11 +1693,11 @@ interface CreateOptions extends TemporalStoreOptions {
    *  when the underlying handle should outlive the store (rare); set
    *  `true` with a caller-supplied Database to transfer ownership to
    *  trageti. */
-  closeDatabaseOnStoreClose?: boolean
+  closeDatabaseOnStoreClose?: boolean;
 }
 
 namespace TemporalStore {
-  function create(options: CreateOptions): Promise<TemporalStore>
+  function create(options: CreateOptions): Promise<TemporalStore>;
 }
 ```
 
@@ -1708,12 +1724,12 @@ Advanced callers may still provide their own database and call initialization
 explicitly:
 
 ```typescript
-const db = prepareDatabase('rag.db')
+const db = prepareDatabase('rag.db');
 const store = new TemporalStore(db, {
   namespace: 'case-123',
   embeddingDimension: 768,
-})
-await store.init()
+});
+await store.init();
 ```
 
 This path exists for embedding in larger applications that already control
@@ -1726,27 +1742,27 @@ construct but `init()` is async (matching the all-async public API policy).
 /** Re-exported alias for better-sqlite3's constructor options, so callers
  *  can pass strongly-typed forwarding options without importing
  *  better-sqlite3's types directly. */
-export type BetterSqlite3Options = import('better-sqlite3').Database.Options
+export type BetterSqlite3Options = import('better-sqlite3').Database.Options;
 
 interface PrepareDatabaseOptions {
   /** When true (default), attempts to require('sqlite-vec') and load it.
    *  When false, the caller must load the extension or accept that vector
    *  operations on this database will fail. */
-  loadSqliteVec?: boolean
+  loadSqliteVec?: boolean;
   /** PRAGMA journal_mode value. Default 'WAL'. */
-  journalMode?: 'WAL' | 'DELETE' | 'TRUNCATE' | 'PERSIST' | 'MEMORY' | 'OFF'
+  journalMode?: 'WAL' | 'DELETE' | 'TRUNCATE' | 'PERSIST' | 'MEMORY' | 'OFF';
   /** PRAGMA busy_timeout in milliseconds. Default 5000. */
-  busyTimeoutMs?: number
+  busyTimeoutMs?: number;
   /** PRAGMA temp_store value. Default 'MEMORY'. */
-  tempStore?: 'DEFAULT' | 'FILE' | 'MEMORY'
+  tempStore?: 'DEFAULT' | 'FILE' | 'MEMORY';
   /** Additional pragmas applied verbatim after defaults. */
-  pragmas?: Record<string, string | number>
+  pragmas?: Record<string, string | number>;
   /** Forwarded to `new Database(filename, options)` when source is a
    *  filename. Ignored when source is an existing Database. */
-  betterSqlite3?: BetterSqlite3Options
+  betterSqlite3?: BetterSqlite3Options;
 }
 
-function prepareDatabase(source: string | Database, options?: PrepareDatabaseOptions): Database
+function prepareDatabase(source: string | Database, options?: PrepareDatabaseOptions): Database;
 ```
 
 If `source` is a string, a new `better-sqlite3` database is opened. If it is
@@ -2349,39 +2365,39 @@ type RetrievalStep =
   | 'score'
   | 'rank'
   | 'graph-expand'
-  | 'trajectory-expand'
+  | 'trajectory-expand';
 
 interface RetrievalExplainStep {
-  step: RetrievalStep
+  step: RetrievalStep;
   /** Prepared-statement SQL that would run for this step. Omitted for
    *  steps with no SQL (e.g. 'score'). */
-  sql?: string
+  sql?: string;
   /** Output of `EXPLAIN QUERY PLAN` for the step's SQL, when applicable. */
-  queryPlan?: string
+  queryPlan?: string;
   /** Adapter-best-effort row estimate, when cheaply available. */
-  estimatedRows?: number
+  estimatedRows?: number;
   /** For 'semantic' only: whether the namespace is vector-ready at
    *  explain time. False indicates the step would either lazily create
    *  vec0 (if sqlite-vec is loaded) or trigger the documented hybrid
    *  fallback. */
-  vectorReady?: boolean
+  vectorReady?: boolean;
 }
 
 interface RetrievalExplainResult {
   /** Echo of the input. */
-  query: RetrievalQuery
+  query: RetrievalQuery;
   /** The strategy that would run (after defaults and routing). */
-  retrievalStrategy: RetrievalStrategy
+  retrievalStrategy: RetrievalStrategy;
   /** Ordered list of steps the pipeline would execute, given current
    *  state. */
-  steps: RetrievalExplainStep[]
+  steps: RetrievalExplainStep[];
   /** True iff Step 2 (vector candidate selection) would actually run. */
-  wouldApplyVector: boolean
+  wouldApplyVector: boolean;
   /** True iff Step 2-bm25 or Step 3 (keyword re-ranking) would run. */
-  wouldApplyBm25: boolean
+  wouldApplyBm25: boolean;
   /** Human-readable notes the explain pass produced (e.g. "would fall
    *  back to BM25-only: no EmbeddingProvider configured"). */
-  notes: string[]
+  notes: string[];
 }
 ```
 
@@ -2889,7 +2905,7 @@ itself, separate from `Logger` (which is store-scoped):
 
 ```typescript
 interface RetrievalDebug {
-  onStep?(step: RetrievalStep, info: RetrievalStepInfo): void
+  onStep?(step: RetrievalStep, info: RetrievalStepInfo): void;
 }
 
 type RetrievalStep =
@@ -2900,13 +2916,13 @@ type RetrievalStep =
   | 'score'
   | 'rank'
   | 'graph-expand'
-  | 'trajectory-expand'
+  | 'trajectory-expand';
 
 interface RetrievalStepInfo {
-  step: RetrievalStep
-  candidateCount: number
-  tookMs: number
-  notes?: Record<string, unknown>
+  step: RetrievalStep;
+  candidateCount: number;
+  tookMs: number;
+  notes?: Record<string, unknown>;
 }
 ```
 
@@ -3126,10 +3142,10 @@ Required test classes:
 Coverage thresholds (raised from v0.2):
 
 ```typescript
-lines: 95
-functions: 95
-statements: 95
-branches: 85
+lines: 95;
+functions: 95;
+statements: 95;
+branches: 85;
 ```
 
 ---
@@ -3253,6 +3269,10 @@ The library will tag 1.0 when all of the following hold:
 
 ## Migration Guide v0.2 to v0.3
 
+This section is API call-site guidance only. The 2026-06-01 baseline
+migration reset removes automatic database migration support from v0.2
+prototype `trl_` schemas to v0.3; rebuild beta databases from source data.
+
 ### All public store methods are async
 
 v0.3 adopts a uniform `await store.method(...)` contract across writes,
@@ -3270,41 +3290,41 @@ nothing about hot-path performance changes.
 // v0.2
 const ep = store.writeEpisode({
   /* ... */
-})
+});
 const a = store.writeAssertion({
   /* ... */
-})
-const hx = store.getEntityHistory(ns, id)
-const stt = store.getStats(ns)
+});
+const hx = store.getEntityHistory(ns, id);
+const stt = store.getStats(ns);
 const path = store.findPath({
   /* ... */
-})
-const r = store.retrieve(q)
+});
+const r = store.retrieve(q);
 
 // v0.3
 const ep = await store.writeEpisode({
   /* ... */
-})
+});
 const a = await store.writeAssertion({
   /* ... */
-})
-const hx = await store.getEntityHistory(ns, id)
-const stt = await store.getStats(ns)
+});
+const hx = await store.getEntityHistory(ns, id);
+const stt = await store.getStats(ns);
 const path = await store.findPath({
   /* ... */
-})
-const { results, meta } = await store.retrieve(q)
+});
+const { results, meta } = await store.retrieve(q);
 ```
 
 ### Supersession
 
 ```typescript
 // Before (broken in v0.2 README — second call throws)
-store.writeAssertion({ id: 'new', supersedesId: 'old' /* ... */ })
-store.supersedeAssertion('old', { validUntil: 5, replacedById: 'new' })
+store.writeAssertion({ id: 'new', supersedesId: 'old' /* ... */ });
+store.supersedeAssertion('old', { validUntil: 5, replacedById: 'new' });
 
 // After (single canonical call)
-await store.writeAssertion({ id: 'new', validFrom: 5, supersedesId: 'old' /* ... */ })
+await store.writeAssertion({ id: 'new', validFrom: 5, supersedesId: 'old' /* ... */ });
 ```
 
 ### Optional nullable assertion fields
@@ -3387,10 +3407,10 @@ no change needed.
 
 ```typescript
 // Before
-const results = store.retrieve(query)
+const results = store.retrieve(query);
 
 // After
-const { results, meta } = await store.retrieve(query)
+const { results, meta } = await store.retrieve(query);
 ```
 
 ### Retrieval strategy (BM25-only / vectorless deployments)
@@ -3406,13 +3426,13 @@ const store = await TemporalStore.create({
   namespace: 'compliance',
   prepare: { loadSqliteVec: false },
   // No embeddingDimension, no embeddingProvider — namespace is vectorless.
-})
+});
 const { results, meta } = await store.retrieve({
   namespace: 'compliance',
   queryText: 'liability waiver',
   retrievalStrategy: 'bm25',
   temporalAnchor: 100,
-})
+});
 ```
 
 ### Keyword querying — default mode flip
@@ -3423,25 +3443,25 @@ const { results, meta } = await store.retrieve({
 
 ```typescript
 // 0.1.x / 0.2.x default (raw FTS5 syntax interpreted)
-await store.retrieve({ queryText: 'alpha AND beta' /* ... */ })
+await store.retrieve({ queryText: 'alpha AND beta' /* ... */ });
 
 // v0.3 equivalent — preserve raw FTS5 semantics explicitly
-await store.retrieve({ queryText: 'alpha AND beta', queryTextMode: 'fts5' /* ... */ })
+await store.retrieve({ queryText: 'alpha AND beta', queryTextMode: 'fts5' /* ... */ });
 
 // v0.3 default — safe phrase mode (alpha AND beta is a literal three-word phrase)
-await store.retrieve({ queryText: 'alpha AND beta' /* queryTextMode: 'phrase' */ })
+await store.retrieve({ queryText: 'alpha AND beta' /* queryTextMode: 'phrase' */ });
 ```
 
 ### Batch indexing — result envelope
 
 ```typescript
 // Before
-store.indexBatch(items)
+store.indexBatch(items);
 
 // After
-const result = await store.indexBatch(items)
+const result = await store.indexBatch(items);
 if (result.skipped.length > 0) {
-  logger.warn('INDEX_BATCH_SKIPPED', { count: result.skipped.length })
+  logger.warn('INDEX_BATCH_SKIPPED', { count: result.skipped.length });
 }
 ```
 
@@ -3449,29 +3469,29 @@ if (result.skipped.length > 0) {
 
 ```typescript
 // Before
-await store.reindexNamespace(ns, { newDimension, embeddingProvider })
+await store.reindexNamespace(ns, { newDimension, embeddingProvider });
 
 // After (staging-swap is now the default; explicit form shown for clarity)
 const result = await store.reindexNamespace(ns, {
   newDimension,
   embeddingProvider,
   strategy: 'staging-swap',
-})
+});
 ```
 
 ### Store lifecycle
 
 ```typescript
 // Before
-const store = new TemporalStore(db, options)
-store.init()
+const store = new TemporalStore(db, options);
+store.init();
 // ... use ...
-db.close()
+db.close();
 
 // After
-const store = await TemporalStore.create({ database: 'rag.db', ...options })
+const store = await TemporalStore.create({ database: 'rag.db', ...options });
 // ... use ...
-await store.close()
+await store.close();
 ```
 
 The common filename path — `TemporalStore.create({ database: 'rag.db' })`

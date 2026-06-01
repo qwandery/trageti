@@ -67,13 +67,9 @@ trageti/
 │   ├── db/                     Everything that touches the Database object
 │   │   ├── candidates.ts       buildCandidateJson — JSON-serialised id list
 │   │   ├── migrations/         Code-registered Migration[] + runner
-│   │   │   ├── v001_initial.ts     Initial schema (v0.1)
-│   │   │   ├── v002_citations.ts   trl_citations + reverse-supersession index (v0.2)
-│   │   │   ├── v003_vectorless.ts  Nullable vector columns + trl_fts_meta (v0.3)
-│   │   │   ├── v004_timestamps.ts  Canonical ISO-8601 created_at backfill (v0.3)
-│   │   │   ├── v005_rename.ts      Rename trl_* tables to trageti_* (v0.3)
+│   │   │   ├── v001_baseline.ts    v0.3 steady-state baseline schema
 │   │   │   ├── index.ts            Ordered migration list (version === index + 1)
-│   │   │   └── runner.ts           MigrationRunner — standard + FK-toggle choreography
+│   │   │   └── runner.ts           MigrationRunner - baseline bootstrap
 │   │   ├── repositories/       Thin DAOs; one per top-level table
 │   │   │   ├── AssertionRepository.ts
 │   │   │   ├── CitationRepository.ts
@@ -146,9 +142,9 @@ const store = await TemporalStore.create({
   namespace: 'default',
   embeddingDimension: 768, // omit / null → vectorless namespace
   embeddingProvider, // optional
-})
+});
 // ... use the store ...
-await store.close()
+await store.close();
 ```
 
 `create()` opens (or accepts) the database via `prepareDatabase()`, constructs the store, and runs `init()`. `init()` runs in this order:
@@ -170,7 +166,7 @@ Every public method returns a `Promise`, even where the underlying `better-sqlit
 `retrieve(query)` resolves to a `RetrievalResult` envelope — **not** a bare array:
 
 ```typescript
-const { results, meta } = await store.retrieve({ queryText: '...', namespace: 'default' })
+const { results, meta } = await store.retrieve({ queryText: '...', namespace: 'default' });
 ```
 
 - `results: RetrievedAssertion[]` — the ranked hits.
@@ -243,9 +239,7 @@ When a new assertion _layers on_ an earlier one without replacing it, use `write
 
 `trageti_fulltext` is an external-content FTS5 table backed by `trageti_assertions`. Three triggers (`trageti_fulltext_ai`, `trageti_fulltext_ad`, `trageti_fulltext_au`) keep it in sync. The tokenizer config is recorded in the **`trageti_tokenizer`** metadata table.
 
-> **Naming note:** the v0.3 spec originally named the tokenizer table `trl_fts_config`, which is physically impossible — SQLite FTS5 reserves `<ftsname>_config` (and `_data` / `_idx` / `_content` / `_docsize`) as the FTS table's own shadow tables, and the FTS table was `trl_fts`. The v003 implementation used `trl_fts_meta` instead; the v0.3 table-naming amendment (migration v005) renamed it to the steady-state `trageti_tokenizer`. Lineage: `trl_fts_config` (spec, never built) → `trl_fts_meta` (v003 code) → `trageti_tokenizer` (final).
-
-`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trageti_tokenizer`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
+> **Naming note:** the active v0.3 baseline creates `trageti_tokenizer` directly. The earlier `trl_fts_config` / `trl_fts_meta` names are historical design lineage only.`r`n`r`n`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trageti_tokenizer`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
 
 **External-content FTS5 quirk:** these tables cannot reliably read `UNINDEXED` columns back via the table alias. `runStep3` in `pipeline/retrieve.ts` joins to `trageti_assertions` via `rowid` rather than reading `assertion_id` from `trageti_fulltext` directly. If you change this, run the full integration suite.
 
@@ -262,7 +256,7 @@ await TemporalStore.create({
     columns: [{ table: 'trageti_assertions', columnName: 'source_url', columnDef: 'TEXT' }],
     tables: [{ tableName: 'meta', columns: ['k TEXT', 'v TEXT'], referencesNamespace: false }],
   },
-})
+});
 ```
 
 Validation (in `SchemaExtensionApplier.validate`): column names must not shadow `LIBRARY_COLUMNS`, must not be SQLite reserved words; user table names must not start with the reserved library prefix. Application is wrapped in a single `db.transaction()` — all-or-nothing. Extension columns are surfaced on returned rows under `assertion.extensions[colName]`, cached at `init()` time.
@@ -325,9 +319,7 @@ Ranked results are ordered `(score DESC, validFrom DESC, createdAt ASC, id ASC)`
 
 Nothing in `src/internal/` is re-exported from `src/index.ts` except the `Logger` / `Metrics` / `LogFields` **types**. Treat any change to internal runtime APIs as an internal refactor.
 
-> **Table naming:** every library table uses the `trageti_` prefix. Migration v005 renamed the legacy `trl_` tables; the schema-version table (`trageti_schema_version`) is renamed by the migration runner's own self-migration. The `trl_` names survive only inside the v001–v004 migration bodies (which factually created tables of that era) and the v005 rename body. See the v0.3 Specification Amendment for the rename map.
-
----
+> **Table naming:** every active library table uses the `trageti_` prefix and is created directly by the v0.3 baseline migration. `trl_` names are historical only and must not appear in active runtime SQL.`r`n`r`n---
 
 ## Error codes and log codes
 
@@ -482,36 +474,26 @@ E.g. a new formatter: implement `ContextFormatter` in `src/defaults/formatting/`
 
 ## Database migrations
 
-Migrations are code-registered in `src/db/migrations/index.ts` as a numbered array. The runner asserts `migrations[i].version === i + 1` — a gap is a fatal startup error.
+v0.3 is pre-beta and has a flattened migration model. Migrations are code-registered in `src/db/migrations/index.ts`; the active package currently ships one baseline migration at schema version `1`.
 
 ### The runner
 
-`MigrationRunner` (`src/db/migrations/runner.ts`) owns the `trageti_schema_version` bootstrap table and chooses one of two execution modes per migration:
-
-- **Standard migration** — the body and the `schema_version` insert run in one `db.transaction()` (atomic). Used for additive DDL and data backfills.
-- **FK-toggle migration** (`requiresForeignKeyToggle: true`) — `PRAGMA foreign_keys` cannot change inside a transaction, so the runner captures the current setting, disables FKs, runs the body inside an explicit `BEGIN`/`COMMIT` with the `schema_version` insert before `COMMIT`, runs `foreign_key_check`, and restores the captured FK state in `finally`. A failed FK check rolls back the whole migration. Used for table rewrites / column-nullability changes that SQLite implements via table recreation.
+`MigrationRunner` (`src/db/migrations/runner.ts`) owns the `trageti_schema_version` bootstrap table. On a fresh database it creates the baseline `trageti_` schema and records version `1`. There is no active legacy `trl_schema_version` copy-forward path and no FK-toggle migration choreography in the flattened v0.3 baseline.
 
 ### Current migration history
 
-| Version | File                 | Mode      | Purpose                                                         |
-| ------- | -------------------- | --------- | --------------------------------------------------------------- |
-| v001    | `v001_initial.ts`    | standard  | Initial schema (v0.1)                                           |
-| v002    | `v002_citations.ts`  | standard  | `trl_citations` + reverse-supersession index (v0.2)             |
-| v003    | `v003_vectorless.ts` | FK-toggle | Nullable vector columns + `trl_fts_meta` tokenizer table (v0.3) |
-| v004    | `v004_timestamps.ts` | standard  | Backfill `created_at` to canonical ISO-8601 (v0.3)              |
-| v005    | `v005_rename.ts`     | FK-toggle | Rename every library table from the `trl_` prefix to `trageti_` |
+| Version | File               | Mode     | Purpose                                      |
+| ------- | ------------------ | -------- | -------------------------------------------- |
+| v001    | `v001_baseline.ts` | baseline | Steady-state v0.3 `trageti_` schema directly |
 
-The v001–v004 bodies legitimately name `trl_*` tables (they created the
-schema of their era); v005 renames them. The schema-version table is renamed
-not by a migration but by the runner's own self-migration — see the
-`trageti_schema_version` handling in [runner.ts](../../src/db/migrations/runner.ts).
+The former v001-v005 development chain was flattened before beta because there are no known v0.2 consumers. The captured steady-state fixture in `test/fixtures/schema-v001-v005-steady-state.ts` is retained to verify that the baseline creates the same durable schema objects.
 
 ### Adding a migration
 
 ```typescript
 // src/db/migrations/v0NN_my_change.ts
-import type { Database } from 'better-sqlite3'
-import type { Migration } from '../../domain/types.js'
+import type { Database } from 'better-sqlite3';
+import type { Migration } from '../../domain/types.js';
 
 export function createV0NNMigration(): Migration {
   return {
@@ -520,19 +502,19 @@ export function createV0NNMigration(): Migration {
     description: 'Add foo column to trageti_assertions',
     // requiresForeignKeyToggle: true,   // only if the body rewrites a table
     up(db: Database): void {
-      db.exec(`ALTER TABLE trageti_assertions ADD COLUMN foo TEXT`)
+      db.exec(`ALTER TABLE trageti_assertions ADD COLUMN foo TEXT`);
     },
-  }
+  };
 }
 ```
 
-Then: register it in `src/db/migrations/index.ts` (append — never reorder); add the column to `LIBRARY_COLUMNS` in `src/db/schema/columns.ts` in the same change; and add `test/integration/migrations.test.ts` coverage that a fresh DB ends at the new version, an older DB upgrades cleanly, and re-runs are idempotent.
+Then: register it in `src/db/migrations/index.ts` (append; never reorder); add the column to `LIBRARY_COLUMNS` in `src/db/schema/columns.ts` in the same change; and add `test/integration/migrations.test.ts` coverage that a fresh DB ends at the new version and re-runs are idempotent.
 
 ### Migration constraints
 
-- **Additive only.** Don't drop columns/tables. Shipped migration bodies are immutable.
+- **Additive after beta.** The v0.3 baseline reset is the explicit pre-beta exception. After beta/release, do not drop columns/tables and do not edit shipped migration bodies.
 - **No data dependency on user content.** A migration must succeed on every database regardless of row count.
-- **Idempotent / safe to re-run.** Use `IF NOT EXISTS`; the v004 `strftime` backfill, for instance, accepts both the old and the canonical timestamp form.
+- **Idempotent / safe to re-run.** Use `IF NOT EXISTS` where applicable and keep migration side effects deterministic.
 
 ---
 
@@ -566,7 +548,7 @@ Inject a `Logger` that ships to your observability stack, but remember `LogField
 
 `package.json` is at `0.3.0`, set directly. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and is edited directly — log-code and contract changes must land there in the same change that makes them.
 
-The `.changeset/` directory is configured, and Changesets remains the intended mechanism for _future_ releases. **Do not add a changeset for the 0.3.0 release** — a changeset would bump the next release past the manually-set `0.3.0`. If a later release should go through Changesets, that is a separate, deliberate decision.
+The `.changeset/` directory is configured, and Changesets is the intended mechanism for release-note-worthy changes, including pre-beta changes that alter public behavior. Keep changelog text aligned with the relevant changeset; do not rewrite already-published historical entries.
 
 Pre-1.0 semver: breaking changes may ship as **minor** bumps; reserve a major bump for the 0→1 transition. Call out `BREAKING:` explicitly in the changelog entry regardless.
 
@@ -628,9 +610,9 @@ npx vitest run test/integration/temporal-filter.test.ts -t "validAt"
 ### Inspect schema state mid-test
 
 ```typescript
-console.log(db.prepare('SELECT name, sql FROM sqlite_master').all())
-console.log(db.prepare('PRAGMA table_info(trageti_assertions)').all())
-console.log(db.prepare('SELECT MAX(version) FROM trageti_schema_version').get())
+console.log(db.prepare('SELECT name, sql FROM sqlite_master').all());
+console.log(db.prepare('PRAGMA table_info(trageti_assertions)').all());
+console.log(db.prepare('SELECT MAX(version) FROM trageti_schema_version').get());
 ```
 
 ### Reproducing a CI failure locally
@@ -659,19 +641,14 @@ npm run build
 
 **`RetrievalInputError`** → a retrieve/context call had bad input (empty query, bad limit, dimension mismatch, vector path on a vectorless namespace, …). The `.code` says which.
 
-**`citations: []` on every read** → the row pre-dates the v002 migration. The validator only enforces citation presence on new writes; legacy rows remain readable.
-
+**`citations: []` on every read** -> the database is not a v0.3 baseline database. Automatic v0.2 prototype migration is unsupported; rebuild from source data.`r`n
 **Lint: "parserOptions.project was not found"** → the file isn't in `tsconfig.eslint.json`'s `include`. Add it.
 
 ---
 
 ## Performance considerations
 
-### `findPath` is O(branching^depth)
-
-`CTEGraphAdapter.findPath` uses a recursive CTE with cycle protection but no path-cost pruning. On dense graphs at large depths this gets slow. If you hit it, implement a custom `GraphQueryAdapter` rather than complicating the default.
-
-### BM25 normalisation is O(candidates)
+### `findPath` is bounded by depth and returns one winning path`r`n`r`n`CTEGraphAdapter.findPath` uses a recursive CTE with cycle protection and SQL ordering/`LIMIT 1` to return one deterministic shortest path. Dense graphs at high depths can still be expensive; use a custom `GraphQueryAdapter` for graph-native workloads.`r`n`r`n### BM25 normalisation is O(candidates)
 
 `runStep3` normalises BM25 across the candidate set before scoring. Cost is proportional to candidate count, not corpus size — fine for typical retrieval sizes.
 
@@ -694,5 +671,5 @@ trageti assumes one writer at a time. WAL gives concurrent readers + one writer;
 - [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md) — the source of truth for the public contract. v0.1 / v0.2 specs are retained alongside it for history only.
 - `src/store/TemporalStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
 - `src/pipeline/retrieve.ts` — the most algorithmically dense file. Step 0 is query routing; Step 7 is trajectory expansion.
-- `src/db/migrations/runner.ts` — the standard vs FK-toggle migration choreography.
+- `src/db/migrations/runner.ts` - baseline schema bootstrap and schema-version recording.
 - `test/integration/e2e.test.ts` — a tour of the full happy path.

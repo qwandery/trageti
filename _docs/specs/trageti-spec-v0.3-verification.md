@@ -30,7 +30,7 @@ Updated through the v0.3 remediation (phases R1–R9) and the 2026-05-21 retriev
 ## Error model
 
 | Spec code                           | Class                                  | Where thrown                                                                | Tests                                                     |
-| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- | ---- | -------------------- | -------------- | ----------------------------------------------------------- | -------------------------------------- |
 | `STORE_CLOSED`                      | `StoreClosedError`                     | `requireNotClosed`                                                          | `store-lifecycle`                                         |
 | `NAMESPACE_DIMENSION_MISMATCH`      | `NamespaceDimensionMismatchError`      | `NamespaceRepository.upsert`                                                | `store-lifecycle` (reopen matrix)                         |
 | `MIGRATION_COMPATIBILITY`           | `MigrationCompatibilityError`          | v003 tokenizer conflict / `validateTokenizer`                               | `migration-internals`, `providers-tokenizer`              |
@@ -57,21 +57,17 @@ Updated through the v0.3 remediation (phases R1–R9) and the 2026-05-21 retriev
 | `EMBEDDING_PROVIDER_ERROR`          | `EmbeddingProviderError`               | `indexBatch` fail-fast path / Step-0 provider failure                       | `store-operations`, `store-edge-cases`, `r7-conformance`  |
 | `REINDEX_ERROR`                     | `ReindexError`                         | reindex failure boundary                                                    | `store-operations`, `store-edge-cases`, `reindex-options` |
 | `REINDEX_PARTIAL_REJECTED`          | `ReindexError` (`.skipped`, `.advice`) | staging-swap skip build rejected without `allowPartialSwap`                 | `reindex-options`                                         |
-| `INTERNAL_INVARIANT`                | `TragetiError`                         | "should never happen" guards (row absent after self-insert)                 | defensive — unreachable in correct use                    |
+| `REINDEX_ALREADY_RUNNING`           | `ReindexError`                         | per-namespace reindex lock rejects overlapping same-namespace runs          | `reindex-options`                                         | `r`n | `INTERNAL_INVARIANT` | `TragetiError` | "should never happen" guards (row absent after self-insert) | defensive — unreachable in correct use |
 
 ## Schema migrations
 
-| Version                | Behavior                                                                                             | File                                              | Tests                                                               |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------- |
-| v001                   | initial schema (`trl_*` core tables, `trl_fts`, indexes, triggers)                                   | `src/db/migrations/v001_initial.ts`               | `migrations.test.ts`                                                |
-| v002                   | `trl_citations` table + reverse-supersession index                                                   | `src/db/migrations/v002_citations.ts`             | `migrations.test.ts`                                                |
-| v003 (FK-toggle)       | nullable embedding columns with `CHECK` + `trl_fts_meta` tokenizer table                             | `src/db/migrations/v003_vectorless.ts`            | `migrations.test.ts`, `migration-internals.test.ts` (compat branch) |
-| v004 (standard)        | backfill `created_at` to canonical ISO-8601                                                          | `src/db/migrations/v004_timestamps.ts`            | `migrations.test.ts`, `e2e.test.ts`                                 |
-| v005 (FK-toggle)       | rename every library table `trl_*` → `trageti_*`; FTS5 recreate; embedding copy-swap                 | `src/db/migrations/v005_rename.ts`                | `migrations.test.ts`, `migration-internals.test.ts` (copy-swap)     |
-| FK-toggle choreography | capture FK, disable, BEGIN, body, `foreign_key_check`, INSERT version, COMMIT, restore               | `runner.ts` `runFkToggleMigration`                | `migration-internals.test.ts` (rollback path)                       |
-| schema-version table   | runner self-migrates `trl_schema_version` → `trageti_schema_version` (copy, then drop after success) | `runner.ts` `getCurrentVersion`/`applyMigrations` | `migrations.test.ts`, `migration-internals.test.ts`                 |
+| Version              | Behavior                                                                                                                        | File                                             | Tests                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
+| v001 baseline        | creates the steady-state `trageti_` schema directly at schema version `1`                                                       | `src/db/migrations/v001_baseline.ts`             | `migrations.test.ts`, `migration-internals.test.ts` |
+| schema-version table | runner bootstraps `trageti_schema_version`; no legacy `trl_schema_version` copy-forward path exists in the active v0.3 baseline | `src/db/migrations/runner.ts`                    | `migrations.test.ts`, `migration-internals.test.ts` |
+| schema fixture       | baseline schema is compared with the captured v001-v005 steady-state fixture                                                    | `test/fixtures/schema-v001-v005-steady-state.ts` | `migrations.test.ts`                                |
 
-## Required test classes (spec Testing Strategy)
+`r`n## Required test classes (spec Testing Strategy)
 
 | Class                                                             | Status      | Test file                                               |
 | ----------------------------------------------------------------- | ----------- | ------------------------------------------------------- |
@@ -82,7 +78,6 @@ Updated through the v0.3 remediation (phases R1–R9) and the 2026-05-21 retriev
 | `getStats`/`getPendingIndexing` on an unknown namespace           | **covered** | `store-lifecycle.test.ts`                               |
 | Lazy vec0 creation                                                | **covered** | `vectorless-namespace.test.ts`                          |
 | Hybrid degradation + `TRGT_RETRIEVE_VECTOR_SKIPPED`               | **covered** | `store-operations.test.ts`, `no-sqlite-vec.test.ts`     |
-| FK-toggle migration failure (rollback + FK restore)               | **covered** | `migration-internals.test.ts`                           |
 | FK verifier fail-closed                                           | **covered** | `connection-verifier.test.ts`                           |
 | Multi-hop `findPath` (DAGs, determinism, cycles)                  | **covered** | `graph-traversal.test.ts`                               |
 | Adversarial FTS inputs (`phrase` + `fts5` modes)                  | **covered** | `retrieve-validation.test.ts`                           |
@@ -99,7 +94,7 @@ Updated through the v0.3 remediation (phases R1–R9) and the 2026-05-21 retriev
 | `store.explain` shape (non-executing; routing flags)              | **covered** | `store-lifecycle.test.ts`, `store-edge-cases.test.ts`   |
 | `initNamespace` reopen matrix + per-namespace providers           | **covered** | `store-lifecycle.test.ts`                               |
 | Realistic temporal-drift E2E scenario                             | **covered** | `e2e.test.ts`                                           |
-| v005 embedding-table copy-swap (vectors survive the rename)       | **covered** | `migration-internals.test.ts`                           |
+| Baseline schema matches captured steady-state schema fixture      | **covered** | `migrations.test.ts`, `migration-internals.test.ts`     |
 
 ## R7 — code-review conformance fixes
 
@@ -165,43 +160,30 @@ Recorded in the dated **Retrieval & graph polish** amendment of `trageti-spec-v0
 
 ## Documentation
 
-| Spec requirement                   | File                                                         |
-| ---------------------------------- | ------------------------------------------------------------ |
-| Migration guide v0.2 → v0.3        | [../migration-v0.2-to-v0.3.md](../migration-v0.2-to-v0.3.md) |
-| Release notes / breaking changes   | [../../CHANGELOG.md](../../CHANGELOG.md)                     |
-| Quick-start (v0.3 surface)         | [../../README.md](../../README.md)                           |
-| Developer / contributor guide      | [../dev/README.md](../dev/README.md)                         |
-| Spec amendments (table-naming, R9) | trageti-spec-v0.3.md — dated "v0.3 Amendment" entries        |
-| Spec verification matrix           | this file                                                    |
+| Spec requirement                             | File                                                         |
+| -------------------------------------------- | ------------------------------------------------------------ |
+| v0.2 migration note (obsolete pre-beta path) | [../migration-v0.2-to-v0.3.md](../migration-v0.2-to-v0.3.md) |
+| Release notes / breaking changes             | [../../CHANGELOG.md](../../CHANGELOG.md)                     |
+| Quick-start (v0.3 surface)                   | [../../README.md](../../README.md)                           |
+| Developer / contributor guide                | [../dev/README.md](../dev/README.md)                         |
+| Spec amendments (table-naming, R9)           | trageti-spec-v0.3.md — dated "v0.3 Amendment" entries        |
+| Spec verification matrix                     | this file                                                    |
 
 ## Documented deviations
 
-The implementation matches the spec **as amended** (both the Table-naming
-overhaul and the R9 API-conformance amendment). After R9 there is **one**
-documented, intentional deviation:
-
-1. **Unsupported embedding-table residue.** Fresh v0.3 databases, and migrated
-   databases opened with `sqlite-vec` loaded, contain zero `trl_*` tables after
-   migration v005. The single exception is an unsupported pre-v0.3 vector
-   database opened _without_ `sqlite-vec`: a vec0 table physically cannot be
-   copied without the extension, so the legacy `trl_embeddings_*` table is left
-   inert and `embedding_table` keeps pointing at it. No known deployment is in
-   this state. v0.3 source contains no hard-coded runtime `trl_*` table literal;
-   the rename is eager-only inside v005 with no lazy runtime path.
+The implementation matches the spec **as amended**. The 2026-06-01 baseline
+migration reset intentionally removes the pre-beta v001-v005 upgrade chain from
+the active contract; v0.2 prototype database migration is not supported because
+there are no known consumers on v0.2.x or earlier.
 
 The pre-R9 matrix listed `getTemporalSnapshot` as an "additive superset"
-deviation. That framing was inaccurate — the method takes a single
-`TemporalSnapshotOptions` object, not the spec's positional
-`(namespace, temporalAnchor)` signature, so it was a genuine signature
-divergence rather than an additive one. The R9 amendment makes the object form
-canonical (item 1 of the amendment), so it is no longer a deviation.
+deviation. That framing was inaccurate; the R9 amendment makes the object form
+canonical, so it is no longer a deviation.
 
 ## Allowed residual `trl_` references
 
-These are expected, not gaps. Every other `trl_` in `src/` or `test/` is a real miss.
+These are expected, not gaps. Every other `trl_` in active `src/` code or non-historical tests is a real miss.
 
-- v001–v004 migration bodies (immutable — they created/operated on `trl_*` tables of their era).
-- The v005 rename migration body (names every `trl_*` source table it renames).
-- The runner's schema-version self-migration (`trl_schema_version` — the table it copies from and drops).
-- Legacy-state test seeding in `migrations.test.ts` and `migration-internals.test.ts` (deliberately simulating pre-R6 databases).
-- Historical sections of `CHANGELOG.md`, the migration guide, and the spec changelog / Migration v003 section.
+- Historical sections of `CHANGELOG.md`, v0.1/v0.2 specs, and older demo source documents that intentionally describe prior implementation history.
+- The captured steady-state fixture name `schema-v001-v005-steady-state.ts`; it contains only `trageti_` schema objects.
+- The obsolete v0.2 migration note, which now says automatic v0.2 prototype migration is unsupported.

@@ -6,8 +6,9 @@ Temporally-aware retrieval-augmented generation over SQLite.
 > `retrieve()` returns a `{ results, meta }` envelope, retrieval has an
 > explicit `retrievalStrategy` field (`hybrid` / `vector` / `bm25`),
 > namespaces can be vectorless (BM25-only, no `sqlite-vec` required), and
-> there is a real `create()` / `close()` lifecycle. Upgrading from v0.2?
-> See [\_docs/migration-v0.2-to-v0.3.md](_docs/migration-v0.2-to-v0.3.md).
+> there is a real `create()` / `close()` lifecycle. The pre-beta v0.3 schema
+> is now a single baseline migration at schema version `1`; automatic
+> migration from v0.2 prototype databases is intentionally not supported.
 
 `trageti` stores, indexes, and retrieves _episodic assertions_ — discrete, typed claims with explicit validity windows — with retrieval that respects temporal position as a first-class constraint alongside semantic similarity and full-text matching.
 
@@ -42,7 +43,7 @@ retrieval.
 ## Quick start — hybrid retrieval
 
 ```typescript
-import { TemporalStore } from 'trageti'
+import { TemporalStore } from 'trageti';
 
 // create() opens the database, applies the v0.3 default pragmas
 // (WAL, busy_timeout, temp_store), loads sqlite-vec, and runs init().
@@ -50,7 +51,7 @@ const store = await TemporalStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
-})
+});
 
 // Write an episode (provenance anchor).
 await store.writeEpisode({
@@ -60,7 +61,7 @@ await store.writeEpisode({
   occurredAt: new Date().toISOString(),
   type: 'document',
   content: 'Source document excerpt...',
-})
+});
 
 // Write an assertion derived from the episode. Every assertion must carry
 // at least one citation. Nullable fields (validUntil, supersedesId,
@@ -81,11 +82,11 @@ await store.writeAssertion({
       excerpt: 'Source document excerpt mentioning SQLite for storage...',
     },
   ],
-})
+});
 
 // Index with your embedding model.
-const embedding = await myEmbeddingModel.embed('The system uses SQLite for storage.')
-await store.indexAssertion('a-1', embedding)
+const embedding = await myEmbeddingModel.embed('The system uses SQLite for storage.');
+await store.indexAssertion('a-1', embedding);
 
 // Retrieve — returns a { results, meta } envelope. Only assertions valid
 // at temporalAnchor are returned.
@@ -95,11 +96,11 @@ const { results, meta } = await store.retrieve({
   queryText: 'storage solution',
   temporalAnchor: 1,
   limit: 10, // optional — defaults to 10
-})
-console.log(results.length, 'results via', meta.retrievalStrategy)
+});
+console.log(results.length, 'results via', meta.retrievalStrategy);
 
 // Close when done. Because create() opened the database, close() closes it.
-await store.close()
+await store.close();
 ```
 
 ## Quick start — BM25-only (vectorless, no sqlite-vec)
@@ -108,29 +109,29 @@ Omit `embeddingDimension` to register a vectorless namespace. It needs no
 `sqlite-vec` install and supports BM25-only retrieval.
 
 ```typescript
-import { TemporalStore } from 'trageti'
+import { TemporalStore } from 'trageti';
 
 const store = await TemporalStore.create({
   database: 'logs.db',
   namespace: 'logs',
   prepare: { loadSqliteVec: false }, // sqlite-vec not needed
-})
+});
 
 await store.writeEpisode({
   /* ... */
-})
+});
 await store.writeAssertion({
   /* ... */
-})
+});
 
 const { results } = await store.retrieve({
   namespace: 'logs',
   queryText: 'connection timeout',
   temporalAnchor: 100,
   retrievalStrategy: 'bm25',
-})
+});
 
-await store.close()
+await store.close();
 ```
 
 A vectorless namespace can be upgraded to vector-configured later with
@@ -150,12 +151,12 @@ The low-level path remains available for callers that already manage a
 `Database`:
 
 ```typescript
-import Database from 'better-sqlite3'
-import { TemporalStore, prepareDatabase } from 'trageti'
+import Database from 'better-sqlite3';
+import { TemporalStore, prepareDatabase } from 'trageti';
 
-const db = prepareDatabase('my-store.db') // applies pragmas, loads sqlite-vec
-const store = new TemporalStore(db, { namespace: 'ns', embeddingDimension: 1536 })
-await store.init()
+const db = prepareDatabase('my-store.db'); // applies pragmas, loads sqlite-vec
+const store = new TemporalStore(db, { namespace: 'ns', embeddingDimension: 1536 });
+await store.init();
 ```
 
 The default connection verifier **enforces foreign keys**: it sets
@@ -198,7 +199,7 @@ await store.writeAssertion({
   sourceEpisodeId: 'ep-5',
   confidence: 0.95,
   citations: [{ id: 'cit-2', episodeId: 'ep-5', sourceRef: 'chunk:9', excerpt: '...' }],
-})
+});
 ```
 
 Queries at `validAt < 5` still see `a-1`; queries at `validAt >= 5` do not.
@@ -223,7 +224,7 @@ const { results, meta } = await store.retrieve({
   expandLinks: true, // attach graph neighbours
   maxDepth: 2,
   mode: 'snapshot', // or 'trajectory' — see below
-})
+});
 ```
 
 `retrieve()` returns a `RetrievalResult` envelope:
@@ -258,13 +259,13 @@ const { results } = await store.retrieve({
   queryEmbedding: embedding,
   temporalAnchor: 10,
   mode: 'trajectory',
-})
+});
 
 for (const r of results) {
   // r.supersessionChain is always present in trajectory mode — the prior
   // versions of r in chronological order (oldest first), each with its own
   // citations. Empty array means no predecessors. Absent in snapshot mode.
-  console.log(r.supersessionChain?.map((a) => a.id))
+  console.log(r.supersessionChain?.map((a) => a.id));
 }
 ```
 
@@ -316,7 +317,7 @@ await store.writeAssertion({
       metadata: { confidence: 0.95 }, // optional caller data
     },
   ],
-})
+});
 ```
 
 If you discover a citation after the assertion has been written, add it via
@@ -335,9 +336,9 @@ indexing and for provider-derived query embeddings):
 
 ```typescript
 interface EmbeddingProvider {
-  readonly name: string
-  readonly dimension: number
-  embed(texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]>
+  readonly name: string;
+  readonly dimension: number;
+  embed(texts: readonly string[], options?: EmbedOptions): Promise<Float32Array[]>;
 }
 ```
 
@@ -348,14 +349,14 @@ Core ships two providers:
 - `RawVectorProvider` — for callers that already have embeddings on hand.
 
 ```typescript
-import { MockEmbeddingProvider } from 'trageti'
+import { MockEmbeddingProvider } from 'trageti';
 
 const store = await TemporalStore.create({
   database: 'my-store.db',
   namespace: 'ns',
   embeddingDimension: 384,
   embeddingProvider: new MockEmbeddingProvider({ dimension: 384 }),
-})
+});
 ```
 
 ## Context assembly
@@ -369,7 +370,7 @@ const ctx = await store.assembleContext({
   temporalAnchor: 10,
   tokenBudget: 4000,
   formatter: new JsonFormatter(), // or ProseFormatter / StructuredFormatter
-})
+});
 // ctx.text     — formatted string ready for prompt injection
 // ctx.truncated — true if token budget was exceeded
 // ctx.coverage  — { totalAssertions, includedAssertions, positionRange }
@@ -393,7 +394,7 @@ const connected = await store.getConnected({
   maxDepth: 2,
   linkTypes: ['related', 'sequential'], // optional filter
   temporalAnchor: 10,
-})
+});
 
 // Find shortest path between two assertions
 const path = await store.findPath({
@@ -402,7 +403,7 @@ const path = await store.findPath({
   toAssertionId: 'a-5',
   maxDepth: 5,
   temporalAnchor: 10,
-})
+});
 ```
 
 Links carry their own `validFrom` / `validUntil` — expired links are automatically excluded.
@@ -419,7 +420,7 @@ const snapshot = await store.getTemporalSnapshot({
   atPosition: 5,
   assertionTypes: ['fact', 'update'], // optional
   entityTypes: ['concept'], // optional
-})
+});
 ```
 
 By default `getTemporalSnapshot` returns the single version of each assertion valid _at_ `atPosition`. Pass `includeSuperseded: true` to also get versions that were already closed by `atPosition` (every assertion with `validFrom <= atPosition`).
@@ -440,7 +441,7 @@ const store = await TemporalStore.create({
     warn: (code, fields) => myObservability.warn(code, fields),
     error: (code, fields) => myObservability.error(code, fields),
   },
-})
+});
 ```
 
 The default logger (`ConsoleLogger`) writes `warn`/`error` records to stderr.
@@ -471,7 +472,7 @@ const store = await TemporalStore.create({
       },
     ],
   },
-})
+});
 ```
 
 Extension column values appear on returned assertion objects under `assertion.extensions`.
@@ -489,21 +490,21 @@ Constraints:
 ```typescript
 const loggingMiddleware: RetrievalMiddleware = {
   before: (query) => {
-    console.log('retrieving at anchor', query.temporalAnchor)
-    return query
+    console.log('retrieving at anchor', query.temporalAnchor);
+    return query;
   },
   after: (results) => {
-    console.log('got', results.length, 'results')
-    return results
+    console.log('got', results.length, 'results');
+    return results;
   },
-}
+};
 
 const store = await TemporalStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
   middleware: [loggingMiddleware],
-})
+});
 ```
 
 Middleware runs: global `before` (registration order) → per-call `before` →
@@ -513,12 +514,12 @@ retrieval core → per-call `after` (reverse) → global `after` (reverse).
 ## Custom scorer
 
 ```typescript
-import type { RetrievalScorer, ScoredCandidate, ScoringContext } from 'trageti'
+import type { RetrievalScorer, ScoredCandidate, ScoringContext } from 'trageti';
 
 class MyScorer implements RetrievalScorer {
   score(candidate: ScoredCandidate, ctx: ScoringContext): number {
-    const range = ctx.namespacePositionRange.max - ctx.namespacePositionRange.min || 1
-    return (candidate.position - ctx.namespacePositionRange.min) / range
+    const range = ctx.namespacePositionRange.max - ctx.namespacePositionRange.min || 1;
+    return (candidate.position - ctx.namespacePositionRange.min) / range;
   }
 }
 
@@ -527,7 +528,7 @@ const store = await TemporalStore.create({
   namespace: 'my-namespace',
   embeddingDimension: 1536,
   scorer: new MyScorer(),
-})
+});
 ```
 
 `ScoredCandidate.semanticDistance` and `bm25Score` are each `number | null`:
@@ -543,7 +544,7 @@ returned array length); `DefaultScorer.scoreBatch` is a worked reference.
 are applied automatically on `init()` and are idempotent.
 
 ```typescript
-const version = await store.getCurrentSchemaVersion()
+const version = await store.getCurrentSchemaVersion();
 ```
 
 ## Reindexing and FTS maintenance
@@ -557,14 +558,14 @@ intact.
 await store.reindexNamespace('my-namespace', {
   newDimension: 3072,
   embeddingProvider: myEmbeddingProvider,
-})
+});
 ```
 
 `rebuildFts` drops and recreates the full-text index — useful to change the
 tokenizer or repair the index — preserving the rowid join used for BM25:
 
 ```typescript
-await store.rebuildFts({ tokenizer: { tokenizer: 'porter', tokenizerArgs: ['unicode61'] } })
+await store.rebuildFts({ tokenizer: { tokenizer: 'porter', tokenizerArgs: ['unicode61'] } });
 ```
 
 `getPendingIndexing(namespace)` lists assertions that have no embedding yet.
@@ -575,7 +576,7 @@ A single database can host multiple namespaces, each with isolated data and
 its own embedding table:
 
 ```typescript
-await store.initNamespace('team-b', { embeddingDimension: 768 })
+await store.initNamespace('team-b', { embeddingDimension: 768 });
 ```
 
 ## Known limitations

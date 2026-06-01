@@ -57,34 +57,10 @@ reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
 
 ### Storage
 
-- **Migration v003** introduces nullable `trl_namespaces.embedding_dimension`
-  and `embedding_table` columns with a both-null-or-both-non-null `CHECK`,
-  plus a new `trl_fts_meta` table that records the active tokenizer
-  configuration (library-managed; not parsed from `sqlite_master`).
-- **Migration v004** backfills every `created_at` column to canonical
-  ISO-8601 (`strftime('%Y-%m-%dT%H:%M:%fZ', …)`) so the determinism
-  tie-break holds on upgraded databases; v0.3 repositories also generate
-  `new Date().toISOString()` for new rows.
-- **Migration v005 — table rename.** Every library table moves from the
-  `trl_` prefix to `trageti_`: `trageti_namespaces`, `trageti_episodes`,
-  `trageti_assertions`, `trageti_links`, `trageti_citations`, the FTS5 table
-  `trageti_fulltext`, the tokenizer-metadata table `trageti_tokenizer`, the
-  `trageti_idx_*` indexes, and per-namespace `trageti_embeddings_<hash>` vec0
-  tables. The schema-version table (`trageti_schema_version`) is renamed by
-  the migration runner's own self-migration. `LibraryTable` /
-  `SchemaExtensions.table` and the reserved extension prefix become
-  `trageti_` — a deliberate public-API change. See the v0.3 Specification
-  Amendment for the full rename map.
-- **FK-toggle migration choreography** (`requiresForeignKeyToggle: true`):
-  the runner captures the current `PRAGMA foreign_keys`, disables it,
-  BEGINs an explicit transaction, runs the migration body, runs
-  `PRAGMA foreign_key_check` (rolls back if violations are found),
-  inserts the schema-version row, COMMITs, then restores the captured FK
-  state in `finally`.
-- **Lazy vec0 creation.** `init()` no longer eagerly creates per-namespace
-  vec0 virtual tables; an internal `ensureVectorReady(namespace)` chokepoint
-  validates the namespace is vector-configured, that `sqlite-vec` is
-  loaded, and creates the vec0 table on first use.
+- **Single v0.3 baseline migration.** The pre-beta migration chain has been flattened to one baseline at schema version `1`. Fresh databases are created directly with the steady-state `trageti_` schema: nullable vector namespace columns, citation storage, canonical `created_at` fields, `trageti_fulltext` + sync triggers, `trageti_tokenizer`, `trageti_idx_*` indexes, and per-namespace `trageti_embeddings_<hash>` vec0 tables when provisioned. Automatic migration from v0.2 prototype databases is intentionally not part of the v0.3 beta contract.
+- **Lazy vec0 creation.** `init()` no longer eagerly creates per-namespace vec0 virtual tables. Indexing, reindexing, and namespace vector upgrade provision vec0 tables; retrieval is read-only and degrades hybrid queries to BM25 when a configured vector table has not yet been provisioned.
+- **Safer maintenance and lifecycle behavior.** `batchSize` options are now validated before side effects, staging reindex uses unique run identifiers plus a per-namespace lock, reindex pagination is keyset-based, skip mode preserves batch provider calls, and `close()` rejects new operations while waiting for in-flight provider-backed operations to settle before closing an owned database handle.
+- **Stricter public-boundary validation.** Fractional token budgets, invalid graph depths, non-finite temporal/confidence inputs, malformed assertion fields, and cross-namespace link source episodes now fail with typed validation errors instead of raw TypeErrors or SQLite constraint failures.
 
 ### Scoring and ranking
 
