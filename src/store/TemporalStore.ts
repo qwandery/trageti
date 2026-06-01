@@ -1028,7 +1028,13 @@ export class TemporalStore {
             'reindexNamespace requires an embeddingProvider (none supplied and none configured on the store)',
           );
         }
-        this.ensureVectorReady(namespace, 'indexing');
+        try {
+          this.ensureVectorReady(namespace, 'indexing');
+        } catch (err) {
+          throw new ReindexError(namespace, 0, err instanceof Error ? err.message : String(err), {
+            code: errorCodeOf(err),
+          });
+        }
         const result = await doReindex(this.db, this.namespaceRepo, this.embeddingRepo, namespace, {
           ...options,
           embeddingProvider: provider,

@@ -356,7 +356,8 @@ describe('getMigrations() reports appliedAt', () => {
     const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     const migrations = await store.getMigrations();
-    expect(migrations).toHaveLength(5);
+    expect(migrations).toHaveLength(1);
+    expect(migrations[0]?.name).toBe('v001_baseline');
     for (const m of migrations) {
       expect(typeof m.appliedAt).toBe('string');
       expect(m.appliedAt).not.toBeNull();
