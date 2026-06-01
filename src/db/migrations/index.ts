@@ -1,19 +1,9 @@
 import type { Migration, FTS5TokenizerConfig } from '../../domain/types.js'
-import { createV001Migration } from './v001_initial.js'
-import { createV002Migration } from './v002_citations.js'
-import { createV003Migration } from './v003_vectorless.js'
-import { createV004Migration } from './v004_timestamps.js'
-import { createV005Migration } from './v005_rename.js'
+import { createV001BaselineMigration } from './v001_baseline.js'
 
 /** Returns the ordered migration list. Must be kept sorted by version with no gaps. */
 export function getMigrations(tokenizerConfig?: FTS5TokenizerConfig): readonly Migration[] {
-  const migrations: Migration[] = [
-    createV001Migration(tokenizerConfig),
-    createV002Migration(),
-    createV003Migration(tokenizerConfig),
-    createV004Migration(),
-    createV005Migration(),
-  ]
+  const migrations: Migration[] = [createV001BaselineMigration(tokenizerConfig)]
 
   // Invariant: version must equal array index + 1 (no gaps, no reordering)
   for (let i = 0; i < migrations.length; i++) {

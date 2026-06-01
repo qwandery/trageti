@@ -332,7 +332,7 @@ describe('prepareDatabase — custom pragmas', () => {
       namespace: 'pg',
       prepare: { pragmas: { cache_size: -2000 } },
     })
-    expect(await store.getCurrentSchemaVersion()).toBe(5)
+    expect(await store.getCurrentSchemaVersion()).toBe(1)
     await store.close()
   })
 })

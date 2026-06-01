@@ -185,10 +185,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1')
   })
 
-  it('schema version is 5 after init (v005 = trageti_ table rename)', async () => {
+  it('schema version is 1 after init (v0.3 baseline)', async () => {
     const db = openTestDb()
     const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM })
     await store.init()
-    expect(await store.getCurrentSchemaVersion()).toBe(5)
+    expect(await store.getCurrentSchemaVersion()).toBe(1)
   })
 })

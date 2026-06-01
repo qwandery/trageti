@@ -3,7 +3,7 @@ import type { LibraryTable } from '../../domain/types.js'
 /**
  * Canonical list of library-owned columns per table.
  * Used by SchemaExtensionApplier for shadow detection.
- * Must stay in sync with the v001 DDL in migrations/v001_initial.ts.
+ * Must stay in sync with the baseline DDL in migrations/v001_baseline.ts.
  */
 export const LIBRARY_COLUMNS: Readonly<Record<LibraryTable, readonly string[]>> = {
   trageti_assertions: [

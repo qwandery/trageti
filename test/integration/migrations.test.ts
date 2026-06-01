@@ -2,173 +2,189 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { Database } from 'better-sqlite3'
 import { openTestDb } from '../helpers/openTestDb.js'
 import { MigrationRunner } from '../../src/db/migrations/runner.js'
+import {
+  EXPECTED_STEADY_STATE_COLUMNS,
+  EXPECTED_STEADY_STATE_OBJECTS,
+  type ExpectedSchemaColumn,
+  type ExpectedSchemaObject,
+} from '../fixtures/schema-v001-v005-steady-state.js'
 
 interface SqliteMasterRow {
-  name: string
   type: string
+  name: string
+  tbl_name: string
   sql: string
 }
 
-function getObjects(db: Database, type: string): SqliteMasterRow[] {
-  return db
-    .prepare<[string], SqliteMasterRow>(`SELECT name, type, sql FROM sqlite_master WHERE type = ?`)
-    .all(type)
+function normalizeSql(sql: string): string {
+  return sql.replace(/"/g, '').replace(/\s+/g, ' ').trim()
 }
 
-describe('MigrationRunner', () => {
+function getSchemaObjects(db: Database): ExpectedSchemaObject[] {
+  return db
+    .prepare<[], SqliteMasterRow>(
+      `SELECT type, name, tbl_name, sql
+         FROM sqlite_master
+        WHERE sql IS NOT NULL
+          AND name NOT LIKE 'sqlite_%'
+          AND name NOT GLOB 'trageti_fulltext_*'
+        ORDER BY type, name`,
+    )
+    .all()
+    .map((row) => ({
+      type: row.type,
+      name: row.name,
+      tableName: row.tbl_name,
+      sql: normalizeSql(row.sql),
+    }))
+}
+
+function getSchemaColumns(db: Database): Record<string, ExpectedSchemaColumn[]> {
+  const tables = db
+    .prepare<[], { name: string }>(
+      `SELECT name
+         FROM sqlite_master
+        WHERE type IN ('table', 'virtual table')
+          AND name NOT LIKE 'sqlite_%'
+          AND name NOT GLOB 'trageti_fulltext_*'
+        ORDER BY name`,
+    )
+    .all()
+    .map((row) => row.name)
+  const columns: Record<string, ExpectedSchemaColumn[]> = {}
+  for (const table of tables) {
+    columns[table] = db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row) => {
+        const col = row as {
+          name: string
+          type: string
+          notnull: number
+          dflt_value: string | null
+          pk: number
+        }
+        return {
+          name: col.name,
+          type: col.type,
+          notnull: col.notnull,
+          defaultValue: col.dflt_value,
+          pk: col.pk,
+        }
+      })
+  }
+  return columns
+}
+
+function getObjects(db: Database, type: string): string[] {
+  return db
+    .prepare<[string], { name: string }>(`SELECT name FROM sqlite_master WHERE type = ?`)
+    .all(type)
+    .map((row) => row.name)
+}
+
+describe('MigrationRunner baseline schema', () => {
   let db: Database
 
-  beforeEach(async () => {
+  beforeEach(() => {
     db = openTestDb()
   })
 
-  it('applies all migrations on a fresh database', async () => {
+  it('applies the v0.3 baseline on a fresh database', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
-    expect(runner.getCurrentVersion(db)).toBe(5)
-
-    const tables = getObjects(db, 'table').map((r) => r.name)
-    expect(tables).toContain('trageti_namespaces')
-    expect(tables).toContain('trageti_episodes')
-    expect(tables).toContain('trageti_assertions')
-    expect(tables).toContain('trageti_links')
-    expect(tables).toContain('trageti_citations')
-    expect(tables).toContain('trageti_tokenizer')
-    expect(tables).toContain('trageti_schema_version')
-
-    // After the v005 rename, no legacy trl_* table survives.
-    expect(tables.some((t) => t.startsWith('trl_'))).toBe(false)
-  })
-
-  it('is idempotent — second applyMigrations does not re-apply', async () => {
-    const runner = new MigrationRunner()
-    runner.applyMigrations(db)
-    runner.applyMigrations(db)
-    expect(runner.getCurrentVersion(db)).toBe(5)
-
-    const versionRows = db.prepare('SELECT COUNT(*) AS cnt FROM trageti_schema_version').get() as {
-      cnt: number
-    }
-    expect(versionRows.cnt).toBe(5)
-  })
-
-  it('creates the FTS5 table', async () => {
-    const runner = new MigrationRunner()
-    runner.applyMigrations(db)
-    const vtables = getObjects(db, 'table').map((r) => r.name)
-    expect(vtables).toContain('trageti_fulltext')
-  })
-
-  it('creates FTS5 sync triggers', async () => {
-    const runner = new MigrationRunner()
-    runner.applyMigrations(db)
-    const triggers = getObjects(db, 'trigger').map((r) => r.name)
-    expect(triggers).toContain('trageti_fulltext_ai')
-    expect(triggers).toContain('trageti_fulltext_ad')
-    expect(triggers).toContain('trageti_fulltext_au')
-  })
-
-  it('creates all required indexes', async () => {
-    const runner = new MigrationRunner()
-    runner.applyMigrations(db)
-    const indexes = getObjects(db, 'index').map((r) => r.name)
-    expect(indexes).toContain('trageti_idx_assertions_ns_pos')
-    expect(indexes).toContain('trageti_idx_assertions_entity')
-    expect(indexes).toContain('trageti_idx_assertions_episode')
-    expect(indexes).toContain('trageti_idx_links_from')
-    expect(indexes).toContain('trageti_idx_links_to')
-    expect(indexes).toContain('trageti_idx_episodes_ns_pos')
-    // v002: citations + reverse-supersession lookup
-    expect(indexes).toContain('trageti_idx_citations_assertion')
-    expect(indexes).toContain('trageti_idx_assertions_supersedes')
-  })
-
-  it('upgrades a v001-only DB to v005 cleanly with legacy citation-less assertions', async () => {
-    const { createV001Migration } = await import('../../src/db/migrations/v001_initial.js')
-    const v001 = createV001Migration()
-    // The v0.1-era database is bootstrapped with the legacy trl_* names —
-    // v001 factually creates trl_* tables; v005 renames them later.
-    db.exec(
-      `CREATE TABLE IF NOT EXISTS trl_schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')), description TEXT NOT NULL)`,
+    expect(runner.getCurrentVersion(db)).toBe(1)
+    expect(getObjects(db, 'table')).toEqual(
+      expect.arrayContaining([
+        'trageti_namespaces',
+        'trageti_episodes',
+        'trageti_assertions',
+        'trageti_links',
+        'trageti_citations',
+        'trageti_tokenizer',
+        'trageti_schema_version',
+        'trageti_fulltext',
+      ]),
     )
-    v001.up(db)
-    db.prepare('INSERT INTO trl_schema_version (version, description) VALUES (?, ?)').run(
-      1,
-      v001.description,
-    )
-
-    // Insert a legacy citation-less assertion via direct SQL (bypassing the validator).
-    db.prepare(
-      'INSERT INTO trl_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)',
-    ).run('legacy', 4, 'trl_embeddings_legacy')
-    db.prepare(
-      `INSERT INTO trl_episodes (id, namespace, position, occurred_at, type, content) VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run('ep-old', 'legacy', 1, '2024-01-01', 'doc', 'old')
-    db.prepare(
-      `INSERT INTO trl_assertions (id, namespace, type, content, valid_from, valid_until, confidence, source_episode_id, supersedes_id, entity_id, entity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run('a-legacy', 'legacy', 'fact', 'pre-v002 row', 1, null, 1.0, 'ep-old', null, null, null)
-
-    expect(new MigrationRunner().getCurrentVersion(db)).toBe(1)
-
-    // Now run the full runner — should upgrade to the latest version cleanly.
-    new MigrationRunner().applyMigrations(db)
-    expect(new MigrationRunner().getCurrentVersion(db)).toBe(5)
-
-    // The v005 rename retired every trl_* table, including the legacy
-    // schema-version table (renamed by the runner's self-migration).
-    const tables = getObjects(db, 'table').map((r) => r.name)
-    expect(tables.some((t) => t.startsWith('trl_'))).toBe(false)
-
-    // trageti_citations exists and is empty.
-    expect(tables).toContain('trageti_citations')
-    const citCount = db.prepare('SELECT COUNT(*) AS c FROM trageti_citations').get() as {
-      c: number
-    }
-    expect(citCount.c).toBe(0)
-
-    // The legacy row survived the migration chain non-destructively.
-    const a = db.prepare('SELECT id FROM trageti_assertions WHERE id = ?').get('a-legacy') as
-      | { id: string }
-      | undefined
-    expect(a?.id).toBe('a-legacy')
+    expect(getObjects(db, 'table').some((name) => name.startsWith('trl_'))).toBe(false)
   })
 
-  it('records tokenizer args in the FTS5 table DDL', async () => {
+  it('is idempotent', () => {
+    const runner = new MigrationRunner()
+    runner.applyMigrations(db)
+    runner.applyMigrations(db)
+
+    expect(runner.getCurrentVersion(db)).toBe(1)
+    const versionRows = db
+      .prepare<[], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trageti_schema_version')
+      .get()
+    expect(versionRows?.cnt).toBe(1)
+  })
+
+  it('matches the pre-flattening v001-to-v005 steady-state schema', () => {
+    const runner = new MigrationRunner()
+    runner.applyMigrations(db)
+
+    expect(getSchemaObjects(db)).toEqual(EXPECTED_STEADY_STATE_OBJECTS)
+    expect(getSchemaColumns(db)).toEqual(EXPECTED_STEADY_STATE_COLUMNS)
+  })
+
+  it('creates all required FTS triggers and indexes', () => {
+    const runner = new MigrationRunner()
+    runner.applyMigrations(db)
+
+    expect(getObjects(db, 'trigger')).toEqual(
+      expect.arrayContaining([
+        'trageti_fulltext_ai',
+        'trageti_fulltext_ad',
+        'trageti_fulltext_au',
+      ]),
+    )
+    expect(getObjects(db, 'index')).toEqual(
+      expect.arrayContaining([
+        'trageti_idx_assertions_ns_pos',
+        'trageti_idx_assertions_entity',
+        'trageti_idx_assertions_episode',
+        'trageti_idx_assertions_supersedes',
+        'trageti_idx_links_from',
+        'trageti_idx_links_to',
+        'trageti_idx_episodes_ns_pos',
+        'trageti_idx_citations_assertion',
+      ]),
+    )
+  })
+
+  it('records tokenizer args in metadata and FTS5 DDL', () => {
     const runner = new MigrationRunner({
       tokenizer: 'unicode61',
       tokenizerArgs: ['remove_diacritics', '1'],
     })
     runner.applyMigrations(db)
-    const ftsObj = getObjects(db, 'table').find((r) => r.name === 'trageti_fulltext')
-    expect(ftsObj?.sql).toContain('unicode61')
-    expect(ftsObj?.sql).toContain('remove_diacritics')
+
+    const metadata = db
+      .prepare<[], { tokenizer: string; tokenizer_args: string }>(
+        'SELECT tokenizer, tokenizer_args FROM trageti_tokenizer WHERE id = 1',
+      )
+      .get()
+    const fts = getSchemaObjects(db).find((obj) => obj.name === 'trageti_fulltext')
+
+    expect(metadata?.tokenizer).toBe('unicode61')
+    expect(JSON.parse(metadata?.tokenizer_args ?? '[]') as string[]).toEqual([
+      'remove_diacritics',
+      '1',
+    ])
+    expect(fts?.sql).toContain("tokenize='unicode61 remove_diacritics 1'")
   })
 
-  it('trageti_namespaces has the embedding_table column', async () => {
-    const runner = new MigrationRunner()
-    runner.applyMigrations(db)
-    const cols = db.prepare(`PRAGMA table_info(trageti_namespaces)`).all() as Array<{
-      name: string
-    }>
-    const names = cols.map((c) => c.name)
-    expect(names).toContain('embedding_table')
-  })
-
-  it('v003 makes namespace vector columns nullable and v005 exposes tokenizer metadata', async () => {
+  it('supports vectorless namespaces from the baseline', () => {
     const runner = new MigrationRunner()
     runner.applyMigrations(db)
 
-    db.prepare(
-      'INSERT INTO trageti_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)',
-    ).run('vectorless', null, null)
-    const row = db
-      .prepare('SELECT tokenizer, tokenizer_args FROM trageti_tokenizer WHERE id = 1')
-      .get() as {
-      tokenizer: string
-      tokenizer_args: string
-    }
-    expect(row.tokenizer).toBe('unicode61')
-    expect(JSON.parse(row.tokenizer_args) as string[]).toEqual(['remove_diacritics', '1'])
+    expect(() => {
+      db.prepare(
+        'INSERT INTO trageti_namespaces (namespace, embedding_dimension, embedding_table) VALUES (?, ?, ?)',
+      ).run('vectorless', null, null)
+    }).not.toThrow()
   })
 })

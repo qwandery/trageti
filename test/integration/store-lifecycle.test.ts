@@ -61,7 +61,7 @@ async function seedEpisodeAndAssertion(store: TemporalStore, ns: string): Promis
 describe('TemporalStore.create() lifecycle', () => {
   it('create() on an in-memory database initialises a usable store', async () => {
     const store = await TemporalStore.create({ database: ':memory:', namespace: 'mem' })
-    expect(await store.getCurrentSchemaVersion()).toBe(5)
+    expect(await store.getCurrentSchemaVersion()).toBe(1)
     await store.close()
   })
 
@@ -93,22 +93,21 @@ describe('TemporalStore.create() lifecycle', () => {
 })
 
 describe('TemporalStore migration introspection', () => {
-  it('getMigrations() reports the ordered v001–v005 descriptors', async () => {
+  it('getMigrations() reports the v0.3 baseline descriptor', async () => {
     const store = await TemporalStore.create({ database: ':memory:', namespace: 'mig' })
     const migrations = await store.getMigrations()
-    expect(migrations.map((m) => m.version)).toEqual([1, 2, 3, 4, 5])
+    expect(migrations.map((m) => m.version)).toEqual([1])
     expect(migrations.every((m) => typeof m.description === 'string')).toBe(true)
-    // v003 and v005 are FK-toggle migrations; v004 is a standard migration.
-    expect(migrations[2]?.requiresForeignKeyToggle).toBe(true)
-    expect(migrations[3]?.requiresForeignKeyToggle).toBe(false)
-    expect(migrations[4]?.requiresForeignKeyToggle).toBe(true)
+    expect(migrations[0]?.name).toBe('v001_baseline')
+    expect(migrations[0]?.requiresForeignKeyToggle).toBe(false)
+    expect(migrations[0]?.appliedAt).toEqual(expect.any(String))
     await store.close()
   })
 
   it('applyMigrations() is idempotent on an already-current database', async () => {
     const store = await TemporalStore.create({ database: ':memory:', namespace: 'mig' })
     await store.applyMigrations()
-    expect(await store.getCurrentSchemaVersion()).toBe(5)
+    expect(await store.getCurrentSchemaVersion()).toBe(1)
     await store.close()
   })
 })
