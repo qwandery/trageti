@@ -170,6 +170,56 @@ npx tsx demos/alex-place/index.ts
 npx tsx demos/know-thyself/index.ts
 ```
 
+## Ollama walkthrough
+
+Ollama can provide local chat extraction through its OpenAI-compatible `/v1`
+API and local embeddings through its native `/api/embeddings` API. Pull one
+chat-capable model and one embedding-capable model:
+
+```sh
+ollama pull llama3.1
+ollama pull nomic-embed-text
+```
+
+Start Ollama if it is not already running:
+
+```sh
+ollama serve
+```
+
+Probe the embedding dimension before configuring the demo:
+
+```sh
+curl -s http://127.0.0.1:11434/api/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"nomic-embed-text","prompt":"dimension probe"}' \
+  | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).embedding.length))"
+```
+
+Use the printed number as `DEMO_EMBED_DIMENSION`:
+
+```sh
+OLLAMA_HOST=http://127.0.0.1:11434
+
+DEMO_EXTRACT_PROVIDER=openai-compatible
+DEMO_EXTRACT_MODEL=llama3.1
+
+DEMO_EMBED_PROVIDER=ollama-native
+DEMO_EMBED_MODEL=nomic-embed-text
+DEMO_EMBED_DIMENSION=768
+```
+
+Replace `768` with the probed dimension if your embedding model returns a
+different vector length. If you change the embedding model or dimension, delete
+the matching demo database before rerunning.
+
+Then run either demo:
+
+```sh
+npx tsx demos/alex-place/index.ts
+npx tsx demos/know-thyself/index.ts
+```
+
 ## llama-server walkthrough
 
 `llama-server` from llama.cpp exposes OpenAI-compatible HTTP endpoints,
