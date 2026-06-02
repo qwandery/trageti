@@ -4,7 +4,7 @@
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Report vulnerabilities via [GitHub's private vulnerability reporting](https://github.com/qwandery/trageti/security/advisories/new) or email **security@qwandery.com**.
+Report vulnerabilities via [GitHub's private vulnerability reporting](https://github.com/qwandery/trageti/security/advisories/new) or email **support@qwandery.com**.
 
 Include a description of the vulnerability, steps to reproduce, and potential impact. We will acknowledge receipt within 48 hours and aim to release a fix within 14 days for critical issues.
 
