@@ -579,6 +579,11 @@ await store.initNamespace('team-b', { embeddingDimension: 768 });
 - **Graph traversal at scale** — the default `CTEGraphAdapter` uses recursive CTEs which can be slow on dense graphs. Implement a custom `GraphQueryAdapter` for large-scale graph workloads.
 - **`findPath` finds one path** — it returns the first shortest path found by BFS. It does not enumerate all paths.
 
+## Sponsorship
+
+If `trageti` is useful to your work, you can support ongoing development
+through [GitHub Sponsors](https://github.com/sponsors/qwandery).
+
 ## License
 
 MIT
