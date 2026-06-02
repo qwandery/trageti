@@ -2,7 +2,7 @@
 
 ## Package Specification v0.3
 
-**Status:** Final design specification — implementation begins after sign-off
+**Status:** Implemented v0.3 beta contract
 **Date:** May 2026
 **License intent:** MIT
 **Target runtime:** Node.js 18+ / TypeScript 5+
@@ -294,10 +294,9 @@ actual v0.2 source):
   deprecated alias.
 - **Vectorless namespaces** with lazy `vec0` creation. `init()` no longer
   requires `sqlite-vec`. New `vector-configured` / `vector-ready`
-  terminology. Schema migration v003 makes
-  `trl_namespaces.embedding_dimension` and `embedding_table` nullable
-  (with a both-null-or-both-non-null `CHECK`); FK-toggle migration runner
-  documented.
+  terminology. In the active v0.3 baseline, `trageti_namespaces.embedding_dimension`
+  and `embedding_table` are created nullable with a both-null-or-both-non-null
+  `CHECK`; the older v003/FK-toggle wording is historical design lineage only.
 - **`RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'`** added (the
   existing `RetrievalMode = 'snapshot' | 'trajectory'` keeps that name
   unchanged). BM25-only retrieval has a dedicated pipeline branch; hybrid
@@ -496,8 +495,9 @@ out of Phase 1 because it is in fact API/behavior-changing:
   exports or companion packages.
 - `RetrievalResult` envelope with metadata.
 - `RetrievalStrategy = 'hybrid' | 'vector' | 'bm25'` and BM25-only
-  pipeline branch; vectorless namespaces with lazy vec0; v003 schema
-  migration with FK-toggle runner.
+  pipeline branch; vectorless namespaces with lazy vec0; implemented in the
+  active baseline schema. The earlier v003/FK-toggle migration phrasing is
+  historical lineage only.
 - `RetrievalDebug` hook and `store.explain()`.
 - `NewAssertion` split into `NewAssertionInput` /
   `NormalizedNewAssertion`; supersession consolidated to
@@ -1438,7 +1438,7 @@ interface NamespaceConfig {
 a namespace is created **vector-configured** if either `embeddingDimension`
 or `embeddingProvider` is supplied; otherwise it is created **vectorless**
 (both `trageti_namespaces.embedding_dimension` and `embedding_table` are NULL,
-the v003 schema CHECK enforces that pair, and no vec0 table is ever
+the baseline schema CHECK enforces that pair, and no vec0 table is ever
 created).
 
 **On reopen, namespace state is determined by what is already stored**, not
@@ -1512,8 +1512,13 @@ v0.3 keeps the v0.2 core tables:
   vs vector-ready distinction).
 
 Schema hardening focuses on connection enforcement, validation, indexing
-behavior, namespace lifecycle, and the v003 migration that introduces
-optional vector storage.
+behavior, namespace lifecycle, and baseline support for optional vector
+storage.
+
+> **Current implementation note:** the active v0.3 beta package ships one
+> `v001_baseline` migration at schema version `1`. The v003 section below is
+> retained as historical design lineage for how optional vector storage entered
+> the schema; it is not an active migration shipped by the current package.
 
 ### Migration v003 — Optional vector storage
 
@@ -2460,7 +2465,7 @@ a vectorless namespace into a vector-configured one. It is rejected if the
 namespace is already vector-configured (use `reindexNamespace()` to change
 dimension instead). The operation runs inside a single transaction:
 populates `trageti_namespaces.embedding_dimension` and `embedding_table`
-together (satisfying the v003 CHECK), and records the change in the audit
+together (satisfying the baseline CHECK), and records the change in the audit
 log via `TRGT_NAMESPACE_VECTOR_UPGRADED` at info. The vec0 virtual table
 itself is created lazily on the first vector-touching operation per the
 standard `ensureVectorReady()` contract — `upgradeNamespaceToVector` does
@@ -2511,7 +2516,7 @@ the new tokenizer fails the v0.3 allow-list.
 
 **Tokenizer config metadata.** The "current tokenizer config" referenced
 by `RebuildFtsOptions.tokenizer` defaults is read from library-managed
-metadata (the dedicated `trageti_tokenizer` row inserted by the v003 migration
+metadata (the dedicated `trageti_tokenizer` row created by the active baseline
 and updated by every `rebuildFts()` call), NOT parsed from `sqlite_master`'s
 stored CREATE statement — SQL DDL parsing is brittle and version-dependent.
 The persisted metadata is the source of truth for "what is `trageti_fulltext`

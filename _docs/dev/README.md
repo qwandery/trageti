@@ -239,7 +239,9 @@ When a new assertion _layers on_ an earlier one without replacing it, use `write
 
 `trageti_fulltext` is an external-content FTS5 table backed by `trageti_assertions`. Three triggers (`trageti_fulltext_ai`, `trageti_fulltext_ad`, `trageti_fulltext_au`) keep it in sync. The tokenizer config is recorded in the **`trageti_tokenizer`** metadata table.
 
-> **Naming note:** the active v0.3 baseline creates `trageti_tokenizer` directly. The earlier `trl_fts_config` / `trl_fts_meta` names are historical design lineage only.`r`n`r`n`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trageti_tokenizer`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
+> **Naming note:** the active v0.3 baseline creates `trageti_tokenizer` directly. The earlier `trl_fts_config` / `trl_fts_meta` names are historical design lineage only.
+
+`rebuildFts()` rebuilds the index preserving the `rowid` invariant and round-trips the tokenizer config through `trageti_tokenizer`. Tokenizer values are validated against an allow-list (`unicode61` / `ascii` / `porter` / `trigram`) plus a safe-argument character class by `validateTokenizer()` — in the migration factory / runner and in `rebuildFts`, **before** any DDL string is built. A rejected tokenizer throws `MigrationCompatibilityError`.
 
 **External-content FTS5 quirk:** these tables cannot reliably read `UNINDEXED` columns back via the table alias. `runStep3` in `pipeline/retrieve.ts` joins to `trageti_assertions` via `rowid` rather than reading `assertion_id` from `trageti_fulltext` directly. If you change this, run the full integration suite.
 
@@ -293,7 +295,7 @@ These rules are load-bearing. Breaking them breaks the security/correctness stor
 
 ### 4. Shipped migrations are immutable; new behaviour is a new migration
 
-A numbered migration must NEVER drop a column/table or be edited after release. `v001`–`v004` bodies are frozen. New schema behaviour arrives as a new numbered migration. The runner asserts `migrations[i].version === i + 1` at startup.
+A numbered migration must NEVER drop a column/table or be edited after release. The current v0.3 beta ships one `v001` baseline migration; future shipped migration bodies are frozen once released. New schema behaviour arrives as a new numbered migration. The runner asserts `migrations[i].version === i + 1` at startup.
 
 ### 5. `embedding_table` is the only table-name source of truth
 
@@ -309,17 +311,19 @@ Citation presence / sourceRef / episode-namespace and predecessor existence / na
 
 ### 8. Public input is validated before SQLite execution
 
-Every `retrieve` / context call fails fast, before any SQLite execution, with a typed error. `RetrievalInputError` codes: `RETRIEVAL_INPUT_EMPTY`, `RETRIEVAL_REQUIRES_QUERY_TEXT`, `RETRIEVAL_REQUIRES_VECTOR_INPUT`, `RETRIEVAL_INVALID_LIMIT`, `RETRIEVAL_INVALID_MAX_DEPTH`, `RETRIEVAL_DIMENSION_MISMATCH`, `RETRIEVAL_NAMESPACE_VECTORLESS`, `SCORER_INVALID_OUTPUT`.
+Every `retrieve` / context call fails fast, before any SQLite execution, with a typed error. `RetrievalInputError` codes include `RETRIEVAL_INPUT_EMPTY`, `RETRIEVAL_REQUIRES_QUERY_TEXT`, `RETRIEVAL_INVALID_QUERY_TEXT`, `RETRIEVAL_REQUIRES_VECTOR_INPUT`, `RETRIEVAL_INVALID_LIMIT`, `RETRIEVAL_INVALID_MAX_DEPTH`, `RETRIEVAL_INVALID_TEMPORAL_WINDOW`, `RETRIEVAL_INVALID_CONFIDENCE`, `RETRIEVAL_INVALID_TOKEN_BUDGET`, `RETRIEVAL_DIMENSION_MISMATCH`, `RETRIEVAL_NAMESPACE_VECTORLESS`, `SCORER_INVALID_OUTPUT`, and `SCORER_BATCH_LENGTH_MISMATCH`.
 
 ### 9. Determinism tie-break
 
-Ranked results are ordered `(score DESC, validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be canonical ISO-8601 (millisecond precision) for the lexicographic tie-break to hold — repositories generate `new Date().toISOString()` explicitly, and migration v004 backfills pre-existing rows.
+Ranked results are ordered `(score DESC, validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be canonical ISO-8601 (millisecond precision) for the lexicographic tie-break to hold — repositories generate `new Date().toISOString()` explicitly, and the active baseline creates canonical timestamp columns directly.
 
 ### 10. `src/internal/` is private
 
 Nothing in `src/internal/` is re-exported from `src/index.ts` except the `Logger` / `Metrics` / `LogFields` **types**. Treat any change to internal runtime APIs as an internal refactor.
 
-> **Table naming:** every active library table uses the `trageti_` prefix and is created directly by the v0.3 baseline migration. `trl_` names are historical only and must not appear in active runtime SQL.`r`n`r`n---
+> **Table naming:** every active library table uses the `trageti_` prefix and is created directly by the v0.3 baseline migration. `trl_` names are historical only and must not appear in active runtime SQL.
+
+---
 
 ## Error codes and log codes
 
@@ -641,14 +645,19 @@ npm run build
 
 **`RetrievalInputError`** → a retrieve/context call had bad input (empty query, bad limit, dimension mismatch, vector path on a vectorless namespace, …). The `.code` says which.
 
-**`citations: []` on every read** -> the database is not a v0.3 baseline database. Automatic v0.2 prototype migration is unsupported; rebuild from source data.`r`n
+**`citations: []` on every read** -> the database is not a v0.3 baseline database. Automatic v0.2 prototype migration is unsupported; rebuild from source data.
+
 **Lint: "parserOptions.project was not found"** → the file isn't in `tsconfig.eslint.json`'s `include`. Add it.
 
 ---
 
 ## Performance considerations
 
-### `findPath` is bounded by depth and returns one winning path`r`n`r`n`CTEGraphAdapter.findPath` uses a recursive CTE with cycle protection and SQL ordering/`LIMIT 1` to return one deterministic shortest path. Dense graphs at high depths can still be expensive; use a custom `GraphQueryAdapter` for graph-native workloads.`r`n`r`n### BM25 normalisation is O(candidates)
+### `findPath` is bounded by depth and returns one winning path
+
+`CTEGraphAdapter.findPath` uses a recursive CTE with cycle protection and SQL ordering/`LIMIT 1` to return one deterministic shortest path. Dense graphs at high depths can still be expensive; use a custom `GraphQueryAdapter` for graph-native workloads.
+
+### BM25 normalisation is O(candidates)
 
 `runStep3` normalises BM25 across the candidate set before scoring. Cost is proportional to candidate count, not corpus size — fine for typical retrieval sizes.
 

@@ -47,10 +47,9 @@ It is a single-package npm library; entry point `src/index.ts`, public facade
 - **Error & log codes** — stable `ErrorCode` values live in `src/errors/`; `TRGT_`-
   prefixed log codes live in `src/internal/logger.ts`. Both are public contract: do not
   rename or repurpose existing codes — add new ones instead.
-- **Migrations** — `src/db/migrations/v00N_*.ts`, applied by `runner.ts`. Migrations are
-  append-only and idempotent; never edit an applied migration. Live tables use the
-  `trageti_` prefix (the legacy `trl_` prefix survives only inside migration bodies up
-  to v005).
+- **Migrations** — `src/db/migrations/v00N_*.ts`, applied by `runner.ts`. The current
+  v0.3 beta ships one `v001` baseline migration; future migrations must be
+  append-only and idempotent once shipped. Live tables use the `trageti_` prefix.
 - **Coverage gate** — lines/functions/statements 95%, branches 85% (`vitest.config.ts`).
   Keep it green.
 

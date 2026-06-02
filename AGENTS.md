@@ -25,7 +25,7 @@
 - **Tooling**: Enforced via ESLint and Prettier.
 - **TypeScript**: Strict mode is enabled.
 - **Naming**: Follows standard TypeScript camelCase for variables/functions and PascalCase for classes/interfaces.
-- **Database**: Internal tables use the `trageti_` prefix (e.g., `trageti_assertions`, `trageti_schema_version`). The legacy `trl_` prefix survives only inside the v001–v005 migration bodies; migration v005 renames every live table to `trageti_`.
+- **Database**: Internal tables use the `trageti_` prefix (e.g., `trageti_assertions`, `trageti_schema_version`). The current v0.3 beta migration set is a single `v001` baseline; legacy `trl_` names survive only in historical docs, fixtures, and demo source material.
 
 ## Testing Guidelines
 

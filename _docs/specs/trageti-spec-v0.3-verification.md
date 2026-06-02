@@ -2,7 +2,7 @@
 
 This document maps the v0.3 specification at [trageti-spec-v0.3.md](trageti-spec-v0.3.md) — including the dated **Table-naming overhaul**, **API-conformance remediation (R9)**, and **Retrieval & graph polish** amendments — to the implementation and test evidence in this repository. Every MUST-level invariant, public API surface, error code, schema-migration behavior, and required test class has a row pointing at concrete code and a test.
 
-Updated through the v0.3 remediation (phases R1-R9), the 2026-05-21 retrieval/graph polish round, and the 2026-06-01 code-review remediation pass. R7 closed 16 code-review findings; R8 closed a follow-up review - reindex never converts a vectorless namespace, dimension/provider agreement is validated at registration/upgrade, and provider error messages no longer leak the raw cause. R9 reconciled the remaining contract divergences (mid-chain temporal retrieval, citation-excerpt bypass, graph option types, new error codes, tokenizer reopen semantics) and added the dated R9 spec amendment. The polish round made snapshot `includeSuperseded` meaningful, hardened raw FTS5 error handling, fixed debug/explain step ordering, named the shared retrieval/graph defaults, and made graph neighborhood ordering deterministic. The June 2026 remediation flattened v0.3 storage to a single baseline migration, hardened reindex/retrieval/lifecycle behavior, and refreshed docs and demos. The release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (395 tests), and `test:coverage` at 95.16 statements, 88.94 branches, 98.75 functions, and 95.16 lines.
+Updated through the v0.3 remediation (phases R1-R9), the 2026-05-21 retrieval/graph polish round, the 2026-06-01 code-review remediation pass, and the June 2026 demo synthesis/custom-query work. R7 closed 16 code-review findings; R8 closed a follow-up review - reindex never converts a vectorless namespace, dimension/provider agreement is validated at registration/upgrade, and provider error messages no longer leak the raw cause. R9 reconciled the remaining contract divergences (mid-chain temporal retrieval, citation-excerpt bypass, graph option types, new error codes, tokenizer reopen semantics) and added the dated R9 spec amendment. The polish round made snapshot `includeSuperseded` meaningful, hardened raw FTS5 error handling, fixed debug/explain step ordering, named the shared retrieval/graph defaults, and made graph neighborhood ordering deterministic. The June 2026 remediation flattened v0.3 storage to a single baseline migration, hardened reindex/retrieval/lifecycle behavior, and refreshed docs and demos. The latest release gate is green: `lint`, `format:check`, `typecheck`, `build`, the full test suite (405 tests), and `test:coverage` at 95.16 statements, 88.95 branches, 98.75 functions, and 95.16 lines.
 
 ## Public API surface
 
@@ -30,10 +30,10 @@ Updated through the v0.3 remediation (phases R1-R9), the 2026-05-21 retrieval/gr
 ## Error model
 
 | Spec code                           | Class                                  | Where thrown                                                                | Tests                                                     |
-| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- | ---- | -------------------- | -------------- | ----------------------------------------------------------- | -------------------------------------- |
+| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `STORE_CLOSED`                      | `StoreClosedError`                     | `requireNotClosed`                                                          | `store-lifecycle`                                         |
 | `NAMESPACE_DIMENSION_MISMATCH`      | `NamespaceDimensionMismatchError`      | `NamespaceRepository.upsert`                                                | `store-lifecycle` (reopen matrix)                         |
-| `MIGRATION_COMPATIBILITY`           | `MigrationCompatibilityError`          | v003 tokenizer conflict / `validateTokenizer`                               | `migration-internals`, `providers-tokenizer`              |
+| `MIGRATION_COMPATIBILITY`           | `MigrationCompatibilityError`          | baseline tokenizer conflict / `validateTokenizer`                           | `migration-internals`, `providers-tokenizer`              |
 | `REFERENCED_EXTENSION_TABLE`        | `ReferencedExtensionTableError`        | `deleteNamespace` cascade gate                                              | `vectorless-namespace` (cascade)                          |
 | `MISSING_PEER_DEPENDENCY`           | `MissingPeerDependencyError`           | `prepareDatabase` / `ensureVectorReady`                                     | `no-sqlite-vec`                                           |
 | `ASSERTION_NOT_FOUND`               | `IndexingError`                        | `indexAssertion` / `indexBatch.skipped`                                     | `store-operations`                                        |
@@ -57,7 +57,8 @@ Updated through the v0.3 remediation (phases R1-R9), the 2026-05-21 retrieval/gr
 | `EMBEDDING_PROVIDER_ERROR`          | `EmbeddingProviderError`               | `indexBatch` fail-fast path / Step-0 provider failure                       | `store-operations`, `store-edge-cases`, `r7-conformance`  |
 | `REINDEX_ERROR`                     | `ReindexError`                         | reindex failure boundary                                                    | `store-operations`, `store-edge-cases`, `reindex-options` |
 | `REINDEX_PARTIAL_REJECTED`          | `ReindexError` (`.skipped`, `.advice`) | staging-swap skip build rejected without `allowPartialSwap`                 | `reindex-options`                                         |
-| `REINDEX_ALREADY_RUNNING`           | `ReindexError`                         | per-namespace reindex lock rejects overlapping same-namespace runs          | `reindex-options`                                         | `r`n | `INTERNAL_INVARIANT` | `TragetiError` | "should never happen" guards (row absent after self-insert) | defensive — unreachable in correct use |
+| `REINDEX_ALREADY_RUNNING`           | `ReindexError`                         | per-namespace reindex lock rejects overlapping same-namespace runs          | `reindex-options`                                         |
+| `INTERNAL_INVARIANT`                | `TragetiError`                         | "should never happen" guards (row absent after self-insert)                 | defensive — unreachable in correct use                    |
 
 ## Schema migrations
 
@@ -67,7 +68,7 @@ Updated through the v0.3 remediation (phases R1-R9), the 2026-05-21 retrieval/gr
 | schema-version table | runner bootstraps `trageti_schema_version`; no legacy `trl_schema_version` copy-forward path exists in the active v0.3 baseline | `src/db/migrations/runner.ts`                    | `migrations.test.ts`, `migration-internals.test.ts` |
 | schema fixture       | baseline schema is compared with the captured v001-v005 steady-state fixture                                                    | `test/fixtures/schema-v001-v005-steady-state.ts` | `migrations.test.ts`                                |
 
-`r`n## Required test classes (spec Testing Strategy)
+## Required test classes (spec Testing Strategy)
 
 | Class                                                             | Status      | Test file                                               |
 | ----------------------------------------------------------------- | ----------- | ------------------------------------------------------- |
