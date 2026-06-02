@@ -9,6 +9,19 @@ export interface Keyframe {
   date: string;
 }
 
+export const defaultKeyframes: readonly string[] = [
+  'fac4ada',
+  '5695df6',
+  '24dc5e7',
+  'bd973d5',
+  '1924f45',
+  'b73f7c6',
+  '8350531',
+  'cfeb3ac',
+  '608f13e',
+  'ba34a58',
+];
+
 export const keyframes: readonly Keyframe[] = [
   { hash: 'fac4ada', position: 1, label: 'v0.1 implementation', date: '2026-04-29' },
   { hash: '5695df6', position: 2, label: 'v0.2 citations and trajectory retrieval', date: '2026-05-10' },

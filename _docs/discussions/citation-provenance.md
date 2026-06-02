@@ -64,16 +64,16 @@ or `references/field-fermentation.md`, and offsets are measured against those
 files rather than the episode summaries. For `know-thyself`, source documents
 are generated from git keyframe pairs. Each source document combines commit
 metadata, the full `git diff --stat`, selected diffs or snapshots, and an
-LLM-written summary of what changed. The generated source documents are reviewed
-and committed under `demos/know-thyself/data/sources/`; runtime citations resolve
-against those committed documents, not against the shorter episode summaries.
+LLM-written or deterministic summary of what changed. The current runner derives
+those source documents at runtime; citations resolve against the generated
+source documents, not against the shorter episode summaries.
 
 This creates a two-stage provenance model for the self-analysis demo. The git
-diffs remain the strongest underlying evidence, while the committed source
+diffs remain the strongest underlying evidence, while the generated source
 document is the citation-grade text trageti can quote exactly during fixture and
-runtime ingestion. The generated summary is useful only because it is preserved
-as a reviewable document, not because an extractor is allowed to invent citation
-text later.
+runtime ingestion. The generated summary is useful only because it is anchored in
+the generated source document, not because an extractor is allowed to invent
+citation text later.
 
 This keeps the demo honest without changing trageti's public API in this pass.
 

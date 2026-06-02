@@ -3,7 +3,7 @@
 // set explicit demo provider env vars for live mode.
 
 import 'dotenv/config';
-import { TemporalStore } from 'trageti';
+import { TemporalStore, type Assertion } from 'trageti';
 import {
   createDemoTimeline,
   createDemoLogger,
@@ -16,53 +16,92 @@ import {
   printAssembledAnswer,
   createLlmTraceOptions,
 } from '../shared/output.js';
-import { resolveDemoProviders } from '../shared/providers.js';
-import { generateAssembledAnswer } from '../shared/synthesis.js';
-import { assertCustomQuerySupported, buildCustomRetrievalQuery, parseDemoCliOptions } from '../shared/cli.js';
 import {
-  demoDataVersion,
-  ensureDemoMetadata,
-  expectedFixtureAssertionIds,
-  ingestEpisodes,
-  runtimeDbPath,
-} from '../shared/runtime.js';
-import { NAMESPACE, episodes } from './data/episodes.js';
-import { fixtures } from './data/fixtures.js';
-import { citationSources } from './data/sources.js';
-import { EMBEDDING_DIMENSION, QUERY_TEXTS, assertionEmbeddings, queryEmbeddings } from './data/embeddings.js';
-import { retrieveQueries, snapshotAtV01 } from './queries.js';
+  resolveLiveEmbeddingProvider,
+  resolveLiveExtractionProvider,
+  type ResolvedDemoProviders,
+} from '../shared/providers.js';
+import { generateAssembledAnswer } from '../shared/synthesis.js';
+import { buildCustomRetrievalQuery } from '../shared/cli.js';
+import type { ExtractionResult } from '../shared/ingest.js';
+import { ensureDemoMetadata, expectedFixtureAssertionIds, ingestEpisodes } from '../shared/runtime.js';
+import {
+  EMBEDDING_DIMENSION,
+  NAMESPACE,
+  createDeterministicFixtures,
+  createDeterministicSummarizer,
+  createFixtureProviders,
+  createLiveSummarizer,
+  dataVersion,
+  defaultQueryTexts,
+  deriveHistoryData,
+  isDefaultFixtureEligible,
+  parseKnowThyselfCliOptions,
+  runHash,
+  runtimeDatabasePath,
+  sanitizeRepositoryExtractionResult,
+} from './history.js';
+import { buildInitialSnapshot, buildRetrieveQueries } from './queries.js';
 import { generateNarrative } from './narrative.js';
 
 async function main(): Promise<void> {
-  const cli = parseDemoCliOptions();
+  const cli = parseKnowThyselfCliOptions();
   const trace = createLlmTraceOptions();
-  const providers = resolveDemoProviders({
-    fixtures,
-    assertionEmbeddings,
-    queryEmbeddings,
-    queryTexts: QUERY_TEXTS,
-    embeddingDimension: EMBEDDING_DIMENSION,
-    trace,
+  const queryTexts = cli.query ? [...defaultQueryTexts(), cli.query] : [...defaultQueryTexts()];
+  const providers = resolveProvidersAndDataMode(cli, queryTexts, trace);
+  const data = await deriveHistoryData({
+    repoPath: cli.repo,
+    keyframeRefs: cli.keyframes,
+    summarizer:
+      providers.extractor.provenance.kind === 'fixture'
+        ? createDeterministicSummarizer()
+        : createLiveSummarizer(providers.extractor),
   });
-  if (cli.query) assertCustomQuerySupported(providers.embedder);
-  printBanner(`know-thyself - mode: ${providers.modeLabel}`);
-  const timeline = createDemoTimeline(episodes);
+  const fixtureData =
+    providers.extractor.provenance.kind === 'fixture' ? createDeterministicFixtures(data, queryTexts) : undefined;
 
-  const database = runtimeDbPath('know-thyself');
+  const resolvedProviders =
+    fixtureData !== undefined
+      ? createFixtureProviders({
+          fixtures: fixtureData.fixtures,
+          assertionEmbeddings: fixtureData.assertionEmbeddings,
+          queryEmbeddings: fixtureData.queryEmbeddings,
+          queryTexts,
+        })
+      : providers;
+
+  printBanner(`know-thyself - mode: ${providers.modeLabel}`);
+  const timeline = createDemoTimeline(data.episodes);
+
+  const hash = runHash({
+    repoPath: data.repoPath,
+    keyframes: data.keyframes,
+    providers: resolvedProviders,
+    queryTexts,
+  });
+  const database = runtimeDatabasePath(hash);
   const logger = createDemoLogger();
   printProviderSummary({
-    modeLabel: providers.modeLabel,
+    modeLabel: resolvedProviders.modeLabel,
     namespace: NAMESPACE,
     database,
-    extractionLabel: providers.extractor.label,
-    embeddingLabel: providers.embedder.label,
+    extractionLabel: resolvedProviders.extractor.label,
+    embeddingLabel: resolvedProviders.embedder.label,
     embeddingDimension: EMBEDDING_DIMENSION,
   });
+  logger.detail(`Repository: ${data.repoPath}`);
+  logger.detail(`Keyframes: ${data.keyframes.map((k) => k.hash.slice(0, 12)).join(', ')}`);
   ensureDemoMetadata({
     database,
     demoName: 'know-thyself',
-    dataVersion: demoDataVersion('know-thyself', episodes, fixtures, assertionEmbeddings, queryEmbeddings, QUERY_TEXTS),
-    providers,
+    dataVersion: dataVersion({
+      repoPath: data.repoPath,
+      keyframes: data.keyframes,
+      episodes: data.episodes,
+      citationSources: data.citationSources,
+      queryTexts,
+    }),
+    providers: resolvedProviders,
     logger,
   });
 
@@ -71,21 +110,23 @@ async function main(): Promise<void> {
     database,
     namespace: NAMESPACE,
     embeddingDimension: EMBEDDING_DIMENSION,
-    embeddingProvider: providers.embedder.provider,
+    embeddingProvider: resolvedProviders.embedder.provider,
   });
   logger.success('TemporalStore is ready');
 
   const ingestOptions = {
     store,
     namespace: NAMESPACE,
-    episodes,
-    citationSources,
-    providers,
+    episodes: data.episodes,
+    citationSources: data.citationSources,
+    providers: resolvedProviders,
+    sanitizeExtractionResult: (result: ExtractionResult, context: { existingAssertions: readonly Assertion[] }) =>
+      sanitizeRepositoryExtractionResult(result, context.existingAssertions),
     logger,
   };
   await ingestEpisodes(
-    providers.extractor.provenance.kind === 'fixture'
-      ? { ...ingestOptions, expectedFixtureAssertionIds: expectedFixtureAssertionIds(fixtures) }
+    fixtureData !== undefined
+      ? { ...ingestOptions, expectedFixtureAssertionIds: expectedFixtureAssertionIds(fixtureData.fixtures) }
       : ingestOptions,
   );
 
@@ -94,7 +135,7 @@ async function main(): Promise<void> {
     const query = buildCustomRetrievalQuery({
       namespace: NAMESPACE,
       queryText: cli.query,
-      temporalAnchor: 10,
+      temporalAnchor: data.latestPosition,
     });
     const annotation = '"User query" (custom)';
     printQueryPlan(annotation, query, timeline);
@@ -104,7 +145,9 @@ async function main(): Promise<void> {
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: resolvedProviders.extractor, annotation, query }),
+    );
 
     logger.step('Closing TemporalStore');
     await store.close();
@@ -113,6 +156,7 @@ async function main(): Promise<void> {
   }
 
   logger.step('Running retrieval queries');
+  const retrieveQueries = buildRetrieveQueries(data.latestPosition);
   for (const { annotation, query } of retrieveQueries) {
     printQueryPlan(annotation, query, timeline);
     const result = await store.retrieve(query);
@@ -121,15 +165,18 @@ async function main(): Promise<void> {
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: resolvedProviders.extractor, annotation, query }),
+    );
   }
 
   logger.step('Running temporal snapshot query');
-  const snapshot = await store.getTemporalSnapshot(snapshotAtV01.options);
-  printSnapshot(`Query ${snapshotAtV01.annotation}`, snapshot, { timeline });
+  const snapshotAtInitial = buildInitialSnapshot(data.initialPosition);
+  const snapshot = await store.getTemporalSnapshot(snapshotAtInitial.options);
+  printSnapshot(`Query ${snapshotAtInitial.annotation}`, snapshot, { timeline });
 
   logger.step('Assembling context and generating narrative');
-  const narrative = await generateNarrative(store, providers.extractor);
+  const narrative = await generateNarrative(store, resolvedProviders.extractor, data.latestPosition);
   printNarrative(narrative);
 
   logger.step('Closing TemporalStore');
@@ -144,3 +191,85 @@ main().then(
     process.exit(1);
   },
 );
+
+function resolveProvidersAndDataMode(
+  cli: ReturnType<typeof parseKnowThyselfCliOptions>,
+  queryTexts: readonly string[],
+  trace: ReturnType<typeof createLlmTraceOptions>,
+): ResolvedDemoProviders {
+  if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(process.env)) {
+    return {
+      modeLabel: 'fixture / derived raw-vector',
+      isLive: false,
+      // Temporary placeholder; replaced after deterministic fixture generation.
+      extractor: {
+        name: 'fixture',
+        label: 'fixture',
+        provenance: { kind: 'fixture', model: 'derived-fixtures', configHash: 'derived-fixtures' },
+        extract() {
+          return Promise.reject(new Error('fixture provider is initialized after data derivation'));
+        },
+      },
+      embedder: {
+        name: 'fixture',
+        label: 'fixture / derived hash-vector',
+        provenance: {
+          kind: 'fixture',
+          model: 'derived-hash-vectors',
+          dimension: EMBEDDING_DIMENSION,
+          configHash: 'derived-hash-vectors',
+        },
+        provider: {
+          name: 'fixture',
+          dimension: EMBEDDING_DIMENSION,
+          embed() {
+            return Promise.reject(new Error('fixture embedder is initialized after data derivation'));
+          },
+        },
+      },
+      provenance: {
+        extraction: { kind: 'fixture', model: 'derived-fixtures', configHash: 'derived-fixtures' },
+        embedding: {
+          kind: 'fixture',
+          model: 'derived-hash-vectors',
+          dimension: EMBEDDING_DIMENSION,
+          configHash: 'derived-hash-vectors',
+        },
+      },
+    };
+  }
+
+  if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(process.env)) {
+    throw new Error(
+      'Custom --repo and --keyframes runs require live extraction and live embedding providers.\n' +
+        'Set DEMO_EXTRACT_PROVIDER and DEMO_EMBED_PROVIDER with their required model/base URL/key settings.',
+    );
+  }
+
+  const extractor = resolveLiveExtractionProvider({ trace });
+  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, trace });
+  void queryTexts;
+  return {
+    modeLabel: `live (${extractor.label} + ${embedder.label})`,
+    isLive: true,
+    extractor,
+    embedder,
+    provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
+  };
+}
+
+function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
+  const explicitExtract = env['DEMO_EXTRACT_PROVIDER']?.trim();
+  const explicitEmbed = env['DEMO_EMBED_PROVIDER']?.trim();
+  if (explicitExtract === 'fixture' && explicitEmbed === 'fixture') return false;
+  if (explicitExtract && explicitExtract !== 'fixture') return true;
+  if (explicitEmbed && explicitEmbed !== 'fixture') return true;
+  return Boolean(
+    env['ANTHROPIC_API_KEY'] ??
+    env['OPENAI_API_KEY'] ??
+    env['OPENROUTER_API_KEY'] ??
+    env['OLLAMA_HOST'] ??
+    env['DEMO_EXTRACT_BASE_URL'] ??
+    env['DEMO_EMBED_BASE_URL'],
+  );
+}

@@ -74,6 +74,11 @@ validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
 
 ### Misc
 
+- **Know Thyself demo derives repository history at runtime.** The demo now
+  builds source documents, episodes, fixture extraction, and hash vectors from
+  git keyframe commits instead of committed generated seed data. `--repo` and
+  `--keyframes` support custom repositories in live-provider mode, and
+  run-specific database files prevent cross-repo DB reuse.
 - `DefaultConnectionVerifier` downgrades the "sqlite-vec not loaded" path
   from a fatal `ConnectionVerificationError` to a warning so vectorless
   deployments can operate without the extension.

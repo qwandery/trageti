@@ -1,12 +1,11 @@
 # know-thyself
 
-_trageti ingests its own development history and answers questions about its own evolution._
+_A repository-history demo that can explain how a codebase evolved._
 
-This demo ingests reviewed source documents generated from ten `trageti`
-keyframe commits, from the v0.1 implementation through v0.3 remediation and
-polish. It exercises ingestion, indexing, retrieval, trajectory display, graph
-expansion, assembled-context query answers, final narrative synthesis, and a
-temporal snapshot against committed keyframe fixtures.
+By default, this demo ingests this repository's own default Trageti keyframe
+commits. Source documents, episodes, citation sources, fixture extraction, and
+fixture vectors are derived at runtime from git. You can also point it at
+another repo with an explicit keyframe list when live providers are configured.
 
 ## Run
 
@@ -14,25 +13,32 @@ temporal snapshot against committed keyframe fixtures.
 npx tsx demos/know-thyself/index.ts
 ```
 
-With a live embedding provider configured, replace the built-in query suite with
-one custom user query:
+Run against another repository:
 
 ```sh
-npx tsx demos/know-thyself/index.ts --query "How did retrieval determinism improve over time?"
+npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456,789abcd
+```
+
+Replace the default query suite with one custom user query:
+
+```sh
+npx tsx demos/know-thyself/index.ts --query "What changed about persistence?"
+npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456 --query "What changed about persistence?"
 ```
 
 Custom-query mode prints one retrieval result and one assembled-context answer.
 It skips the built-in queries, temporal snapshot, and final narrative synthesis.
-It is not supported in deterministic fixture/raw-vector mode because committed
-fixture vectors only cover the built-in demo query texts.
 
-With no provider env vars, the demo runs fully offline using committed fixtures,
-deterministic vectors, and deterministic assembled-context synthesis.
+With no provider env vars, the default run works offline. Fixture mode derives
+source summaries, extraction output, and hash vectors deterministically from the
+default repo/keyframes. Fixture mode is not supported when `--repo` or
+`--keyframes` is supplied; custom repo/keyframe runs require live extraction and
+live embedding providers.
 
-Runtime databases are written to `demos/.local/`. Each DB records demo data and
-provider provenance. If you change extraction provider, embedding provider,
-model, embedding dimension, or committed demo data, delete the matching DB and
-rerun.
+Runtime databases are written to `demos/.local/know-thyself/<run-hash>.db`.
+The run hash includes the absolute repo path, resolved keyframe commits,
+provider provenance, fixture/live mode, and query text set, so different
+repo/keyframe/provider combinations do not reuse the same SQLite file.
 
 ## Provider Configuration
 
@@ -50,46 +56,38 @@ configuration. Extraction and embedding are separate capabilities:
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
 demo does not infer that any named service supports both extraction and
-embedding. Configure both capabilities for live runs.
-
-To inspect model boundaries while running the demo, set
-`DEMO_LLM_TRACE=summary`. To print full prompts, responses, embedding inputs,
-and vector summaries, set `DEMO_LLM_TRACE=full`. The `--llm-trace` flag is
-equivalent to summary mode.
+embedding. Configure both capabilities for live custom repo/keyframe runs.
 
 ## What It Shows
 
-The demo source documents live in `data/sources/`. They include commit
-metadata, full `git diff --stat` output, selected important diffs or snapshots,
-and a reviewable summary of what changed. Episodes are temporal summaries over
-those source documents; citations point into the committed source documents via
-offsets.
+For each keyframe, the demo derives a citation-grade source document from git
+metadata, diff stats, selected diffs, and selected file snapshots. Episodes are
+temporal summaries over those generated source documents, and citations point
+back into the generated source text by character offsets.
 
-The demo runs six retrieval queries, an assembled-context answer after each
-retrieval query, one temporal snapshot, and a final narrative synthesis:
+The default query suite is repository-agnostic:
 
-1. Current retrieval result contract.
-2. Temporal model evolution via trajectory mode.
-3. Citation provenance evolution via trajectory mode.
-4. Data-integrity behavior with linked migration context.
-5. Vectorless namespace and embedding-provider changes.
-6. Retrieval determinism and graph-ordering refinements.
-7. The v0.1 temporal model via `getTemporalSnapshot`.
-8. A final assembled-context synthesis of the library's evolution and current
+1. Important changes across keyframes.
+2. Architecture evolution via trajectory mode.
+3. Data model or persistence changes.
+4. Retrieval, query, or interface behavior changes.
+5. Risks, regressions, or reversals.
+6. Testing, validation, or release-readiness evolution.
+7. The initial keyframe via `getTemporalSnapshot`.
+8. A final assembled-context synthesis of repository evolution and current
    design.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.
-Use `generate-fixtures.ts` with a real embedding provider to regenerate
-semantic vectors.
+Use live embedding providers for meaningful semantic ranking.
 
-## Regeneration Workflow
+## Review Utilities
 
 ```sh
 npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
 npx tsx demos/know-thyself/generate-fixtures.ts
 ```
 
-`generate-episodes.ts` writes proposed source documents to
-`demos/.local/know-thyself/sources/` for review. Reviewed source documents are
-committed under `data/sources/`; fixture generation uses the same source-span
-validation as runtime ingestion.
+`generate-episodes.ts` writes reviewable generated source documents under
+`demos/.local/know-thyself/sources/<hash>/`. `generate-fixtures.ts` writes
+review extraction/embedding files under `demos/.local/know-thyself/`. These
+utilities no longer update committed seed data.

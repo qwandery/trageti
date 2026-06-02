@@ -134,6 +134,10 @@ export async function ingestEpisodes(options: {
   citationSources?: Record<string, string>;
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
+  sanitizeExtractionResult?: (
+    result: ExtractionResult,
+    context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
+  ) => ExtractionResult;
   logger?: DemoRunLogger;
 }): Promise<void> {
   options.logger?.step('Ingesting episodes into TemporalStore');
@@ -167,6 +171,10 @@ export async function ingestEpisodes(options: {
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
       ...(options.citationSources !== undefined && { citationSources: options.citationSources }),
+      ...(options.sanitizeExtractionResult !== undefined && {
+        sanitizeExtractionResult: (result: ExtractionResult) =>
+          options.sanitizeExtractionResult?.(result, { episode, existingAssertions: accumulated }) ?? result,
+      }),
     };
     const result = await ingest(ingestOptions);
     await indexResult(options.store, result);

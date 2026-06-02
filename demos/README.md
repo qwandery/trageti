@@ -7,10 +7,10 @@ workflows.
 
 ## Demo overview
 
-| Demo           | Corpus                                                              | Main features shown                                                                                                                            |
-| -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `alex-place`   | A cooking journal plus fictional food-science references            | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, query answers, final narrative synthesis                           |
-| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots, query answers, final narrative synthesis |
+| Demo           | Corpus                                                     | Main features shown                                                                                                                            |
+| -------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alex-place`   | A cooking journal plus fictional food-science references   | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, query answers, final narrative synthesis                           |
+| `know-thyself` | Git-derived keyframe history for this repo or another repo | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots, query answers, final narrative synthesis |
 
 Both demos share provider handling from `demos/shared/`. Extraction and
 embedding are configured independently:
@@ -46,35 +46,38 @@ query suite with one custom user query:
 
 ```sh
 npx tsx demos/alex-place/index.ts --query "From whom has Alex learned specific knife techniques?"
-npx tsx demos/know-thyself/index.ts --query "How did retrieval determinism improve over time?"
+npx tsx demos/know-thyself/index.ts --query "What changed about persistence?"
+npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456,789abcd
 ```
 
 Custom-query mode runs ingestion, then prints one retrieval result and one
 assembled-context answer. It skips the built-in demo queries, follow-up API
-sections, and final narrative synthesis. Custom queries are not supported in
-deterministic fixture/raw-vector mode because committed fixture vectors only
-cover the built-in demo query texts.
+sections, and final narrative synthesis. Alex custom queries require a live
+embedding provider. Know Thyself supports fixture-mode custom queries for its
+default repo/keyframes because query vectors are derived at runtime.
 
 ## Offline mode
 
-With no provider environment variables, both demos run offline. Offline mode
-uses committed extraction fixtures and committed raw vectors, so it is
-deterministic, requires no API keys, and is suitable for smoke tests and quick
-orientation. It still writes a real SQLite database and exercises the normal
-`TemporalStore`, schema, ingestion, indexing, and retrieval paths. It is not
-intended to demonstrate real semantic embedding quality. Offline mode does not
-support `--query`; configure a live embedding provider for custom queries.
+With no provider environment variables, both demos run offline. Alex uses
+committed extraction fixtures and committed raw vectors. Know Thyself derives
+its default repo/keyframe source docs, extraction fixtures, and hash vectors at
+runtime. Offline mode is deterministic, requires no API keys, and is suitable
+for smoke tests and quick orientation. It still writes a real SQLite database
+and exercises the normal `TemporalStore`, schema, ingestion, indexing, and
+retrieval paths. It is not intended to demonstrate real semantic embedding
+quality. Know Thyself custom repo/keyframe runs require live providers.
 
 ## Runtime databases
 
 Demo databases are written under `demos/.local/`. Each database records the demo
 data version, extraction provider, embedding provider, embedding dimension, and
-fixture/live mode. If any of those change, delete the matching database and run
-the demo again.
+fixture/live mode. Know Thyself uses run-specific DB files under
+`demos/.local/know-thyself/<run-hash>.db`, so different repo/keyframe/provider
+inputs do not collide.
 
 ```sh
 rm -f demos/.local/alex-place.db
-rm -f demos/.local/know-thyself.db
+rm -rf demos/.local/know-thyself
 ```
 
 ## Provider configuration

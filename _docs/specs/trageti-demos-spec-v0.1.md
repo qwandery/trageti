@@ -188,7 +188,7 @@ Both demos can use real, semantically meaningful embeddings via sqlite-vec when 
 
 **Live mode:** The demo resolves an `EmbeddingProvider` based on available environment variables. Ollama's `/api/embeddings` endpoint and any OpenAI-compatible `/v1/embeddings` endpoint are supported. The provider is used both for indexing assertions at ingestion time and for embedding queries at retrieval time.
 
-**Fixture mode:** Pre-computed embedding vectors are loaded from `embeddings.ts` and supplied via `RawVectorProvider` — trageti's passthrough provider for caller-supplied vectors. The current committed fixture vectors are deterministic hash vectors, not semantically meaningful; they keep the sqlite-vec pipeline offline and repeatable. Regenerate fixtures with a live embedding provider when semantic ranking quality is the thing being demonstrated.
+**Fixture mode:** Fixture vectors are supplied via `RawVectorProvider` — trageti's passthrough provider for caller-supplied vectors. Alex loads committed deterministic hash vectors. Know Thyself derives deterministic hash vectors at runtime for the default repo/keyframes. These fixture vectors are not semantically meaningful; they keep the sqlite-vec pipeline offline and repeatable. Use a live embedding provider when semantic ranking quality is the thing being demonstrated.
 
 With live or regenerated semantic embeddings, both demos demonstrate genuine hybrid retrieval: semantic similarity finds conceptually related assertions that keyword matching alone would miss, BM25 handles exact terminology, and the composite score shows the interaction between the two signals. Query output annotates `scoreComponents` for each result, making it visible which signal contributed to each retrieval.
 
@@ -205,7 +205,7 @@ The fixture files:
 - `fixtures.ts` — extraction output: `Record<string, string>` mapping episode ID to raw LLM response JSON
 - `embeddings.ts` — pre-computed embedding vectors: `Record<string, number[]>` mapping assertion ID to embedding array
 
-At runtime, the demo loads pre-computed embeddings via `RawVectorProvider` (trageti’s passthrough provider for caller-supplied vectors). This means sqlite-vec is exercised in fixture mode without a live model. The committed fixture vectors are deterministic hash vectors; run fixture generation against a real embedding provider to produce semantically meaningful vectors.
+At runtime, the demo loads or derives fixture embeddings via `RawVectorProvider` (trageti’s passthrough provider for caller-supplied vectors). This means sqlite-vec is exercised in fixture mode without a live model. The fixture vectors are deterministic hash vectors; use a real embedding provider to produce semantically meaningful vectors.
 
 In live mode, the demo uses whatever embedding provider is available (Ollama’s `/api/embeddings` endpoint, OpenAI’s embedding API, etc.) to generate vectors at ingestion time. The same provider is used for query embedding at retrieval time.
 
@@ -225,7 +225,7 @@ The tagline: "The only temporal RAG library that can explain its own history to 
 
 ### Data: Keyframe Commits
 
-Rather than ingesting hand-curated spec documents, this demo works from the repository's git history. A hand-curated manifest defines keyframe commits: moments of significant architectural change. The generation script processes the initial keyframe and each adjacent keyframe pair with git operations to produce reviewable source documents. Extraction then produces assertions, links, and citation spans grounded in those committed source documents.
+Rather than ingesting hand-curated spec documents, this demo works from git history. A small default keyframe list defines moments of significant architectural change for the Trageti repo, and `--repo` / `--keyframes` can point the same flow at another repository when live providers are configured. Runtime processing derives the initial keyframe and adjacent keyframe-pair source documents from git operations. Extraction then produces assertions, links, and citation spans grounded in those generated source documents.
 
 The manifest is a small, hand-maintained file:
 
@@ -239,22 +239,20 @@ export const keyframes: Keyframe[] = [
 ];
 ```
 
-Adding a keyframe is the only manual curation required. Everything else is derived from git.
+Adding or supplying keyframe commits is the only manual curation required. Everything else is derived from git at runtime.
 
 ### Ingestion: The generate-episodes Script
 
-Current implementation note: `generate-episodes.ts` now creates citation-grade
-source documents before extraction. For each initial keyframe or adjacent
-keyframe pair, it collects commit metadata, full `git diff --stat`, name-status,
-numstat, and a deterministic bounded set of important file diffs or snapshots.
-It ignores generated/noisy artifacts such as lockfiles, demo DBs, fixture
-vectors, build output, `node_modules`, and `.local`, while prioritizing specs,
-public types, store/retrieval/graph/scoring code, migrations, behavior tests,
-README, and changelog updates. The generated source documents are written first
-to `demos/.local/know-thyself/sources/` for review; reviewed documents are
-committed under `demos/know-thyself/data/sources/` and registered in
-`data/sources.ts`. Episodes are temporal summaries over those documents, while
-fixtures and live extraction cite source spans inside the committed source docs.
+Current implementation note: the runner and `generate-episodes.ts` share the
+same source builder. For each initial keyframe or adjacent keyframe pair, it
+collects commit metadata, full `git diff --stat`, name-status, numstat, and a
+deterministic bounded set of important file diffs or snapshots. It ignores
+generated/noisy artifacts such as lockfiles, demo DBs, fixture vectors, build
+output, `node_modules`, coverage, and `.local`, while prioritizing specs, public
+types, store/retrieval/graph/scoring code, migrations, behavior tests, README,
+and changelog updates. Episodes are temporal summaries over those generated
+documents, while fixture and live extraction cite source spans inside the
+runtime-generated source docs.
 
 The script processes each adjacent keyframe pair with git operations and an optional source-summary pass:
 
@@ -275,37 +273,30 @@ npx tsx demos/know-thyself/generate-episodes.ts [--context-length 8192]
 8. fixture/runtime extraction           -> assertions, links, citation spans
 ```
 
-Steps 1-6 are pure git operations. The `--context-length` parameter controls how much selected diff context is included in the generated source document. Source documents are reviewed before being committed under `demos/know-thyself/data/sources/`.
+Steps 1-6 are pure git operations. The `--context-length` parameter controls how much selected diff context is included in the generated source document. Review copies can be written under `demos/.local/know-thyself/sources/<hash>/`; they are no longer committed seed data.
 
 **For the first keyframe** (no previous commit to diff against), the script uses the full content of the keyframe commit itself: `git show <hash>:<file>` for the key files (spec, types, schema, README), truncated to the context budget. The aggregation call summarizes the initial state rather than a diff.
 
-### Committed Artifacts
+### Runtime Artifacts
 
-Everything generated is committed so the demo runs offline:
+Only the default keyframe list is committed as configuration. Everything else is derived:
 
 ```
 data/
-├── keyframes.ts          - hand-curated manifest (the only manual input)
-├── sources/              - reviewed keyframe source documents
-├── sources.ts            - source registry for citation-span resolution
-├── episodes.ts           - episode objects with temporal summaries
-├── aggregations.ts       - compact source-summary index
-└── fixtures.ts           - extraction output (assertions, links, citation spans)
+└── keyframes.ts          - default keyframe commit list
 ```
 
-The `aggregations.ts` file is committed separately because it is useful for debugging: if extraction output looks wrong, compare it with the compact source summary before changing the extraction prompt.
+Runtime DBs live under `demos/.local/know-thyself/<run-hash>.db`. The run hash includes the absolute repo path, resolved commits, provider provenance, mode, and query text set so different repo/keyframe/provider inputs do not collide.
 
 ### Regeneration Workflow
 
 ```
-# After adding a new keyframe to keyframes.ts:
 npx tsx demos/know-thyself/generate-episodes.ts --context-length 32000
 npx tsx demos/know-thyself/generate-fixtures.ts
-git add demos/know-thyself/data/
-git commit -m "chore: regenerate know-thyself episodes and fixtures"
 ```
 
-Both scripts use the same provider resolver as all other demos. Regeneration is a deliberate act, not an automatic process.
+Both scripts use the same provider resolver as all other demos and write review
+artifacts under `demos/.local/`; they do not update committed seed data.
 
 ### Expected Assertion Count
 
@@ -322,7 +313,7 @@ Both scripts use the same provider resolver as all other demos. Regeneration is 
 | Trajectory mode     | "How did the citation model evolve?" returns the full chain                                      |
 | Temporal snapshot   | "What was the scoring formula as of v0.2?"                                                       |
 | BM25 retrieval      | Natural keyword queries over technical content                                                   |
-| Citations           | Every assertion cites offsets in committed source documents; ingestion derives verbatim excerpts |
+| Citations           | Every assertion cites offsets in generated source documents; ingestion derives verbatim excerpts |
 
 ### Query Set
 
@@ -346,7 +337,7 @@ Both scripts use the same provider resolver as all other demos. Regeneration is 
 
 The demo prints annotated results for each query: the query text, the retrieval mode and strategy used, the number of results, and for each result the assertion content, its position, confidence, citation excerpt, and (in trajectory mode) the full supersession chain. Output is formatted for terminal readability with clear section breaks.
 
-When run with `--query "<question>"`, the demo replaces the built-in query suite with one user-supplied retrieval query and one assembled-context answer. Custom queries require a live embedding provider because deterministic fixture/raw-vector mode only contains committed vectors for the built-in query texts. In fixture mode, `--query` fails before opening the demo store and prints provider-configuration guidance.
+When run with `--query "<question>"`, the demo replaces the built-in query suite with one user-supplied retrieval query and one assembled-context answer. Default fixture mode supports custom queries because deterministic query vectors are derived at runtime. Custom `--repo` or `--keyframes` runs require live extraction and live embedding providers; fixture mode is intentionally limited to the default repo/keyframes.
 
 ---
 
