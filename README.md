@@ -2,14 +2,6 @@
 
 Temporally-aware retrieval-augmented generation over SQLite.
 
-> **v0.3 is a substantial API redesign.** All public methods are now async,
-> `retrieve()` returns a `{ results, meta }` envelope, retrieval has an
-> explicit `retrievalStrategy` field (`hybrid` / `vector` / `bm25`),
-> namespaces can be vectorless (BM25-only, no `sqlite-vec` required), and
-> there is a real `create()` / `close()` lifecycle. The pre-beta v0.3 schema
-> is now a single baseline migration at schema version `1`; automatic
-> migration from v0.2 prototype databases is intentionally not supported.
-
 `trageti` stores, indexes, and retrieves _episodic assertions_ — discrete, typed claims with explicit validity windows — with retrieval that respects temporal position as a first-class constraint alongside semantic similarity and full-text matching.
 
 ## Features
