@@ -95,6 +95,7 @@ export function printProviderSummary(options: {
   extractionLabel: string;
   embeddingLabel: string;
   embeddingDimension: number;
+  rateLimitSeconds?: number | null;
 }): void {
   console.log('');
   console.log('Run configuration');
@@ -104,6 +105,13 @@ export function printProviderSummary(options: {
   console.log(`  Extraction provider: ${options.extractionLabel}`);
   console.log(`  Embedding provider: ${options.embeddingLabel}`);
   console.log(`  Embedding dimension: ${String(options.embeddingDimension)}`);
+  if (options.rateLimitSeconds !== undefined && options.rateLimitSeconds !== null) {
+    console.log(`  Live provider rate limit: 1 request per ${String(options.rateLimitSeconds)}s`);
+  } else if (process.env['DEMO_RATE_LIMIT']) {
+    console.log(`  Live provider rate limit: 1 request per ${process.env['DEMO_RATE_LIMIT']}s`);
+  } else {
+    console.log('  Live provider rate limit: 1 request per 5s');
+  }
   console.log(
     '  LLM trace: --llm-trace or DEMO_LLM_TRACE=summary shows call timing; DEMO_LLM_TRACE=full shows prompts and responses',
   );

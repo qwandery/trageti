@@ -3,6 +3,7 @@ import type { DemoEmbeddingProvider } from './providers.js';
 
 export interface DemoCliOptions {
   query: string | null;
+  rateLimitSeconds: number | null;
 }
 
 export interface CustomQueryOptions {
@@ -13,6 +14,7 @@ export interface CustomQueryOptions {
 
 export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
   let query: string | null = null;
+  let rateLimitSeconds: number | null = null;
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
@@ -25,9 +27,25 @@ export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
     }
     if (arg.startsWith('--query=')) {
       query = normalizeQueryArg(arg.slice('--query='.length));
+      continue;
+    }
+    if (arg === '--limit') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error('--limit requires a non-negative number');
+      rateLimitSeconds = normalizeLimitArg(value);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--limit=')) {
+      rateLimitSeconds = normalizeLimitArg(arg.slice('--limit='.length));
     }
   }
-  return { query };
+  return { query, rateLimitSeconds };
+}
+
+export function envWithDemoRateLimit(env: NodeJS.ProcessEnv, rateLimitSeconds: number | null): NodeJS.ProcessEnv {
+  if (rateLimitSeconds === null) return env;
+  return { ...env, DEMO_RATE_LIMIT: String(rateLimitSeconds) };
 }
 
 export function assertCustomQuerySupported(embedder: DemoEmbeddingProvider): void {
@@ -55,4 +73,11 @@ function normalizeQueryArg(value: string): string {
   const query = value.trim();
   if (!query) throw new Error('--query requires a non-empty value');
   return query;
+}
+
+function normalizeLimitArg(value: string): number {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!trimmed || !Number.isFinite(parsed) || parsed < 0) throw new Error('--limit requires a non-negative number');
+  return parsed;
 }

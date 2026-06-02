@@ -49,7 +49,7 @@ export interface ProviderRetryOptions {
   maxAttempts: number;
   baseDelayMs: number;
   maxDelayMs: number;
-  minDelayMs: number;
+  rateLimitMs: number;
   log?(message: string): void;
 }
 
@@ -568,7 +568,7 @@ function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): P
     maxAttempts: positiveInt(env['DEMO_PROVIDER_MAX_ATTEMPTS'], 6, 'DEMO_PROVIDER_MAX_ATTEMPTS'),
     baseDelayMs: positiveInt(env['DEMO_PROVIDER_BASE_DELAY_MS'], 1000, 'DEMO_PROVIDER_BASE_DELAY_MS'),
     maxDelayMs: positiveInt(env['DEMO_PROVIDER_MAX_DELAY_MS'], 30000, 'DEMO_PROVIDER_MAX_DELAY_MS'),
-    minDelayMs: positiveInt(env['DEMO_PROVIDER_MIN_DELAY_MS'], 350, 'DEMO_PROVIDER_MIN_DELAY_MS'),
+    rateLimitMs: nonNegativeMs(env['DEMO_RATE_LIMIT']),
     log:
       trace?.enabled === true
         ? (message: string) => {
@@ -588,14 +588,10 @@ async function withProviderRetry<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const retry = options ?? retryOptionsFromEnv({});
-  const lastCallAt = lastLiveProviderCallAt.get(label) ?? 0;
-  const now = Date.now();
-  const waitBeforeCall = Math.max(0, retry.minDelayMs - (now - lastCallAt));
-  if (waitBeforeCall > 0) await sleep(waitBeforeCall);
 
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
     try {
-      lastLiveProviderCallAt.set(label, Date.now());
+      await waitForProviderRateLimit(retry.rateLimitMs, label, (message) => retry.log?.(message));
       return await operation();
     } catch (err) {
       if (!(err instanceof ProviderHttpError) || !shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) {
@@ -611,7 +607,33 @@ async function withProviderRetry<T>(
   throw new Error(`Internal error: exhausted retry loop for ${label}`);
 }
 
-const lastLiveProviderCallAt = new Map<string, number>();
+let lastLiveProviderCallAt = 0;
+let providerRateLimitQueue = Promise.resolve();
+
+async function waitForProviderRateLimit(
+  rateLimitMs: number,
+  label: string,
+  log: ((message: string) => void) | undefined,
+): Promise<void> {
+  const previous = providerRateLimitQueue;
+  let release!: () => void;
+  providerRateLimitQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    const rawElapsedMs = Date.now() - lastLiveProviderCallAt;
+    const elapsedMs = rawElapsedMs < 0 ? rateLimitMs : rawElapsedMs;
+    const waitMs = Math.max(0, rateLimitMs - elapsedMs);
+    if (waitMs > 0) {
+      log?.(`${label} rate limit: waiting ${String(waitMs)} ms before next live provider request`);
+      await sleep(waitMs);
+    }
+    lastLiveProviderCallAt = Date.now();
+  } finally {
+    release();
+  }
+}
 
 function shouldRetryHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
@@ -637,6 +659,15 @@ function positiveInt(value: string | undefined, fallback: number, label: string)
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer`);
   return parsed;
+}
+
+function nonNegativeMs(rateLimitSeconds: string | undefined): number {
+  if (rateLimitSeconds !== undefined && rateLimitSeconds.trim() !== '') {
+    const parsed = Number(rateLimitSeconds);
+    if (!Number.isFinite(parsed) || parsed < 0) throw new Error('DEMO_RATE_LIMIT must be a non-negative number');
+    return Math.round(parsed * 1000);
+  }
+  return 5000;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -34,6 +34,7 @@ describe('parseKnowThyselfCliOptions', () => {
         '--repo',
         ' ../repo ',
         '--keyframes=a,b,c',
+        '--limit=30',
         '--query',
         ' what changed? ',
       ]),
@@ -43,6 +44,7 @@ describe('parseKnowThyselfCliOptions', () => {
       query: 'what changed?',
       repoProvided: true,
       keyframesProvided: true,
+      rateLimitSeconds: 30,
     });
   });
 
@@ -51,6 +53,7 @@ describe('parseKnowThyselfCliOptions', () => {
       '--repo requires --keyframes',
     );
     expect(() => parseKnowThyselfCliOptions(['node', 'index.ts', '--keyframes= , '])).toThrow('--keyframes requires');
+    expect(() => parseKnowThyselfCliOptions(['node', 'index.ts', '--limit=nope'])).toThrow('--limit requires');
   });
 });
 
@@ -122,6 +125,7 @@ describe('deriveHistoryData', () => {
           keyframes: [first],
           repoProvided: true,
           keyframesProvided: true,
+          rateLimitSeconds: null,
         },
         providers,
       );

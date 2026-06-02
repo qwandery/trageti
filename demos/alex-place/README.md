@@ -24,6 +24,11 @@ Custom-query mode prints one retrieval result and one assembled-context answer.
 It skips the built-in queries, Dad entity-history follow-up, and final narrative
 synthesis. It is not supported in deterministic fixture/raw-vector mode because
 committed fixture vectors only cover the built-in demo query texts.
+When using live providers, throttle calls with `--limit <seconds>`:
+
+```sh
+npx tsx demos/alex-place/index.ts --limit 60
+```
 
 With no provider env vars, the demo runs fully offline using committed fixtures,
 deterministic vectors, deterministic assembled-context query answers, and a
@@ -39,18 +44,20 @@ rerun.
 The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
 configuration. Extraction and embedding are separate capabilities:
 
-| Variable                                        | Meaning                                            |
-| ----------------------------------------------- | -------------------------------------------------- |
-| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`     |
-| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native` |
-| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                 |
-| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                      |
-| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; defaults to `768`             |
+| Variable                                        | Meaning                                                 |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`          |
+| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native`      |
+| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                      |
+| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                           |
+| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; defaults to `768`                  |
+| `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5` |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
 demo does not infer that any named service supports both extraction and
-embedding. Configure both capabilities for live runs.
+embedding. Configure both capabilities for live runs. Live provider calls are
+serialized through the shared rate limiter and retry retryable HTTP failures.
 
 To inspect model boundaries while running the demo, set
 `DEMO_LLM_TRACE=summary`. To print full prompts, responses, embedding inputs,

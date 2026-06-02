@@ -32,6 +32,7 @@ export interface KnowThyselfCliOptions {
   keyframes: readonly string[];
   repoProvided: boolean;
   keyframesProvided: boolean;
+  rateLimitSeconds: number | null;
 }
 
 export interface DerivedHistoryData {
@@ -77,6 +78,7 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
   let repoProvided = false;
   let keyframes: string[] | null = null;
   let keyframesProvided = false;
+  let rateLimitSeconds: number | null = null;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -90,6 +92,17 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
     }
     if (arg.startsWith('--query=')) {
       query = normalizeNonEmpty(arg.slice('--query='.length), '--query');
+      continue;
+    }
+    if (arg === '--limit') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error('--limit requires a non-negative number');
+      rateLimitSeconds = normalizeLimit(value);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--limit=')) {
+      rateLimitSeconds = normalizeLimit(arg.slice('--limit='.length));
       continue;
     }
     if (arg === '--repo') {
@@ -129,6 +142,7 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
     keyframes: keyframes ?? defaultKeyframes,
     repoProvided,
     keyframesProvided,
+    rateLimitSeconds,
   };
 }
 
@@ -145,6 +159,13 @@ function parseKeyframeList(value: string): string[] {
     .filter(Boolean);
   if (refs.length === 0) throw new Error('--keyframes requires a comma-separated list');
   return refs;
+}
+
+function normalizeLimit(value: string): number {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!trimmed || !Number.isFinite(parsed) || parsed < 0) throw new Error('--limit requires a non-negative number');
+  return parsed;
 }
 
 export function isDefaultFixtureEligible(options: KnowThyselfCliOptions): boolean {

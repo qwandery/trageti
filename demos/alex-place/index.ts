@@ -17,7 +17,12 @@ import {
 } from '../shared/output.js';
 import { resolveDemoProviders } from '../shared/providers.js';
 import { generateAssembledAnswer } from '../shared/synthesis.js';
-import { assertCustomQuerySupported, buildCustomRetrievalQuery, parseDemoCliOptions } from '../shared/cli.js';
+import {
+  assertCustomQuerySupported,
+  buildCustomRetrievalQuery,
+  envWithDemoRateLimit,
+  parseDemoCliOptions,
+} from '../shared/cli.js';
 import {
   demoDataVersion,
   ensureDemoMetadata,
@@ -41,6 +46,7 @@ async function main(): Promise<void> {
     queryEmbeddings,
     queryTexts: QUERY_TEXTS,
     embeddingDimension: EMBEDDING_DIMENSION,
+    env: envWithDemoRateLimit(process.env, cli.rateLimitSeconds),
     trace,
   });
   if (cli.query) assertCustomQuerySupported(providers.embedder);
@@ -56,6 +62,7 @@ async function main(): Promise<void> {
     extractionLabel: providers.extractor.label,
     embeddingLabel: providers.embedder.label,
     embeddingDimension: EMBEDDING_DIMENSION,
+    rateLimitSeconds: cli.rateLimitSeconds,
   });
   ensureDemoMetadata({
     database,

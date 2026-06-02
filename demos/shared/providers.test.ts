@@ -39,6 +39,7 @@ const fixture = JSON.stringify({
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -113,7 +114,7 @@ describe('demo providers', () => {
       apiKey: 'sk-test',
       model: 'm',
       dimension: 2,
-      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
     try {
@@ -140,7 +141,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
-      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
     await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
@@ -163,7 +164,7 @@ describe('demo providers', () => {
         maxAttempts: 2,
         baseDelayMs: 1000,
         maxDelayMs: 1000,
-        minDelayMs: 0,
+        rateLimitMs: 0,
         log: (message) => messages.push(message),
       },
     });
@@ -172,6 +173,36 @@ describe('demo providers', () => {
 
     expect(messages.join('\n')).toContain('HTTP 429');
     expect(messages.join('\n')).toContain('waiting 1 ms');
+  });
+
+  it('rate-limits the first attempt of consecutive live provider requests', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 10_000);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 5000 },
+    });
+
+    await provider.extract('first');
+    const second = provider.extract('second');
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await second;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('stops retrying after max attempts', async () => {
@@ -183,7 +214,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
-      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
     await expect(provider.extract('prompt')).rejects.toThrow('failed HTTP 500 Broken');
@@ -199,7 +230,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
-      retry: { maxAttempts: 6, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+      retry: { maxAttempts: 6, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
     await expect(provider.extract('prompt')).rejects.toThrow('failed HTTP 400 Bad Request');

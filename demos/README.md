@@ -48,6 +48,7 @@ query suite with one custom user query:
 npx tsx demos/alex-place/index.ts --query "From whom has Alex learned specific knife techniques?"
 npx tsx demos/know-thyself/index.ts --query "What changed about persistence?"
 npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456,789abcd
+npx tsx demos/know-thyself/index.ts --limit 60
 ```
 
 Custom-query mode runs ingestion, then prints one retrieval result and one
@@ -102,11 +103,12 @@ endpoint once and count the returned vector length. Do not guess this value:
 SQLite vector tables are created with a fixed dimension, and every inserted
 embedding must match it.
 
-Live demo provider calls retry `429`, `408`, and `5xx` HTTP responses with
-backoff. Retry waits are printed without prompts or credentials. Override the
-defaults with `DEMO_PROVIDER_MAX_ATTEMPTS`,
-`DEMO_PROVIDER_BASE_DELAY_MS`, `DEMO_PROVIDER_MAX_DELAY_MS`, and
-`DEMO_PROVIDER_MIN_DELAY_MS`.
+Live demo provider calls are serialized at one request per 5 seconds by default
+and retry `429`, `408`, and `5xx` HTTP responses with backoff. Rate-limit and
+retry waits are printed without prompts or credentials. Override the rate limit
+with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Override retry behavior
+with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
+`DEMO_PROVIDER_MAX_DELAY_MS`.
 
 ## OpenAI walkthrough
 

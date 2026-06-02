@@ -28,6 +28,11 @@ npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def45
 
 Custom-query mode prints one retrieval result and one assembled-context answer.
 It skips the built-in queries, temporal snapshot, and final narrative synthesis.
+When using live providers, throttle calls with `--limit <seconds>`:
+
+```sh
+npx tsx demos/know-thyself/index.ts --limit 60
+```
 
 With no provider env vars, the default run works offline. Fixture mode derives
 source summaries, extraction output, and hash vectors deterministically from the
@@ -55,23 +60,24 @@ can reuse completed summary work.
 The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
 configuration. Extraction and embedding are separate capabilities:
 
-| Variable                                                     | Meaning                                            |
-| ------------------------------------------------------------ | -------------------------------------------------- |
-| `DEMO_EXTRACT_PROVIDER`                                      | `fixture`, `anthropic`, or `openai-compatible`     |
-| `DEMO_EMBED_PROVIDER`                                        | `fixture`, `openai-compatible`, or `ollama-native` |
-| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL`              | Provider base URLs                                 |
-| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`                    | Provider-specific model names                      |
-| `DEMO_EMBED_DIMENSION`                                       | Embedding dimension; defaults to `768`             |
-| `DEMO_PROVIDER_MAX_ATTEMPTS`                                 | Retry attempts for live HTTP provider calls        |
-| `DEMO_PROVIDER_BASE_DELAY_MS` / `DEMO_PROVIDER_MAX_DELAY_MS` | Retry backoff bounds                               |
-| `DEMO_PROVIDER_MIN_DELAY_MS`                                 | Minimum delay between live provider calls          |
+| Variable                                                     | Meaning                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| `DEMO_EXTRACT_PROVIDER`                                      | `fixture`, `anthropic`, or `openai-compatible`          |
+| `DEMO_EMBED_PROVIDER`                                        | `fixture`, `openai-compatible`, or `ollama-native`      |
+| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL`              | Provider base URLs                                      |
+| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`                    | Provider-specific model names                           |
+| `DEMO_EMBED_DIMENSION`                                       | Embedding dimension; defaults to `768`                  |
+| `DEMO_RATE_LIMIT`                                            | Seconds between live provider requests; defaults to `5` |
+| `DEMO_PROVIDER_MAX_ATTEMPTS`                                 | Retry attempts for live HTTP provider calls             |
+| `DEMO_PROVIDER_BASE_DELAY_MS` / `DEMO_PROVIDER_MAX_DELAY_MS` | Retry backoff bounds                                    |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
 demo does not infer that any named service supports both extraction and
 embedding. Configure both capabilities for live custom repo/keyframe runs.
-Live provider calls retry `429`, `408`, and `5xx` responses with backoff and
-print retry waits without exposing prompts or credentials.
+Live provider calls are serialized through the shared rate limiter and retry
+`429`, `408`, and `5xx` responses with backoff. Waits are printed without
+exposing prompts or credentials.
 
 ## What It Shows
 

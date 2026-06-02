@@ -22,7 +22,7 @@ import {
   type ResolvedDemoProviders,
 } from '../shared/providers.js';
 import { generateAssembledAnswer } from '../shared/synthesis.js';
-import { buildCustomRetrievalQuery } from '../shared/cli.js';
+import { buildCustomRetrievalQuery, envWithDemoRateLimit } from '../shared/cli.js';
 import type { ExtractionResult } from '../shared/ingest.js';
 import { ensureDemoMetadata, expectedFixtureAssertionIds, ingestEpisodes } from '../shared/runtime.js';
 import {
@@ -104,6 +104,7 @@ async function main(): Promise<void> {
     extractionLabel: resolvedProviders.extractor.label,
     embeddingLabel: resolvedProviders.embedder.label,
     embeddingDimension: EMBEDDING_DIMENSION,
+    rateLimitSeconds: cli.rateLimitSeconds,
   });
   logger.detail(`Repository: ${data.repoPath}`);
   logger.detail(`Keyframes: ${data.keyframes.map((k) => k.hash.slice(0, 12)).join(', ')}`);
@@ -213,7 +214,8 @@ function resolveProvidersAndDataMode(
   queryTexts: readonly string[],
   trace: ReturnType<typeof createLlmTraceOptions>,
 ): ResolvedDemoProviders {
-  if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(process.env)) {
+  const env = envWithDemoRateLimit(process.env, cli.rateLimitSeconds);
+  if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
     return {
       modeLabel: 'fixture / derived raw-vector',
       isLive: false,
@@ -255,15 +257,15 @@ function resolveProvidersAndDataMode(
     };
   }
 
-  if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(process.env)) {
+  if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
     throw new Error(
       'Custom --repo and --keyframes runs require live extraction and live embedding providers.\n' +
         'Set DEMO_EXTRACT_PROVIDER and DEMO_EMBED_PROVIDER with their required model/base URL/key settings.',
     );
   }
 
-  const extractor = resolveLiveExtractionProvider({ trace });
-  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, trace });
+  const extractor = resolveLiveExtractionProvider({ env, trace });
+  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, env, trace });
   void queryTexts;
   return {
     modeLabel: `live (${extractor.label} + ${embedder.label})`,
