@@ -12,9 +12,11 @@ import {
   printRetrievalResult,
   printSnapshot,
   printNarrative,
+  printAssembledAnswer,
   createLlmTraceOptions,
 } from '../shared/output.js';
 import { resolveDemoProviders } from '../shared/providers.js';
+import { generateAssembledAnswer } from '../shared/synthesis.js';
 import {
   demoDataVersion,
   ensureDemoMetadata,
@@ -92,6 +94,7 @@ async function main(): Promise<void> {
       order: 'temporal',
       relevance: { maxResults: 14 },
     });
+    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
   }
 
   logger.step('Running graph-expanded literature query');
@@ -102,6 +105,14 @@ async function main(): Promise<void> {
     order: 'temporal',
     relevance: { maxResults: 10 },
   });
+  printAssembledAnswer(
+    await generateAssembledAnswer({
+      store,
+      extractor: providers.extractor,
+      annotation: literatureSemanticQuery.annotation,
+      query: literatureSemanticQuery.query,
+    }),
+  );
 
   logger.step('Running entity history query');
   printQueryPlan(dadSemanticQuery.annotation, dadSemanticQuery.query, timeline);
@@ -111,6 +122,14 @@ async function main(): Promise<void> {
     order: 'temporal',
     relevance: { maxResults: 8 },
   });
+  printAssembledAnswer(
+    await generateAssembledAnswer({
+      store,
+      extractor: providers.extractor,
+      annotation: dadSemanticQuery.annotation,
+      query: dadSemanticQuery.query,
+    }),
+  );
 
   const dadEntityId = firstEntityId(dadSemanticResult.results, 'alex-father');
   if (dadEntityId) {
@@ -128,7 +147,7 @@ async function main(): Promise<void> {
   }
 
   logger.step('Assembling context and generating narrative');
-  const narrative = await generateNarrative(store, providers.extractor, providers.isLive);
+  const narrative = await generateNarrative(store, providers.extractor);
   printNarrative(narrative);
 
   logger.step('Closing TemporalStore');

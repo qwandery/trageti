@@ -5,7 +5,8 @@ _trageti ingests its own development history and answers questions about its own
 This demo ingests reviewed source documents generated from ten `trageti`
 keyframe commits, from the v0.1 implementation through v0.3 remediation and
 polish. It exercises ingestion, indexing, retrieval, trajectory display, graph
-expansion, and a temporal snapshot against committed keyframe fixtures.
+expansion, assembled-context query answers, final narrative synthesis, and a
+temporal snapshot against committed keyframe fixtures.
 
 ## Run
 
@@ -13,8 +14,8 @@ expansion, and a temporal snapshot against committed keyframe fixtures.
 npx tsx demos/know-thyself/index.ts
 ```
 
-With no provider env vars, the demo runs fully offline using committed fixtures
-and deterministic vectors.
+With no provider env vars, the demo runs fully offline using committed fixtures,
+deterministic vectors, and deterministic assembled-context synthesis.
 
 Runtime databases are written to `demos/.local/`. Each DB records demo data and
 provider provenance. If you change extraction provider, embedding provider,
@@ -52,7 +53,8 @@ and a reviewable summary of what changed. Episodes are temporal summaries over
 those source documents; citations point into the committed source documents via
 offsets.
 
-The demo runs six retrieval queries and one temporal snapshot:
+The demo runs six retrieval queries, an assembled-context answer after each
+retrieval query, one temporal snapshot, and a final narrative synthesis:
 
 1. Current retrieval result contract.
 2. Temporal model evolution via trajectory mode.
@@ -61,6 +63,8 @@ The demo runs six retrieval queries and one temporal snapshot:
 5. Vectorless namespace and embedding-provider changes.
 6. Retrieval determinism and graph-ordering refinements.
 7. The v0.1 temporal model via `getTemporalSnapshot`.
+8. A final assembled-context synthesis of the library's evolution and current
+   design.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.
 Use `generate-fixtures.ts` with a real embedding provider to regenerate

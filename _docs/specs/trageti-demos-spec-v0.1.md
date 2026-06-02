@@ -500,7 +500,7 @@ These supplementary documents are ingested as their own episodes at the position
 
 ### Output Format
 
-Same annotated terminal format as Demo 1. Additionally, Alex's Place outputs a "narrative summary" at the end — a generated prose paragraph (via the LLM if available, or a pre-written fixture) that synthesizes the current state of Alex's culinary journey based on the assertion store. This demonstrates a realistic downstream use of the retrieval API: assembled context feeding a synthesis pass, which is the core pattern trageti is designed to support.
+Same annotated terminal format as Demo 1. Each main retrieval query is followed by an assembled-context answer: a grounded prose response generated from `assembleContext()` using the retrieved temporal context. In fixture mode this is a deterministic template summary; in live mode it is an LLM synthesis constrained to the assembled context. Both demos also output a final narrative summary at the end. Alex's Place keeps a pre-written offline final narrative fixture, while Know Thyself uses the deterministic template fallback offline. These flows demonstrate the downstream pattern trageti is designed to support: temporal retrieval feeding assembled context, then context feeding synthesis.
 
 ---
 
@@ -513,13 +513,15 @@ demos/
 │   ├── prompt.ts              — default extraction prompt template
 │   ├── providers.ts           — extraction and embedding provider resolver
 │   ├── parse.ts               — JSON parsing with error recovery
-│   └── output.ts              — terminal output formatting
+│   ├── output.ts              — terminal output formatting
+│   └── synthesis.ts           — assembled-context answer and narrative helpers
 ├── know-thyself/
 │   ├── README.md              — description, setup, annotated output
 │   ├── index.ts               — main entry point
 │   ├── queries.ts             — query set with annotations
 │   ├── generate-episodes.ts   — build episodes from git keyframes (requires git history)
 │   ├── generate-fixtures.ts   — run extraction over episodes (requires LLM)
+│   ├── narrative.ts           — final synthesis pass
 │   └── data/
 │       ├── keyframes.ts       — hand-curated commit manifest (only manual input)
 │       ├── sources/           — reviewed keyframe source documents
@@ -592,7 +594,7 @@ The journal entries in `alex.md` are the creative heart of this demo and need to
 
 **Context length vs. diff accuracy.** The `--context-length` parameter on `generate-episodes.ts` controls how much of the full diff is included in the aggregation call. With a small budget (4K–8K), large diffs between keyframes will be truncated and the aggregation summary may miss changes at the tail end. With a large budget (32K+), most diffs fit entirely but the LLM call is more expensive. The default (8192) is conservative; the README should recommend higher values when using cloud models.
 
-**Narrative synthesis.** The prose summary at the end of Alex's Place is a nice touch but requires either a live LLM or a pre-written fixture. If fixture-only, it should be clearly labeled as pre-written. If live, it demonstrates a genuine downstream use case but adds another LLM call.
+**Narrative synthesis.** Query-level answers and final narrative summaries are now shared demo behavior. Fixture runs use deterministic template summaries except for Alex's final narrative, which remains a clearly labeled pre-written synthesis. Live runs add LLM calls for each synthesized answer and final narrative, so the trace output should be used when evaluating provider cost and latency.
 
 **Reference document sourcing.** The Alex demo should use fictional food-science documents that make the same culinary points without reproducing real published excerpts. The extraction system can also pull assertions from Alex's description of what they learned without needing source text from real books or articles.
 

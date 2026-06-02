@@ -5,6 +5,8 @@
 
 import type { TemporalStore } from 'trageti';
 import type { ExtractionProvider } from '../shared/providers.js';
+import { generateNarrativeSynthesis } from '../shared/synthesis.js';
+import { NAMESPACE } from './data/episodes.js';
 
 const PRE_WRITTEN =
   '(pre-written synthesis - set ANTHROPIC_API_KEY or OPENAI_API_KEY for live synthesis)\n' +
@@ -16,22 +18,16 @@ const PRE_WRITTEN =
   "feedback, Mrs. Park's kimchi advice, and knife-practice notes show Alex turning scattered " +
   'observations into repeatable technique without treating every question as solved.';
 
-export async function generateNarrative(
-  store: TemporalStore,
-  extractor: ExtractionProvider,
-  isLive: boolean,
-): Promise<string> {
-  const ctx = await store.assembleContext({
-    namespace: 'alex-journal',
+export async function generateNarrative(store: TemporalStore, extractor: ExtractionProvider): Promise<string> {
+  const result = await generateNarrativeSynthesis({
+    store,
+    extractor,
+    namespace: NAMESPACE,
     queryText: 'cooking progress',
     temporalAnchor: 20,
-    tokenBudget: 1000,
+    liveInstruction:
+      "Below is a context window summarising the current state of a home cook's culinary journal. Write a single grounded paragraph (3-5 sentences) synthesising what the stored context supports right now. Do not invent family backstory, emotional history, memories, trauma, mastery, or conclusions that are not directly supported by the context.",
+    fixtureText: PRE_WRITTEN,
   });
-
-  if (!isLive) return PRE_WRITTEN;
-
-  const prompt = `Below is a context window summarising the current state of a home cook's culinary journal. Write a single grounded paragraph (3-5 sentences) synthesising what the stored context supports right now. Be specific, avoid lists, and do not invent family backstory, emotional history, memories, trauma, mastery, or conclusions that are not directly supported by the context. If a point is uncertain, preserve that uncertainty.
-
-${ctx.text}`;
-  return extractor.extract(prompt);
+  return result.text;
 }

@@ -7,10 +7,10 @@ workflows.
 
 ## Demo overview
 
-| Demo           | Corpus                                                              | Main features shown                                                                                               |
-| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `alex-place`   | A cooking journal plus fictional food-science references            | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, assembled-context narrative synthesis |
-| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots              |
+| Demo           | Corpus                                                              | Main features shown                                                                                                                            |
+| -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alex-place`   | A cooking journal plus fictional food-science references            | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, query answers, final narrative synthesis                           |
+| `know-thyself` | Reviewed source documents generated from `trageti` keyframe commits | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots, query answers, final narrative synthesis |
 
 Both demos share provider handling from `demos/shared/`. Extraction and
 embedding are configured independently:
@@ -194,8 +194,9 @@ providers would make retrieval results misleading.
 
 ## Observability
 
-By default, the demos show the high-level ingestion, retrieval, graph, and
-synthesis flow. To show model-call boundaries and timings:
+By default, the demos show the high-level ingestion, retrieval, graph,
+assembled-context answer, and synthesis flow. To show model-call boundaries and
+timings:
 
 ```sh
 DEMO_LLM_TRACE=summary npx tsx demos/alex-place/index.ts

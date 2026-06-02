@@ -12,9 +12,12 @@ import {
   printQueryPlan,
   printRetrievalResult,
   printSnapshot,
+  printNarrative,
+  printAssembledAnswer,
   createLlmTraceOptions,
 } from '../shared/output.js';
 import { resolveDemoProviders } from '../shared/providers.js';
+import { generateAssembledAnswer } from '../shared/synthesis.js';
 import {
   demoDataVersion,
   ensureDemoMetadata,
@@ -27,6 +30,7 @@ import { fixtures } from './data/fixtures.js';
 import { citationSources } from './data/sources.js';
 import { EMBEDDING_DIMENSION, QUERY_TEXTS, assertionEmbeddings, queryEmbeddings } from './data/embeddings.js';
 import { retrieveQueries, snapshotAtV01 } from './queries.js';
+import { generateNarrative } from './narrative.js';
 
 async function main(): Promise<void> {
   const trace = createLlmTraceOptions();
@@ -91,11 +95,16 @@ async function main(): Promise<void> {
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
+    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
   }
 
   logger.step('Running temporal snapshot query');
   const snapshot = await store.getTemporalSnapshot(snapshotAtV01.options);
   printSnapshot(`Query ${snapshotAtV01.annotation}`, snapshot, { timeline });
+
+  logger.step('Assembling context and generating narrative');
+  const narrative = await generateNarrative(store, providers.extractor);
+  printNarrative(narrative);
 
   logger.step('Closing TemporalStore');
   await store.close();

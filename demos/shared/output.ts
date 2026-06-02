@@ -12,6 +12,7 @@ import type {
 } from 'trageti';
 import type { DemoRunLogger } from './runtime.js';
 import type { LlmTraceOptions } from './providers.js';
+import type { SynthesisResult } from './synthesis.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
 const RULE = '-'.repeat(72);
@@ -364,6 +365,18 @@ export function printNarrative(text: string): void {
   console.log('Assembled-context narrative synthesis');
   console.log(RULE);
   console.log('  ' + sanitizeForTerminal(text).split('\n').join('\n  '));
+}
+
+export function printAssembledAnswer(answer: SynthesisResult): void {
+  console.log('');
+  console.log('  Assembled-context answer');
+  console.log(
+    `  Context: ${String(answer.context.includedAssertions)} of ${String(answer.context.totalAssertions)} assertion(s), ` +
+      `${String(answer.context.tokenEstimate)} estimated token(s), ` +
+      `positions ${String(answer.context.positionRange.from)}..${String(answer.context.positionRange.to)}, ` +
+      `${answer.context.truncated ? 'truncated' : 'not truncated'}, ${answer.mode} synthesis.`,
+  );
+  console.log('  ' + sanitizeForTerminal(answer.text).split('\n').join('\n  '));
 }
 
 function describePlannedTemporalScope(query: RetrievalQuery, timeline?: DemoTimeline): string {

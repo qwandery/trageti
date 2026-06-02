@@ -4,8 +4,8 @@ _An aspiring chef's personal journal as a temporal RAG corpus._
 
 This demo turns Alex's journal and fictional food-science notes into dated
 episodes, extracted assertions, typed links, source-grounded citations, vector
-indexes, temporal retrieval, graph expansion, sparse entity lookup, and
-assembled-context narrative synthesis.
+indexes, temporal retrieval, graph expansion, sparse entity lookup,
+assembled-context query answers, and final narrative synthesis.
 
 ## Run
 
@@ -14,7 +14,8 @@ npx tsx demos/alex-place/index.ts
 ```
 
 With no provider env vars, the demo runs fully offline using committed fixtures,
-deterministic vectors, and a pre-written narrative synthesis.
+deterministic vectors, deterministic assembled-context query answers, and a
+pre-written final narrative synthesis.
 
 Runtime databases are written to `demos/.local/`. Each DB records demo data and
 provider provenance. If you change extraction provider, embedding provider,
@@ -60,7 +61,9 @@ supplied excerpts. It then runs:
    assertions appear when extraction stored typed links.
 5. A semantic Dad query followed by `getEntityHistory` for the entity ID
    surfaced by retrieval, when one exists.
-6. An assembled-context narrative synthesis pass.
+6. An assembled-context answer after each main retrieval query, showing how the
+   retrieved context can support grounded prose.
+7. A final assembled-context narrative synthesis pass.
 
 Fixture vectors are deterministic hash vectors, not semantically meaningful.
 Use `generate-fixtures.ts` with a real embedding provider to regenerate
