@@ -17,6 +17,7 @@ import {
 } from '../shared/output.js';
 import { resolveDemoProviders } from '../shared/providers.js';
 import { generateAssembledAnswer } from '../shared/synthesis.js';
+import { assertCustomQuerySupported, buildCustomRetrievalQuery, parseDemoCliOptions } from '../shared/cli.js';
 import {
   demoDataVersion,
   ensureDemoMetadata,
@@ -32,6 +33,7 @@ import { retrieveQueries, literatureSemanticQuery, dadSemanticQuery } from './qu
 import { generateNarrative } from './narrative.js';
 
 async function main(): Promise<void> {
+  const cli = parseDemoCliOptions();
   const trace = createLlmTraceOptions();
   const providers = resolveDemoProviders({
     fixtures,
@@ -41,6 +43,7 @@ async function main(): Promise<void> {
     embeddingDimension: EMBEDDING_DIMENSION,
     trace,
   });
+  if (cli.query) assertCustomQuerySupported(providers.embedder);
   printBanner(`alex-place - mode: ${providers.modeLabel}`);
   const timeline = createDemoTimeline(episodes);
 
@@ -84,6 +87,29 @@ async function main(): Promise<void> {
       ? { ...ingestOptions, expectedFixtureAssertionIds: expectedFixtureAssertionIds(fixtures) }
       : ingestOptions,
   );
+
+  if (cli.query) {
+    logger.step('Running custom user query');
+    const query = buildCustomRetrievalQuery({
+      namespace: NAMESPACE,
+      queryText: cli.query,
+      temporalAnchor: 20,
+    });
+    const annotation = '"User query" (custom)';
+    printQueryPlan(annotation, query, timeline);
+    const result = await store.retrieve(query);
+    printRetrievalResult(annotation, query, result, timeline, {
+      headerPrinted: true,
+      order: 'temporal',
+      relevance: { maxResults: 14 },
+    });
+    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+
+    logger.step('Closing TemporalStore');
+    await store.close();
+    logger.success('Demo complete');
+    return;
+  }
 
   logger.step('Running retrieval queries');
   for (const { annotation, query } of retrieveQueries) {

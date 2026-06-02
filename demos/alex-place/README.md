@@ -13,6 +13,18 @@ assembled-context query answers, and final narrative synthesis.
 npx tsx demos/alex-place/index.ts
 ```
 
+With a live embedding provider configured, replace the built-in query suite with
+one custom user query:
+
+```sh
+npx tsx demos/alex-place/index.ts --query "From whom has Alex learned specific knife techniques?"
+```
+
+Custom-query mode prints one retrieval result and one assembled-context answer.
+It skips the built-in queries, Dad entity-history follow-up, and final narrative
+synthesis. It is not supported in deterministic fixture/raw-vector mode because
+committed fixture vectors only cover the built-in demo query texts.
+
 With no provider env vars, the demo runs fully offline using committed fixtures,
 deterministic vectors, deterministic assembled-context query answers, and a
 pre-written final narrative synthesis.

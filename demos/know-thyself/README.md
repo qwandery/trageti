@@ -14,6 +14,18 @@ temporal snapshot against committed keyframe fixtures.
 npx tsx demos/know-thyself/index.ts
 ```
 
+With a live embedding provider configured, replace the built-in query suite with
+one custom user query:
+
+```sh
+npx tsx demos/know-thyself/index.ts --query "How did retrieval determinism improve over time?"
+```
+
+Custom-query mode prints one retrieval result and one assembled-context answer.
+It skips the built-in queries, temporal snapshot, and final narrative synthesis.
+It is not supported in deterministic fixture/raw-vector mode because committed
+fixture vectors only cover the built-in demo query texts.
+
 With no provider env vars, the demo runs fully offline using committed fixtures,
 deterministic vectors, and deterministic assembled-context synthesis.
 

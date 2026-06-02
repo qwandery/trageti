@@ -41,6 +41,20 @@ npx tsx demos/alex-place/index.ts
 npx tsx demos/know-thyself/index.ts
 ```
 
+With a live embedding provider configured, either demo can replace the default
+query suite with one custom user query:
+
+```sh
+npx tsx demos/alex-place/index.ts --query "From whom has Alex learned specific knife techniques?"
+npx tsx demos/know-thyself/index.ts --query "How did retrieval determinism improve over time?"
+```
+
+Custom-query mode runs ingestion, then prints one retrieval result and one
+assembled-context answer. It skips the built-in demo queries, follow-up API
+sections, and final narrative synthesis. Custom queries are not supported in
+deterministic fixture/raw-vector mode because committed fixture vectors only
+cover the built-in demo query texts.
+
 ## Offline mode
 
 With no provider environment variables, both demos run offline. Offline mode
@@ -48,7 +62,8 @@ uses committed extraction fixtures and committed raw vectors, so it is
 deterministic, requires no API keys, and is suitable for smoke tests and quick
 orientation. It still writes a real SQLite database and exercises the normal
 `TemporalStore`, schema, ingestion, indexing, and retrieval paths. It is not
-intended to demonstrate real semantic embedding quality.
+intended to demonstrate real semantic embedding quality. Offline mode does not
+support `--query`; configure a live embedding provider for custom queries.
 
 ## Runtime databases
 

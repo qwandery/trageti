@@ -346,6 +346,8 @@ Both scripts use the same provider resolver as all other demos. Regeneration is 
 
 The demo prints annotated results for each query: the query text, the retrieval mode and strategy used, the number of results, and for each result the assertion content, its position, confidence, citation excerpt, and (in trajectory mode) the full supersession chain. Output is formatted for terminal readability with clear section breaks.
 
+When run with `--query "<question>"`, the demo replaces the built-in query suite with one user-supplied retrieval query and one assembled-context answer. Custom queries require a live embedding provider because deterministic fixture/raw-vector mode only contains committed vectors for the built-in query texts. In fixture mode, `--query` fails before opening the demo store and prints provider-configuration guidance.
+
 ---
 
 ## Demo 2: Alex's Place
@@ -501,6 +503,8 @@ These supplementary documents are ingested as their own episodes at the position
 ### Output Format
 
 Same annotated terminal format as Demo 1. Each main retrieval query is followed by an assembled-context answer: a grounded prose response generated from `assembleContext()` using the retrieved temporal context. In fixture mode this is a deterministic template summary; in live mode it is an LLM synthesis constrained to the assembled context. Both demos also output a final narrative summary at the end. Alex's Place keeps a pre-written offline final narrative fixture, while Know Thyself uses the deterministic template fallback offline. These flows demonstrate the downstream pattern trageti is designed to support: temporal retrieval feeding assembled context, then context feeding synthesis.
+
+Alex's Place also supports `--query "<question>"` under the same live-embedding-only rule as Demo 1. Custom-query mode skips the default Alex query set, Dad entity-history follow-up, and final narrative summary so the output focuses on the user's question.
 
 ---
 
