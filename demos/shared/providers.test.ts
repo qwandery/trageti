@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TemporalStore, Episode, NewAssertionInput, AssertionLink } from 'trageti';
 import { ingest } from './ingest.js';
+import { buildExtractionPrompt } from './prompt.js';
 import {
   createOpenAICompatibleEmbeddingProvider,
   createFixtureExtractionProvider,
@@ -121,6 +122,20 @@ describe('demo providers', () => {
       expect(message).toContain('failed HTTP 500 Nope');
       expect(message).not.toContain('SECRET');
     }
+  });
+
+  it('renders markdown section citation spans with anchored source refs', () => {
+    const source = [
+      '## 2026-04-16 - Dinner',
+      '',
+      'Sam said the bread was a little sour for him. Jordan said the salad dressing was the best thing on the table.',
+    ].join('\n');
+
+    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', { 'source.md': source });
+
+    expect(prompt).toContain('sourceRef=source.md#2026-04-16');
+    expect(prompt).toContain('excerptStart=0');
+    expect(prompt).not.toContain('sourceRef=source.md; excerptStart=');
   });
 });
 
@@ -255,6 +270,67 @@ describe('ingest normalization', () => {
     });
 
     expect(store.assertions[0]?.citations[0]?.excerpt).toBe('world');
+  });
+
+  it('resolves anchored markdown citation offsets relative to the section body', async () => {
+    const store = new FakeStore();
+    const source = [
+      '## 2026-04-15 - Earlier',
+      '',
+      'Earlier paragraph.',
+      '',
+      '## 2026-04-16 - Dinner',
+      '',
+      'Sam said the bread was a little sour for him. Priya explained browning.',
+      'Jordan said the salad dressing was the best thing on the table.',
+      '',
+      '## 2026-04-17 - Later',
+      '',
+      'Later paragraph.',
+    ].join('\n');
+    const quote = 'Jordan said the salad dressing was the best thing on the table.';
+    const sectionBody = [
+      'Sam said the bread was a little sour for him. Priya explained browning.',
+      'Jordan said the salad dressing was the best thing on the table.',
+    ].join('\n');
+    const start = sectionBody.indexOf(quote);
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'wrong-episode',
+                sourceRef: 'source.md#2026-04-16',
+                excerpt: null,
+                excerptStart: String(start),
+                excerptEnd: String(start + quote.length),
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
+
+    await ingest({
+      store: store as unknown as TemporalStore,
+      episode: makeEpisode(),
+      document: 'episode summary',
+      namespace: 'correct',
+      citationSources: { 'source.md': source },
+      extractor,
+    });
+
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe(quote);
   });
 
   it('rejects an unknown citation source before writing an episode', async () => {

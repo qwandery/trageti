@@ -40,10 +40,12 @@ function citation(
   sourceRef: string,
   quoteText: string,
 ): AssertionFixture['citations'][number] {
-  const baseRef = sourceRef.split('#')[0] ?? sourceRef;
+  const [baseRef, anchor] = sourceRef.split('#');
+  if (!baseRef) throw new Error(`missing citation source ${sourceRef}`);
   const source = citationSources[baseRef];
   if (!source) throw new Error(`missing citation source ${sourceRef}`);
-  const start = source.indexOf(quoteText);
+  const citationSource = anchor ? markdownSection(source, anchor) : source;
+  const start = citationSource.indexOf(quoteText);
   if (start < 0) throw new Error(`quote not found in ${sourceRef}: ${quoteText}`);
   return {
     id,
@@ -53,6 +55,26 @@ function citation(
     excerptStart: String(start),
     excerptEnd: String(start + quoteText.length),
   };
+}
+
+function markdownSection(markdown: string, anchor: string): string {
+  const headingPattern = /^(#{1,6})\s+(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = headingPattern.exec(markdown)) !== null) {
+    const level = match[1]?.length ?? 0;
+    const heading = match[2]?.trim().toLowerCase() ?? '';
+    if (!heading.includes(anchor.toLowerCase())) continue;
+
+    let start = headingPattern.lastIndex;
+    while (markdown[start] === '\r' || markdown[start] === '\n') start++;
+
+    const nextHeadingPattern = new RegExp(`^#{1,${String(level)}}\\s+`, 'gm');
+    nextHeadingPattern.lastIndex = start;
+    const next = nextHeadingPattern.exec(markdown);
+    const end = next?.index ?? markdown.length;
+    return markdown.slice(start, end).replace(/[\r\n]+$/u, '');
+  }
+  throw new Error(`missing markdown section ${anchor}`);
 }
 
 function assertion(

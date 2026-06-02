@@ -98,15 +98,42 @@ function resolveCitationSource(
   if (!citationSources) return { id: 'episode document', content: document };
   const direct = citationSources[sourceRef];
   if (direct !== undefined) return { id: sourceRef, content: direct };
-  const baseRef = sourceRef.split('#')[0];
+  const [baseRef, anchor] = sourceRef.split('#');
   if (baseRef) {
     const base = citationSources[baseRef];
-    if (base !== undefined) return { id: baseRef, content: base };
+    if (base !== undefined) {
+      if (anchor) {
+        const section = resolveMarkdownSection(base, anchor);
+        if (section !== null) return { id: sourceRef, content: section };
+      }
+      return { id: baseRef, content: base };
+    }
   }
   throw new Error(
     `Extraction result failed citation validation:\n` +
       `- citation sourceRef "${sourceRef}" does not match a registered source document`,
   );
+}
+
+function resolveMarkdownSection(markdown: string, anchor: string): string | null {
+  const decodedAnchor = decodeURIComponent(anchor).toLowerCase();
+  const headingPattern = /^(#{1,6})\s+(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = headingPattern.exec(markdown)) !== null) {
+    const level = match[1]?.length ?? 0;
+    const heading = match[2]?.trim().toLowerCase() ?? '';
+    if (!heading.includes(decodedAnchor)) continue;
+
+    let start = headingPattern.lastIndex;
+    while (markdown[start] === '\r' || markdown[start] === '\n') start++;
+
+    const nextHeadingPattern = new RegExp(`^#{1,${String(level)}}\\s+`, 'gm');
+    nextHeadingPattern.lastIndex = start;
+    const next = nextHeadingPattern.exec(markdown);
+    const end = next?.index ?? markdown.length;
+    return markdown.slice(start, end).replace(/[\r\n]+$/u, '');
+  }
+  return null;
 }
 
 function normalizeExtractionResult(

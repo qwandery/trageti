@@ -115,6 +115,35 @@ function renderCitationSpans(citationSources: Record<string, string>): string {
 }
 
 function sourceToSpans(sourceRef: string, text: string): string[] {
+  const sectionSpans = markdownSectionSpans(sourceRef, text);
+  if (sectionSpans.length > 0) return sectionSpans;
+  return paragraphSpans(sourceRef, text);
+}
+
+function markdownSectionSpans(sourceRef: string, text: string): string[] {
+  const spans: string[] = [];
+  const headingPattern = /^(#{1,6})\s+(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = headingPattern.exec(text)) !== null) {
+    const level = match[1]?.length ?? 0;
+    const heading = match[2]?.trim() ?? '';
+    const anchor = heading.match(/\d{4}-\d{2}-\d{2}/u)?.[0];
+    if (!anchor) continue;
+
+    let start = headingPattern.lastIndex;
+    while (text[start] === '\r' || text[start] === '\n') start++;
+
+    const nextHeadingPattern = new RegExp(`^#{1,${String(level)}}\\s+`, 'gm');
+    nextHeadingPattern.lastIndex = start;
+    const next = nextHeadingPattern.exec(text);
+    const end = next?.index ?? text.length;
+    const section = text.slice(start, end).replace(/[\r\n]+$/u, '');
+    spans.push(...paragraphSpans(`${sourceRef}#${anchor}`, section));
+  }
+  return spans;
+}
+
+function paragraphSpans(sourceRef: string, text: string): string[] {
   const spans: string[] = [];
   const paragraphPattern = /[^\n](?:.*(?:\n(?!\n).*)*)/g;
   for (const match of text.matchAll(paragraphPattern)) {
