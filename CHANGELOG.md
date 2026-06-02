@@ -79,6 +79,10 @@ validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
   git keyframe commits instead of committed generated seed data. `--repo` and
   `--keyframes` support custom repositories in live-provider mode, and
   run-specific database files prevent cross-repo DB reuse.
+- **Live demo runs are rate-limit aware and resumable.** Demo providers retry
+  retryable HTTP failures with backoff, Know Thyself caches live source
+  summaries under `.local`, and reruns can re-index assertions left without
+  embeddings by an interrupted provider call.
 - `DefaultConnectionVerifier` downgrades the "sqlite-vec not loaded" path
   from a fatal `ConnectionVerificationError` to a warning so vectorless
   deployments can operate without the extension.

@@ -67,6 +67,13 @@ and exercises the normal `TemporalStore`, schema, ingestion, indexing, and
 retrieval paths. It is not intended to demonstrate real semantic embedding
 quality. Know Thyself custom repo/keyframe runs require live providers.
 
+If `.env` contains live provider settings, the demos use live mode. To force
+Know Thyself's default repo/keyframes through deterministic fixture mode:
+
+```sh
+DEMO_EXTRACT_PROVIDER=fixture DEMO_EMBED_PROVIDER=fixture npx tsx demos/know-thyself/index.ts
+```
+
 ## Runtime databases
 
 Demo databases are written under `demos/.local/`. Each database records the demo
@@ -94,6 +101,12 @@ server startup output, embedding endpoint metadata, or probe the embedding
 endpoint once and count the returned vector length. Do not guess this value:
 SQLite vector tables are created with a fixed dimension, and every inserted
 embedding must match it.
+
+Live demo provider calls retry `429`, `408`, and `5xx` HTTP responses with
+backoff. Retry waits are printed without prompts or credentials. Override the
+defaults with `DEMO_PROVIDER_MAX_ATTEMPTS`,
+`DEMO_PROVIDER_BASE_DELAY_MS`, `DEMO_PROVIDER_MAX_DELAY_MS`, and
+`DEMO_PROVIDER_MIN_DELAY_MS`.
 
 ## OpenAI walkthrough
 
@@ -209,6 +222,10 @@ If the stored metadata does not match the current `.env` and committed demo
 data, the demo exits with guidance to delete the DB or use a different path.
 That is intentional: mixing embeddings or extracted assertions from different
 providers would make retrieval results misleading.
+
+Know Thyself also caches live-derived source summaries under
+`demos/.local/know-thyself/`, keyed by repo, commits, provider provenance, and
+source input. Reruns reuse completed summary work when the inputs match.
 
 ## Observability
 

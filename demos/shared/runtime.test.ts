@@ -2,9 +2,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
-import type { Episode } from 'trageti';
-import { demoDataVersion, ensureDemoMetadata } from './runtime.js';
-import { resolveDemoProviders } from './providers.js';
+import type { Assertion, Episode, TemporalStore } from 'trageti';
+import { demoDataVersion, ensureDemoMetadata, ingestEpisodes } from './runtime.js';
+import { resolveDemoProviders, type ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
 const BASE_EPISODES: Omit<Episode, 'createdAt'>[] = [
@@ -135,3 +135,91 @@ describe('ensureDemoMetadata', () => {
     }).toThrow('built with different');
   });
 });
+
+describe('ingestEpisodes resume checks', () => {
+  it('re-indexes pending assertions on rerun', async () => {
+    const store = new ResumeStore([makeAssertion('a-1')], [{ id: 'a-1', content: 'hello world' }]);
+
+    await ingestEpisodes({
+      store: store as unknown as TemporalStore,
+      namespace: 'test',
+      episodes: BASE_EPISODES,
+      providers: fixtureProviders(),
+    });
+
+    expect(store.indexedIds).toEqual(['a-1']);
+  });
+
+  it('fails clearly when an existing episode has no assertions', async () => {
+    const store = new ResumeStore([], []);
+
+    await expect(
+      ingestEpisodes({
+        store: store as unknown as TemporalStore,
+        namespace: 'test',
+        episodes: BASE_EPISODES,
+        providers: fixtureProviders(),
+      }),
+    ).rejects.toThrow('exists but has no assertions');
+  });
+});
+
+function fixtureProviders(): ResolvedDemoProviders {
+  return resolveDemoProviders({
+    fixtures: BASE_FIXTURES,
+    assertionEmbeddings: BASE_ASSERTION_EMBEDDINGS,
+    queryEmbeddings: BASE_QUERY_EMBEDDINGS,
+    queryTexts: BASE_QUERY_TEXTS,
+    embeddingDimension: 2,
+    env: {},
+  });
+}
+
+function makeAssertion(id: string): Assertion {
+  return {
+    id,
+    namespace: 'test',
+    type: 'fact',
+    content: 'hello world',
+    validFrom: 1,
+    validUntil: null,
+    confidence: 1,
+    sourceEpisodeId: 'ep-1',
+    supersedesId: null,
+    entityId: null,
+    entityType: null,
+    citations: [],
+    extensions: {},
+    createdAt: '2026-01-01T00:00:00Z',
+  };
+}
+
+class ResumeStore {
+  readonly indexedIds: string[] = [];
+
+  constructor(
+    private readonly assertions: Assertion[],
+    private pending: Array<{ id: string; content: string }>,
+  ) {}
+
+  getEpisode(id: string): Promise<Episode | null> {
+    if (id !== 'ep-1') return Promise.resolve(null);
+    const episode = BASE_EPISODES[0];
+    if (!episode) throw new Error('missing fixture episode');
+    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z' });
+  }
+
+  getAssertions(): Promise<Assertion[]> {
+    return Promise.resolve([...this.assertions]);
+  }
+
+  getPendingIndexing(): Promise<Array<{ id: string; content: string }>> {
+    return Promise.resolve([...this.pending]);
+  }
+
+  indexBatch(items: Array<{ assertionId: string }>): Promise<{ indexed: number; skipped: unknown[] }> {
+    this.indexedIds.push(...items.map((item) => item.assertionId));
+    this.pending = [];
+    return Promise.resolve({ indexed: items.length, skipped: [] });
+  }
+}

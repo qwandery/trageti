@@ -3,6 +3,7 @@ import type { TemporalStore, Episode, NewAssertionInput, AssertionLink } from 't
 import { ingest } from './ingest.js';
 import { buildExtractionPrompt } from './prompt.js';
 import {
+  createOpenAICompatibleExtractionProvider,
   createOpenAICompatibleEmbeddingProvider,
   createFixtureExtractionProvider,
   resolveDemoProviders,
@@ -112,6 +113,7 @@ describe('demo providers', () => {
       apiKey: 'sk-test',
       model: 'm',
       dimension: 2,
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
     });
 
     try {
@@ -122,6 +124,86 @@ describe('demo providers', () => {
       expect(message).toContain('failed HTTP 500 Nope');
       expect(message).not.toContain('SECRET');
     }
+  });
+
+  it('retries retryable extraction HTTP failures', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429, statusText: 'Too Many Requests' }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('honors retry-after while logging retry waits', async () => {
+    const messages: string[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '0.001' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      dimension: 2,
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 1000,
+        maxDelayMs: 1000,
+        minDelayMs: 0,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await embedder.provider.embed(['hello']);
+
+    expect(messages.join('\n')).toContain('HTTP 429');
+    expect(messages.join('\n')).toContain('waiting 1 ms');
+  });
+
+  it('stops retrying after max attempts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('', { status: 500, statusText: 'Broken' }))),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).rejects.toThrow('failed HTTP 500 Broken');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-retryable HTTP failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('', { status: 400, statusText: 'Bad Request' }))),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 6, baseDelayMs: 1, maxDelayMs: 1, minDelayMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).rejects.toThrow('failed HTTP 400 Bad Request');
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('renders markdown section citation spans with anchored source refs', () => {

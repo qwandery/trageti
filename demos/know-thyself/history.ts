@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Assertion, Episode } from 'trageti';
 import { RawVectorProvider } from 'trageti';
@@ -53,8 +53,23 @@ interface SelectedFile {
 }
 
 export interface SourceSummarizer {
-  summarize(prompt: string): Promise<string>;
+  summarize(prompt: string, context?: SourceSummaryContext): Promise<string>;
 }
+
+export interface SourceSummaryContext {
+  sourceRef: string;
+  current: Keyframe;
+  previous?: Keyframe;
+  cacheHit?: boolean;
+}
+
+export interface HistoryProgress {
+  start?(event: { repoPath: string; keyframeCount: number; mode: 'fixture' | 'live' }): void;
+  keyframeStart?(event: { sourceRef: string; position: number; label: string; mode: 'fixture' | 'live' }): void;
+  keyframeDone?(event: { sourceRef: string; position: number; cached: boolean; mode: 'fixture' | 'live' }): void;
+}
+
+const SOURCE_SUMMARY_PROMPT_VERSION = 'know-thyself-source-summary-v2';
 
 export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliOptions {
   let query: string | null = null;
@@ -171,16 +186,52 @@ export function createLiveSummarizer(extractor: ExtractionProvider): SourceSumma
   };
 }
 
+export function createCachedLiveSummarizer(options: {
+  extractor: ExtractionProvider;
+  repoPath: string;
+  cacheDir?: string;
+  progress?: HistoryProgress;
+}): SourceSummarizer {
+  const cacheDir = options.cacheDir ?? join('demos', '.local', 'know-thyself', 'source-summary-cache');
+  mkdirSync(cacheDir, { recursive: true });
+  return {
+    async summarize(prompt, context) {
+      const key = sourceSummaryCacheKey({
+        repoPath: options.repoPath,
+        provider: options.extractor.provenance,
+        prompt,
+        ...(context !== undefined ? { context } : {}),
+      });
+      const path = join(cacheDir, `${key}.json`);
+      if (existsSync(path)) {
+        const cached = JSON.parse(readFileSync(path, 'utf8')) as { summary?: unknown };
+        if (typeof cached.summary === 'string') {
+          if (context) context.cacheHit = true;
+          return cached.summary;
+        }
+      }
+      const summary = (await options.extractor.extract(prompt)).trim();
+      if (context) context.cacheHit = false;
+      writeFileSync(path, JSON.stringify({ summary }, null, 2));
+      return summary;
+    },
+  };
+}
+
 export async function deriveHistoryData(options: {
   repoPath: string;
   keyframeRefs: readonly string[];
   summarizer: SourceSummarizer;
+  mode?: 'fixture' | 'live';
+  progress?: HistoryProgress;
   tokenBudget?: number;
 }): Promise<DerivedHistoryData> {
   const repoPath = resolve(options.repoPath);
   verifyGitRepo(repoPath);
   const keyframes = options.keyframeRefs.map((ref, index) => resolveKeyframe(repoPath, ref, index + 1));
   if (keyframes.length === 0) throw new Error('At least one keyframe commit is required');
+  const mode = options.mode ?? 'fixture';
+  options.progress?.start?.({ repoPath, keyframeCount: keyframes.length, mode });
 
   const citationSources: Record<string, string> = {};
   const sourceSummaries: Record<string, string> = {};
@@ -191,9 +242,18 @@ export async function deriveHistoryData(options: {
     const current = keyframes[i];
     if (!current) continue;
     const previous = keyframes[i - 1];
+    const sourceRef = sourceRefFor(current, previous);
+    const context: SourceSummaryContext = previous ? { sourceRef, current, previous } : { sourceRef, current };
+    options.progress?.keyframeStart?.({ sourceRef, position: current.position, label: current.label, mode });
     const built = previous
-      ? await buildPairSource(repoPath, options.summarizer, previous, current, tokenBudget)
-      : await buildInitialSource(repoPath, options.summarizer, current, tokenBudget);
+      ? await buildPairSource(repoPath, options.summarizer, previous, current, tokenBudget, context)
+      : await buildInitialSource(repoPath, options.summarizer, current, tokenBudget, context);
+    options.progress?.keyframeDone?.({
+      sourceRef,
+      position: current.position,
+      cached: context.cacheHit === true,
+      mode,
+    });
     const sourceKey = `sources/${built.sourceRef}`;
     citationSources[sourceKey] = built.content;
     sourceSummaries[sourceKey] = built.summary;
@@ -388,11 +448,34 @@ function sourceRefFor(current: Keyframe, previous?: Keyframe): string {
     : `kf-${String(current.position)}.md`;
 }
 
+function sourceSummaryCacheKey(options: {
+  repoPath: string;
+  provider: ProviderProvenance;
+  prompt: string;
+  context?: SourceSummaryContext;
+}): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        version: SOURCE_SUMMARY_PROMPT_VERSION,
+        repoPath: options.repoPath,
+        provider: options.provider,
+        sourceRef: options.context?.sourceRef,
+        current: options.context?.current.hash,
+        previous: options.context?.previous?.hash,
+        promptHash: createHash('sha256').update(options.prompt).digest('hex'),
+      }),
+    )
+    .digest('hex')
+    .slice(0, 32);
+}
+
 async function buildInitialSource(
   repoPath: string,
   summarizer: SourceSummarizer,
   current: Keyframe,
   tokenBudget: number,
+  context: SourceSummaryContext,
 ): Promise<{ sourceRef: string; content: string; summary: string }> {
   const sourceRef = sourceRefFor(current);
   const message = git(repoPath, ['log', current.hash, '-1', '--format=%B']).trim();
@@ -410,7 +493,7 @@ async function buildInitialSource(
     'Source excerpts:',
     fileSections.join('\n\n'),
   ].join('\n');
-  const summary = (await summarizer.summarize(prompt)).trim();
+  const summary = (await summarizer.summarize(prompt, context)).trim();
   return {
     sourceRef,
     summary,
@@ -443,6 +526,7 @@ async function buildPairSource(
   previous: Keyframe,
   current: Keyframe,
   tokenBudget: number,
+  context: SourceSummaryContext,
 ): Promise<{ sourceRef: string; content: string; summary: string }> {
   const sourceRef = sourceRefFor(current, previous);
   const message = git(repoPath, ['log', current.hash, '-1', '--format=%B']).trim();
@@ -474,7 +558,7 @@ async function buildPairSource(
     '',
     `Selected diffs:\n${fileSections.join('\n\n')}`,
   ].join('\n');
-  const summary = (await summarizer.summarize(prompt)).trim();
+  const summary = (await summarizer.summarize(prompt, context)).trim();
   return {
     sourceRef,
     summary,

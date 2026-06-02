@@ -35,28 +35,43 @@ default repo/keyframes. Fixture mode is not supported when `--repo` or
 `--keyframes` is supplied; custom repo/keyframe runs require live extraction and
 live embedding providers.
 
+When live provider env vars are present, the no-arg run uses live mode. To force
+offline fixture mode in that environment:
+
+```sh
+DEMO_EXTRACT_PROVIDER=fixture DEMO_EMBED_PROVIDER=fixture npx tsx demos/know-thyself/index.ts
+```
+
 Runtime databases are written to `demos/.local/know-thyself/<run-hash>.db`.
 The run hash includes the absolute repo path, resolved keyframe commits,
 provider provenance, fixture/live mode, and query text set, so different
 repo/keyframe/provider combinations do not reuse the same SQLite file.
+Live source summaries are cached under `demos/.local/know-thyself/` using the
+repo, commits, provider provenance, and source input, so interrupted live runs
+can reuse completed summary work.
 
 ## Provider Configuration
 
 The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
 configuration. Extraction and embedding are separate capabilities:
 
-| Variable                                        | Meaning                                            |
-| ----------------------------------------------- | -------------------------------------------------- |
-| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`     |
-| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native` |
-| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                 |
-| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                      |
-| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; defaults to `768`             |
+| Variable                                                     | Meaning                                            |
+| ------------------------------------------------------------ | -------------------------------------------------- |
+| `DEMO_EXTRACT_PROVIDER`                                      | `fixture`, `anthropic`, or `openai-compatible`     |
+| `DEMO_EMBED_PROVIDER`                                        | `fixture`, `openai-compatible`, or `ollama-native` |
+| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL`              | Provider base URLs                                 |
+| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`                    | Provider-specific model names                      |
+| `DEMO_EMBED_DIMENSION`                                       | Embedding dimension; defaults to `768`             |
+| `DEMO_PROVIDER_MAX_ATTEMPTS`                                 | Retry attempts for live HTTP provider calls        |
+| `DEMO_PROVIDER_BASE_DELAY_MS` / `DEMO_PROVIDER_MAX_DELAY_MS` | Retry backoff bounds                               |
+| `DEMO_PROVIDER_MIN_DELAY_MS`                                 | Minimum delay between live provider calls          |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
 demo does not infer that any named service supports both extraction and
 embedding. Configure both capabilities for live custom repo/keyframe runs.
+Live provider calls retry `429`, `408`, and `5xx` responses with backoff and
+print retry waits without exposing prompts or credentials.
 
 ## What It Shows
 

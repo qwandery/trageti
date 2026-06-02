@@ -152,6 +152,12 @@ export async function ingestEpisodes(options: {
       options.logger?.detail(formatEpisode(episode));
       await reloadAccumulated(options.store, options.namespace, accumulated);
       const existingAssertions = accumulated.filter((a) => a.sourceEpisodeId === episode.id);
+      if (existingAssertions.length === 0) {
+        throw new Error(
+          `Demo database is partial: episode "${episode.id}" exists but has no assertions.\n` +
+            'Delete this run-specific demo DB and re-run.',
+        );
+      }
       options.logger?.detail(
         `  Reused ${formatCount(existingAssertions.length, 'stored claim')} from SQLite after validating the episode metadata.`,
       );
@@ -277,6 +283,7 @@ async function verifyComplete(options: {
   store: TemporalStore;
   namespace: string;
   episodes: readonly Omit<Episode, 'createdAt'>[];
+  providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
   logger?: DemoRunLogger;
 }): Promise<void> {
@@ -294,10 +301,18 @@ async function verifyComplete(options: {
 
   const pending = await options.store.getPendingIndexing(options.namespace);
   if (pending.length > 0) {
-    throw new Error(
-      `Demo database is partial: ${String(pending.length)} assertion(s) are missing embeddings.\n` +
-        'Delete the demo DB and re-run.',
+    options.logger?.detail(`Re-indexing ${String(pending.length)} assertion(s) missing embeddings from a prior run`);
+    const ib = await options.store.indexBatch(
+      pending.map((row) => ({ assertionId: row.id })),
+      { onProviderError: 'skip' },
     );
+    if (ib.skipped.length > 0) {
+      const reason = ib.skipped[0]?.reason ?? 'UNKNOWN';
+      throw new Error(
+        `Demo database is partial: ${String(ib.skipped.length)} assertion(s) still missing embeddings after retry (${reason}).\n` +
+          'Re-run after the embedding provider is available or delete this run-specific demo DB.',
+      );
+    }
   }
 
   if (options.expectedFixtureAssertionIds) {

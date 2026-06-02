@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseExtraction } from '../shared/parse.js';
 import {
   assertFixtureAllowedForOptions,
+  createCachedLiveSummarizer,
   createDeterministicFixtures,
   createDeterministicSummarizer,
   createFixtureProviders,
@@ -239,6 +240,92 @@ describe('deriveHistoryData', () => {
     );
 
     expect(result.assertions.map((assertion) => assertion.supersedesId)).toEqual([null, 'a-kf-1-0']);
+  });
+
+  it('reuses cached live source summaries', async () => {
+    const repo = createRepo();
+    const first = commit(repo, 'initial architecture', { 'README.md': '# Demo\n\nInitial architecture\n' });
+    const cacheDir = mkdtempSync(join(tmpdir(), 'trageti-history-cache-'));
+    tempDirs.push(cacheDir);
+    let calls = 0;
+    const extractor = {
+      name: 'test-live',
+      label: 'test-live',
+      provenance: { kind: 'openai-compatible' as const, model: 'm', configHash: 'provider-a' },
+      extract() {
+        calls += 1;
+        return Promise.resolve(`summary ${String(calls)}`);
+      },
+    };
+
+    const firstRun = await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: [first],
+      summarizer: createCachedLiveSummarizer({ extractor, repoPath: repo, cacheDir }),
+      mode: 'live',
+      tokenBudget: 2048,
+    });
+    const secondRun = await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: [first],
+      summarizer: createCachedLiveSummarizer({ extractor, repoPath: repo, cacheDir }),
+      mode: 'live',
+      tokenBudget: 2048,
+    });
+
+    expect(calls).toBe(1);
+    expect(secondRun.sourceSummaries).toEqual(firstRun.sourceSummaries);
+    expect(
+      dataVersion({
+        repoPath: firstRun.repoPath,
+        keyframes: firstRun.keyframes,
+        episodes: firstRun.episodes,
+        citationSources: firstRun.citationSources,
+        queryTexts: defaultQueryTexts(),
+      }),
+    ).toBe(
+      dataVersion({
+        repoPath: secondRun.repoPath,
+        keyframes: secondRun.keyframes,
+        episodes: secondRun.episodes,
+        citationSources: secondRun.citationSources,
+        queryTexts: defaultQueryTexts(),
+      }),
+    );
+  });
+
+  it('changes cached source summary key when provider provenance changes', async () => {
+    const repo = createRepo();
+    const first = commit(repo, 'initial architecture', { 'README.md': '# Demo\n\nInitial architecture\n' });
+    const cacheDir = mkdtempSync(join(tmpdir(), 'trageti-history-cache-'));
+    tempDirs.push(cacheDir);
+    let calls = 0;
+    const extractor = (configHash: string) => ({
+      name: 'test-live',
+      label: 'test-live',
+      provenance: { kind: 'openai-compatible' as const, model: 'm', configHash },
+      extract() {
+        calls += 1;
+        return Promise.resolve(`summary ${String(calls)}`);
+      },
+    });
+
+    await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: [first],
+      summarizer: createCachedLiveSummarizer({ extractor: extractor('provider-a'), repoPath: repo, cacheDir }),
+      mode: 'live',
+      tokenBudget: 2048,
+    });
+    await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: [first],
+      summarizer: createCachedLiveSummarizer({ extractor: extractor('provider-b'), repoPath: repo, cacheDir }),
+      mode: 'live',
+      tokenBudget: 2048,
+    });
+
+    expect(calls).toBe(2);
   });
 });
 

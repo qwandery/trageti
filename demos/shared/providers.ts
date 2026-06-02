@@ -45,6 +45,24 @@ export interface LlmTraceOptions {
   log(message: string): void;
 }
 
+export interface ProviderRetryOptions {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  minDelayMs: number;
+  log?(message: string): void;
+}
+
+class ProviderHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs: number | null,
+  ) {
+    super(message);
+  }
+}
+
 export interface ResolveDemoProvidersOptions {
   fixtures: Record<string, string>;
   assertionEmbeddings: Record<string, number[]>;
@@ -111,29 +129,33 @@ export function createRawVectorEmbeddingProvider(options: {
 export function createAnthropicExtractionProvider(
   apiKey: string,
   model = 'claude-sonnet-4-20250514',
+  retry?: ProviderRetryOptions,
 ): ExtractionProvider {
+  const label = `anthropic:${model}`;
   return {
     name: 'anthropic',
-    label: `anthropic:${model}`,
+    label,
     provenance: provenance({ kind: 'anthropic', model }),
     async extract(prompt) {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }],
-        }),
+      return withProviderRetry(retry, `${label} extraction`, async () => {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 4096,
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        });
+        const data = await readJsonResponse(response, 'Anthropic extraction');
+        const text = dataValue(data, ['content', 0, 'text']);
+        if (typeof text !== 'string') throw new Error('Anthropic extraction response missing content[0].text');
+        return text;
       });
-      const data = await readJsonResponse(response, 'Anthropic extraction');
-      const text = dataValue(data, ['content', 0, 'text']);
-      if (typeof text !== 'string') throw new Error('Anthropic extraction response missing content[0].text');
-      return text;
     },
   };
 }
@@ -143,29 +165,33 @@ export function createOpenAICompatibleExtractionProvider(options: {
   apiKey: string;
   model: string;
   label?: string;
+  retry?: ProviderRetryOptions;
 }): ExtractionProvider {
+  const label = options.label ?? `openai-compatible:${options.model}`;
   return {
     name: 'openai-compatible',
-    label: options.label ?? `openai-compatible:${options.model}`,
+    label,
     provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl }),
     async extract(prompt) {
-      const response = await fetch(`${trimSlash(options.baseUrl)}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${options.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: options.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-        }),
+      return withProviderRetry(options.retry, `${label} extraction`, async () => {
+        const response = await fetch(`${trimSlash(options.baseUrl)}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${options.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: options.model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.2,
+          }),
+        });
+        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} extraction`);
+        const content = dataValue(data, ['choices', 0, 'message', 'content']);
+        if (typeof content !== 'string')
+          throw new Error('OpenAI-compatible extraction response missing choices[0].message.content');
+        return content;
       });
-      const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} extraction`);
-      const content = dataValue(data, ['choices', 0, 'message', 'content']);
-      if (typeof content !== 'string')
-        throw new Error('OpenAI-compatible extraction response missing choices[0].message.content');
-      return content;
     },
   };
 }
@@ -176,32 +202,36 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
   model: string;
   dimension: number;
   label?: string;
+  retry?: ProviderRetryOptions;
 }): DemoEmbeddingProvider {
+  const label = options.label ?? `openai-compatible:${options.model}`;
   const provider: EmbeddingProvider = {
     name: options.label ?? 'openai-compatible',
     dimension: options.dimension,
     async embed(texts: readonly string[], embedOptions?: EmbedOptions): Promise<Float32Array[]> {
-      const response = await fetch(`${trimSlash(options.baseUrl)}/embeddings`, {
-        method: 'POST',
-        ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${options.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: options.model,
-          input: texts,
-          dimensions: options.dimension,
-        }),
-      });
-      const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`);
-      const rows = dataValue(data, ['data']);
-      if (!Array.isArray(rows)) throw new Error('OpenAI-compatible embedding response missing data[]');
-      return rows.map((row, i) => {
-        const embedding = dataValue(row, ['embedding']);
-        if (!Array.isArray(embedding))
-          throw new Error(`OpenAI-compatible embedding response missing data[${String(i)}].embedding`);
-        return new Float32Array(embedding as number[]);
+      return withProviderRetry(options.retry, `${label} embedding`, async () => {
+        const response = await fetch(`${trimSlash(options.baseUrl)}/embeddings`, {
+          method: 'POST',
+          ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${options.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: options.model,
+            input: texts,
+            dimensions: options.dimension,
+          }),
+        });
+        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`);
+        const rows = dataValue(data, ['data']);
+        if (!Array.isArray(rows)) throw new Error('OpenAI-compatible embedding response missing data[]');
+        return rows.map((row, i) => {
+          const embedding = dataValue(row, ['embedding']);
+          if (!Array.isArray(embedding))
+            throw new Error(`OpenAI-compatible embedding response missing data[${String(i)}].embedding`);
+          return new Float32Array(embedding as number[]);
+        });
       });
     },
   };
@@ -222,6 +252,7 @@ export function createOllamaNativeEmbeddingProvider(options: {
   host: string;
   model: string;
   dimension: number;
+  retry?: ProviderRetryOptions;
 }): DemoEmbeddingProvider {
   const provider: EmbeddingProvider = {
     name: 'ollama-native',
@@ -229,16 +260,18 @@ export function createOllamaNativeEmbeddingProvider(options: {
     async embed(texts: readonly string[], embedOptions?: EmbedOptions): Promise<Float32Array[]> {
       return Promise.all(
         texts.map(async (text) => {
-          const response = await fetch(`${trimSlash(options.host)}/api/embeddings`, {
-            method: 'POST',
-            ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: options.model, prompt: text }),
+          return withProviderRetry(options.retry, `ollama-native:${options.model} embedding`, async () => {
+            const response = await fetch(`${trimSlash(options.host)}/api/embeddings`, {
+              method: 'POST',
+              ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: options.model, prompt: text }),
+            });
+            const data = await readJsonResponse(response, 'Ollama native embedding');
+            const embedding = dataValue(data, ['embedding']);
+            if (!Array.isArray(embedding)) throw new Error('Ollama native embedding response missing embedding');
+            return new Float32Array(embedding as number[]);
           });
-          const data = await readJsonResponse(response, 'Ollama native embedding');
-          const embedding = dataValue(data, ['embedding']);
-          if (!Array.isArray(embedding)) throw new Error('Ollama native embedding response missing embedding');
-          return new Float32Array(embedding as number[]);
         }),
       );
     },
@@ -258,6 +291,7 @@ export function createOllamaNativeEmbeddingProvider(options: {
 
 export function resolveDemoProviders(options: ResolveDemoProvidersOptions): ResolvedDemoProviders {
   const env = options.env ?? process.env;
+  const retry = retryOptionsFromEnv(env, options.trace);
   const explicitExtract = env['DEMO_EXTRACT_PROVIDER'];
   const explicitEmbed = env['DEMO_EMBED_PROVIDER'];
   const hasAnyLiveHint = Boolean(
@@ -285,7 +319,7 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
   let extractor =
     extractProvider === 'fixture'
       ? createFixtureExtractionProvider(options.fixtures)
-      : resolveExtractionProvider(extractProvider, env);
+      : resolveExtractionProvider(extractProvider, env, retry);
   let embedder =
     embedProvider === 'fixture'
       ? createRawVectorEmbeddingProvider({
@@ -295,7 +329,7 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
           queryTexts: options.queryTexts,
           dimension: options.embeddingDimension,
         })
-      : resolveEmbeddingProvider(embedProvider, env, options.embeddingDimension);
+      : resolveEmbeddingProvider(embedProvider, env, options.embeddingDimension, retry);
   if (options.trace?.enabled) {
     extractor = traceExtractionProvider(extractor, options.trace);
     embedder = traceEmbeddingProvider(embedder, options.trace);
@@ -319,7 +353,7 @@ export function resolveLiveExtractionProvider(
   const trace = options?.trace;
   const provider = env['DEMO_EXTRACT_PROVIDER'] ?? inferExtractionProvider(env, true);
   if (provider === 'fixture') throw new Error('A live extraction provider is required; set DEMO_EXTRACT_PROVIDER.');
-  const extractor = resolveExtractionProvider(provider, env);
+  const extractor = resolveExtractionProvider(provider, env, retryOptionsFromEnv(env, trace));
   return trace?.enabled ? traceExtractionProvider(extractor, trace) : extractor;
 }
 
@@ -327,7 +361,12 @@ export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOption
   const env = options.env ?? process.env;
   const provider = env['DEMO_EMBED_PROVIDER'] ?? inferEmbeddingProvider(env, true);
   if (provider === 'fixture') throw new Error('A live embedding provider is required; set DEMO_EMBED_PROVIDER.');
-  const embedder = resolveEmbeddingProvider(provider, env, options.embeddingDimension);
+  const embedder = resolveEmbeddingProvider(
+    provider,
+    env,
+    options.embeddingDimension,
+    retryOptionsFromEnv(env, options.trace),
+  );
   return options.trace?.enabled ? traceEmbeddingProvider(embedder, options.trace) : embedder;
 }
 
@@ -396,14 +435,18 @@ function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean)
   return 'fixture';
 }
 
-function resolveExtractionProvider(provider: string, env: NodeJS.ProcessEnv): ExtractionProvider {
+function resolveExtractionProvider(
+  provider: string,
+  env: NodeJS.ProcessEnv,
+  retry?: ProviderRetryOptions,
+): ExtractionProvider {
   if (provider === 'fixture') return createFixtureExtractionProvider({});
   if (provider === 'anthropic') {
     const apiKey = required(
       env['DEMO_EXTRACT_API_KEY'] ?? env['ANTHROPIC_API_KEY'],
       'DEMO_EXTRACT_API_KEY or ANTHROPIC_API_KEY',
     );
-    return createAnthropicExtractionProvider(apiKey, env['DEMO_EXTRACT_MODEL'] ?? 'claude-sonnet-4-20250514');
+    return createAnthropicExtractionProvider(apiKey, env['DEMO_EXTRACT_MODEL'] ?? 'claude-sonnet-4-20250514', retry);
   }
   if (provider === 'openai-compatible') {
     const preset = openAICompatPreset(env, 'extract');
@@ -412,12 +455,18 @@ function resolveExtractionProvider(provider: string, env: NodeJS.ProcessEnv): Ex
       apiKey: preset.apiKey,
       model: env['DEMO_EXTRACT_MODEL'] ?? preset.defaultModel,
       label: preset.label,
+      ...(retry ? { retry } : {}),
     });
   }
   throw new Error(`Unsupported DEMO_EXTRACT_PROVIDER "${provider}". Use fixture, anthropic, or openai-compatible.`);
 }
 
-function resolveEmbeddingProvider(provider: string, env: NodeJS.ProcessEnv, dimension: number): DemoEmbeddingProvider {
+function resolveEmbeddingProvider(
+  provider: string,
+  env: NodeJS.ProcessEnv,
+  dimension: number,
+  retry?: ProviderRetryOptions,
+): DemoEmbeddingProvider {
   const envDim = env['DEMO_EMBED_DIMENSION'];
   const resolvedDimension = envDim ? Number(envDim) : dimension;
   if (!Number.isFinite(resolvedDimension))
@@ -430,6 +479,7 @@ function resolveEmbeddingProvider(provider: string, env: NodeJS.ProcessEnv, dime
       model: env['DEMO_EMBED_MODEL'] ?? preset.defaultModel,
       dimension: resolvedDimension,
       label: preset.label,
+      ...(retry ? { retry } : {}),
     });
   }
   if (provider === 'ollama-native') {
@@ -438,6 +488,7 @@ function resolveEmbeddingProvider(provider: string, env: NodeJS.ProcessEnv, dime
       host,
       model: env['DEMO_EMBED_MODEL'] ?? 'nomic-embed-text',
       dimension: resolvedDimension,
+      ...(retry ? { retry } : {}),
     });
   }
   if (provider === 'fixture')
@@ -498,7 +549,11 @@ function openAICompatPreset(
 async function readJsonResponse(response: Response, label: string): Promise<unknown> {
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`${label} failed HTTP ${String(response.status)} ${response.statusText}`);
+    throw new ProviderHttpError(
+      `${label} failed HTTP ${String(response.status)} ${response.statusText}`,
+      response.status,
+      retryAfterMs(response.headers.get('retry-after')),
+    );
   }
   try {
     return JSON.parse(text) as unknown;
@@ -506,6 +561,86 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`${label} returned non-JSON response (${msg})`);
   }
+}
+
+function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): ProviderRetryOptions {
+  return {
+    maxAttempts: positiveInt(env['DEMO_PROVIDER_MAX_ATTEMPTS'], 6, 'DEMO_PROVIDER_MAX_ATTEMPTS'),
+    baseDelayMs: positiveInt(env['DEMO_PROVIDER_BASE_DELAY_MS'], 1000, 'DEMO_PROVIDER_BASE_DELAY_MS'),
+    maxDelayMs: positiveInt(env['DEMO_PROVIDER_MAX_DELAY_MS'], 30000, 'DEMO_PROVIDER_MAX_DELAY_MS'),
+    minDelayMs: positiveInt(env['DEMO_PROVIDER_MIN_DELAY_MS'], 350, 'DEMO_PROVIDER_MIN_DELAY_MS'),
+    log:
+      trace?.enabled === true
+        ? (message: string) => {
+            trace.log(message);
+          }
+        : (message: string) => {
+            console.log('');
+            console.log('[provider]');
+            console.log(`  ${message}`);
+          },
+  };
+}
+
+async function withProviderRetry<T>(
+  options: ProviderRetryOptions | undefined,
+  label: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const retry = options ?? retryOptionsFromEnv({});
+  const lastCallAt = lastLiveProviderCallAt.get(label) ?? 0;
+  const now = Date.now();
+  const waitBeforeCall = Math.max(0, retry.minDelayMs - (now - lastCallAt));
+  if (waitBeforeCall > 0) await sleep(waitBeforeCall);
+
+  for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
+    try {
+      lastLiveProviderCallAt.set(label, Date.now());
+      return await operation();
+    } catch (err) {
+      if (!(err instanceof ProviderHttpError) || !shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) {
+        throw err;
+      }
+      const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
+      retry.log?.(
+        `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
+      );
+      await sleep(delay);
+    }
+  }
+  throw new Error(`Internal error: exhausted retry loop for ${label}`);
+}
+
+const lastLiveProviderCallAt = new Map<string, number>();
+
+function shouldRetryHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function retryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return null;
+  return Math.max(0, date - Date.now());
+}
+
+function backoffDelayMs(attempt: number, options: ProviderRetryOptions): number {
+  const raw = Math.min(options.maxDelayMs, options.baseDelayMs * 2 ** (attempt - 1));
+  const jitter = Math.round(raw * (0.8 + Math.random() * 0.4));
+  return Math.max(0, jitter);
+}
+
+function positiveInt(value: string | undefined, fallback: number, label: string): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer`);
+  return parsed;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function dataValue(value: unknown, path: Array<string | number>): unknown {

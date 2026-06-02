@@ -30,13 +30,15 @@ import {
   NAMESPACE,
   createDeterministicFixtures,
   createDeterministicSummarizer,
+  createCachedLiveSummarizer,
   createFixtureProviders,
-  createLiveSummarizer,
   dataVersion,
   defaultQueryTexts,
   deriveHistoryData,
+  type HistoryProgress,
   isDefaultFixtureEligible,
   parseKnowThyselfCliOptions,
+  resolveRepoPath,
   runHash,
   runtimeDatabasePath,
   sanitizeRepositoryExtractionResult,
@@ -49,13 +51,28 @@ async function main(): Promise<void> {
   const trace = createLlmTraceOptions();
   const queryTexts = cli.query ? [...defaultQueryTexts(), cli.query] : [...defaultQueryTexts()];
   const providers = resolveProvidersAndDataMode(cli, queryTexts, trace);
+  const initialLogger = createDemoLogger();
+  printBanner(`know-thyself - mode: ${providers.modeLabel}`);
+  initialLogger.step('Preparing repository history source data');
+  initialLogger.detail(`Repository: ${resolveRepoPath(cli.repo)}`);
+  initialLogger.detail(`Keyframe refs: ${cli.keyframes.map((ref) => ref.slice(0, 12)).join(', ')}`);
+  initialLogger.detail(
+    providers.extractor.provenance.kind === 'fixture'
+      ? 'Source summaries: deterministic fixture summaries'
+      : `Source summaries: live extraction via ${providers.extractor.label}; cached summaries are reused when available`,
+  );
   const data = await deriveHistoryData({
     repoPath: cli.repo,
     keyframeRefs: cli.keyframes,
     summarizer:
       providers.extractor.provenance.kind === 'fixture'
         ? createDeterministicSummarizer()
-        : createLiveSummarizer(providers.extractor),
+        : createCachedLiveSummarizer({
+            extractor: providers.extractor,
+            repoPath: resolveRepoPath(cli.repo),
+          }),
+    mode: providers.extractor.provenance.kind === 'fixture' ? 'fixture' : 'live',
+    progress: progressLogger(initialLogger),
   });
   const fixtureData =
     providers.extractor.provenance.kind === 'fixture' ? createDeterministicFixtures(data, queryTexts) : undefined;
@@ -70,7 +87,6 @@ async function main(): Promise<void> {
         })
       : providers;
 
-  printBanner(`know-thyself - mode: ${providers.modeLabel}`);
   const timeline = createDemoTimeline(data.episodes);
 
   const hash = runHash({
@@ -80,7 +96,7 @@ async function main(): Promise<void> {
     queryTexts,
   });
   const database = runtimeDatabasePath(hash);
-  const logger = createDemoLogger();
+  const logger = initialLogger;
   printProviderSummary({
     modeLabel: resolvedProviders.modeLabel,
     namespace: NAMESPACE,
@@ -255,6 +271,22 @@ function resolveProvidersAndDataMode(
     extractor,
     embedder,
     provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
+  };
+}
+
+function progressLogger(logger: ReturnType<typeof createDemoLogger>): HistoryProgress {
+  return {
+    start(event) {
+      logger.detail(`Resolved ${String(event.keyframeCount)} keyframe commit(s) from ${event.repoPath}`);
+    },
+    keyframeStart(event) {
+      logger.detail(
+        `Building ${event.sourceRef} from keyframe ${String(event.position)} (${event.mode}; ${event.label})`,
+      );
+    },
+    keyframeDone(event) {
+      logger.detail(`  ${event.cached ? 'Reused cached summary for' : 'Completed source bundle'} ${event.sourceRef}`);
+    },
   };
 }
 
