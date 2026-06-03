@@ -39,12 +39,12 @@ const fixture = JSON.stringify({
   ],
 });
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
-
 describe('demo providers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it('fixture extraction is keyed by episode id', async () => {
     const provider = createFixtureExtractionProvider({ a: 'A', b: 'B' });
     await expect(provider.extract('', { episodeId: 'b' })).resolves.toBe('B');
@@ -160,6 +160,43 @@ describe('demo providers', () => {
     expect(output).not.toContain('sk-test');
   });
 
+  it('traces extraction HTTP timing without prompt or API key contents', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await provider.extract('SECRET PROMPT');
+
+    const output = messages.join('\n');
+    expect(output).toContain('extraction HTTP request -> https://example.invalid/v1/chat/completions');
+    expect(output).toContain('extraction HTTP response <- 200');
+    expect(output).toContain('extraction JSON parsed');
+    expect(output).toContain('extraction content decoded');
+    expect(output).not.toContain('SECRET PROMPT');
+    expect(output).not.toContain('sk-test');
+  });
+
   it('traces Ollama native one-request-per-text embedding behavior', async () => {
     const messages: string[] = [];
     vi.stubGlobal(
@@ -267,6 +304,39 @@ describe('demo providers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('does not log a prior-request wait before the first rate-limited request', async () => {
+    const messages: string[] = [];
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 10_000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 5000,
+        traceTimings: true,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await provider.extract('prompt');
+
+    expect(messages.join('\n')).not.toContain('waiting for prior live provider request');
+  });
+
   it('stops retrying after max attempts', async () => {
     vi.stubGlobal(
       'fetch',
@@ -315,6 +385,11 @@ describe('demo providers', () => {
 });
 
 describe('ingest normalization', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it('normalizes caller-owned assertion, citation, and link fields', async () => {
     const store = new FakeStore();
     const extractor = providerReturning(fixture);
@@ -653,6 +728,11 @@ describe('ingest normalization', () => {
 });
 
 describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   const minOptions = {
     fixtures: { 'ep-1': '{"assertions":[],"links":[]}' },
     assertionEmbeddings: {},

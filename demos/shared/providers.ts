@@ -139,7 +139,10 @@ export function createAnthropicExtractionProvider(
     provenance: provenance({ kind: 'anthropic', model }),
     async extract(prompt) {
       return withProviderRetry(retry, `${label} extraction`, async () => {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const url = 'https://api.anthropic.com/v1/messages';
+        const started = performance.now();
+        traceProviderTiming(retry, `${label} extraction HTTP request -> ${url}`);
+        const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -152,9 +155,19 @@ export function createAnthropicExtractionProvider(
             messages: [{ role: 'user', content: prompt }],
           }),
         });
+        const receivedAt = performance.now();
+        traceProviderTiming(
+          retry,
+          `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
+            receivedAt - started
+          ).toFixed(1)} ms)`,
+        );
         const data = await readJsonResponse(response, 'Anthropic extraction');
+        const parsedAt = performance.now();
+        traceProviderTiming(retry, `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
         const text = dataValue(data, ['content', 0, 'text']);
         if (typeof text !== 'string') throw new Error('Anthropic extraction response missing content[0].text');
+        traceProviderTiming(retry, `${label} extraction content decoded: ${String(text.length)} character(s)`);
         return text;
       });
     },
@@ -175,7 +188,10 @@ export function createOpenAICompatibleExtractionProvider(options: {
     provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl }),
     async extract(prompt) {
       return withProviderRetry(options.retry, `${label} extraction`, async () => {
-        const response = await fetch(`${trimSlash(options.baseUrl)}/chat/completions`, {
+        const url = `${trimSlash(options.baseUrl)}/chat/completions`;
+        const started = performance.now();
+        traceProviderTiming(options.retry, `${label} extraction HTTP request -> ${url}`);
+        const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -187,10 +203,23 @@ export function createOpenAICompatibleExtractionProvider(options: {
             temperature: 0.2,
           }),
         });
+        const receivedAt = performance.now();
+        traceProviderTiming(
+          options.retry,
+          `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
+            receivedAt - started
+          ).toFixed(1)} ms)`,
+        );
         const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} extraction`);
+        const parsedAt = performance.now();
+        traceProviderTiming(
+          options.retry,
+          `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`,
+        );
         const content = dataValue(data, ['choices', 0, 'message', 'content']);
         if (typeof content !== 'string')
           throw new Error('OpenAI-compatible extraction response missing choices[0].message.content');
+        traceProviderTiming(options.retry, `${label} extraction content decoded: ${String(content.length)} character(s)`);
         return content;
       });
     },
@@ -687,9 +716,6 @@ async function waitForProviderRateLimit(
   providerRateLimitQueue = new Promise<void>((resolve) => {
     release = resolve;
   });
-  if (traceTimings && rateLimitMs > 0) {
-    log?.(`${label} rate limit: waiting for prior live provider request, if any`);
-  }
   const queuedAt = performance.now();
   await previous;
   try {
