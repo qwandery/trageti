@@ -86,6 +86,26 @@ class ProviderTransportError extends Error {
   }
 }
 
+class ProviderContentlessStreamError extends Error {
+  constructor(readonly stats: OpenAIStreamStats) {
+    super(
+      `OpenAI-compatible extraction contentless stream: produced no content ` +
+        `(HTTP ${String(stats.status)} ${stats.statusText || 'OK'}; ${String(stats.chunks)} chunk(s), ` +
+        `${formatBytes(stats.totalBytes)}, ${String(stats.frames)} SSE frame(s), ${String(stats.deltas)} text delta(s))`,
+    );
+  }
+}
+
+interface OpenAIStreamStats {
+  status: number;
+  statusText: string;
+  chunks: number;
+  totalBytes: number;
+  frames: number;
+  deltas: number;
+  contentLength: number;
+}
+
 export interface ResolveDemoProvidersOptions {
   fixtures: Record<string, string>;
   assertionEmbeddings: Record<string, number[]>;
@@ -230,45 +250,59 @@ export function createOpenAICompatibleExtractionProvider(options: {
     label,
     provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl, maxTokens }),
     async extract(prompt, extractOptions) {
-      return withProviderRetry(extractionRetry, `${label} extraction`, async () => {
-        const url = `${trimSlash(options.baseUrl)}/chat/completions`;
-        const started = performance.now();
-        traceProviderTiming(extractionRetry, `${label} extraction preparing HTTP POST -> ${url}`);
-        const body = JSON.stringify({
-          model: options.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          max_tokens: maxTokens,
-          ...options.extraBody,
-          ...openAICompatibleExtractionFormatBody(
-            extractOptions?.responseFormat === 'text' ? null : options.responseFormat,
-          ),
-          stream: true,
+      const responseFormat = extractOptions?.responseFormat === 'text' ? null : options.responseFormat;
+      const requestBase = {
+        model: options.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        ...options.extraBody,
+        ...openAICompatibleExtractionFormatBody(responseFormat),
+      };
+      try {
+        return await withProviderRetry(extractionRetry, `${label} extraction`, async () => {
+          const url = `${trimSlash(options.baseUrl)}/chat/completions`;
+          const started = performance.now();
+          traceProviderTiming(extractionRetry, `${label} extraction preparing HTTP POST -> ${url}`);
+          const body = JSON.stringify({
+            ...requestBase,
+            stream: true,
+          });
+          traceProviderTiming(
+            extractionRetry,
+            `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
+              performance.now() - started
+            ).toFixed(1)} ms)`,
+          );
+          traceProviderTiming(extractionRetry, `${label} extraction fetch invoked -> ${url}`);
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${options.apiKey}`,
+            },
+            body,
+          });
+          const receivedAt = performance.now();
+          traceProviderTiming(
+            extractionRetry,
+            `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
+              receivedAt - started
+            ).toFixed(1)} ms)`,
+          );
+          return await readOpenAIChatCompletionStream(response, label, extractionRetry, receivedAt);
         });
-        traceProviderTiming(
-          extractionRetry,
-          `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
-            performance.now() - started
-          ).toFixed(1)} ms)`,
-        );
-        traceProviderTiming(extractionRetry, `${label} extraction fetch invoked -> ${url}`);
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${options.apiKey}`,
-          },
-          body,
+      } catch (err) {
+        if (!(err instanceof ProviderContentlessStreamError) || extractOptions?.responseFormat !== 'json') throw err;
+        return await fetchOpenAIChatCompletionNonStream({
+          url: `${trimSlash(options.baseUrl)}/chat/completions`,
+          apiKey: options.apiKey,
+          label,
+          requestBase,
+          retry: extractionRetry,
+          streamError: err,
         });
-        const receivedAt = performance.now();
-        traceProviderTiming(
-          extractionRetry,
-          `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
-            receivedAt - started
-          ).toFixed(1)} ms)`,
-        );
-        return await readOpenAIChatCompletionStream(response, label, extractionRetry, receivedAt);
-      });
+      }
     },
   };
 }
@@ -923,6 +957,68 @@ async function readJsonResponse(response: Response, label: string, retry?: Provi
   }
 }
 
+async function fetchOpenAIChatCompletionNonStream(options: {
+  url: string;
+  apiKey: string;
+  label: string;
+  requestBase: Record<string, unknown>;
+  retry: ProviderRetryOptions | undefined;
+  streamError: ProviderContentlessStreamError;
+}): Promise<string> {
+  await waitForProviderRateLimit(
+    options.retry?.rateLimitMs ?? retryOptionsFromEnv({}).rateLimitMs,
+    `${options.label} extraction fallback`,
+    (message) => options.retry?.log?.(message),
+    options.retry?.traceTimings === true,
+  );
+  const started = performance.now();
+  traceProviderTiming(options.retry, `${options.label} extraction fallback preparing HTTP POST -> ${options.url}`);
+  const body = JSON.stringify({
+    ...options.requestBase,
+    stream: false,
+  });
+  traceProviderTiming(
+    options.retry,
+    `${options.label} extraction fallback request body serialized: ${String(body.length)} byte(s) (${(
+      performance.now() - started
+    ).toFixed(1)} ms)`,
+  );
+  traceProviderTiming(options.retry, `${options.label} extraction fallback fetch invoked -> ${options.url}`);
+  const response = await fetch(options.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${options.apiKey}`,
+    },
+    body,
+  });
+  const receivedAt = performance.now();
+  traceProviderTiming(
+    options.retry,
+    `${options.label} extraction fallback HTTP response <- ${String(response.status)} ${response.statusText} (${(
+      receivedAt - started
+    ).toFixed(1)} ms)`,
+  );
+  let data: unknown;
+  try {
+    data = await readJsonResponse(response, `${options.label} extraction fallback`, options.retry);
+  } catch (err) {
+    throw openAINonStreamFallbackError(err, options.streamError);
+  }
+  const content = openAIChatCompletionContent(data);
+  if (content === null || content.length === 0) {
+    throw openAINonStreamFallbackError(
+      new Error(`${options.label} extraction fallback response missing choices[0].message.content`),
+      options.streamError,
+    );
+  }
+  traceProviderTiming(
+    options.retry,
+    `${options.label} extraction fallback content decoded: ${String(content.length)} character(s)`,
+  );
+  return content;
+}
+
 async function readOpenAIChatCompletionStream(
   response: Response,
   label: string,
@@ -947,9 +1043,9 @@ async function readOpenAIChatCompletionStream(
   let content = '';
   let totalBytes = 0;
   let chunks = 0;
+  let frames = 0;
   let deltas = 0;
   let lastProgressAt = receivedAt;
-  let textStreamStarted = false;
 
   const traceProgress = (): void => {
     if (retry?.traceTimings !== true) return;
@@ -973,13 +1069,17 @@ async function readOpenAIChatCompletionStream(
   const appendDelta = (delta: string): void => {
     deltas += 1;
     content += delta;
+  };
+
+  const handleSseData = (data: string): void => {
+    frames += 1;
     if (retry?.tracePayloads === true && retry.append) {
-      if (!textStreamStarted) {
-        textStreamStarted = true;
-        traceProviderTiming(retry, `${label} extraction stream text follows:`);
-      }
-      retry.append(delta);
+      retry.append(`data: ${data}\n\n`);
     }
+    if (data === '[DONE]') return;
+    const delta = openAIStreamDelta(data);
+    if (delta === null || delta.length === 0) return;
+    appendDelta(delta);
   };
 
   for (;;) {
@@ -988,38 +1088,36 @@ async function readOpenAIChatCompletionStream(
     chunks += 1;
     totalBytes += value.byteLength;
     buffer += decoder.decode(value, { stream: true });
-    const parsed = consumeSseBuffer(buffer, (data) => {
-      if (data === '[DONE]') return;
-      const delta = openAIStreamDelta(data);
-      if (delta === null || delta.length === 0) return;
-      appendDelta(delta);
-    });
+    const parsed = consumeSseBuffer(buffer, handleSseData);
     buffer = parsed.remaining;
     traceProgress();
   }
   buffer += decoder.decode();
-  consumeSseBuffer(buffer, (data) => {
-    if (data === '[DONE]') return;
-    const delta = openAIStreamDelta(data);
-    if (delta === null || delta.length === 0) return;
-    appendDelta(delta);
-  });
-  if (textStreamStarted) retry?.append?.('\n');
-
+  consumeSseBuffer(buffer, handleSseData);
   traceProviderTiming(
     retry,
     `${label} extraction stream complete: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s), ` +
-      `${String(deltas)} text delta(s), ${String(content.length)} character(s) (${(
+      `${String(frames)} SSE frame(s), ${String(deltas)} text delta(s), ${String(content.length)} character(s) (${(
         performance.now() - receivedAt
       ).toFixed(1)} ms)`,
   );
   if (retry?.traceTimings !== true) {
     retry?.log?.(
-      `${label} extraction stream complete: ${String(chunks)} chunk(s), ${String(deltas)} text delta(s), ` +
-        `${String(content.length)} character(s)`,
+      `${label} extraction stream complete: ${String(chunks)} chunk(s), ${String(frames)} SSE frame(s), ` +
+        `${String(deltas)} text delta(s), ${String(content.length)} character(s)`,
     );
   }
-  if (content.length === 0) throw new Error(`${label} extraction streaming response produced no content`);
+  if (content.length === 0) {
+    throw new ProviderContentlessStreamError({
+      status: response.status,
+      statusText: response.statusText,
+      chunks,
+      totalBytes,
+      frames,
+      deltas,
+      contentLength: content.length,
+    });
+  }
   return content;
 }
 
@@ -1045,10 +1143,37 @@ function openAIStreamDelta(data: string): string | null {
     const delta = dataValue(parsed, ['choices', 0, 'delta', 'content']);
     if (typeof delta === 'string') return delta;
     const content = dataValue(parsed, ['choices', 0, 'message', 'content']);
-    return typeof content === 'string' ? content : null;
+    return openAIContentText(content);
   } catch {
     return null;
   }
+}
+
+function openAIChatCompletionContent(data: unknown): string | null {
+  return openAIContentText(dataValue(data, ['choices', 0, 'message', 'content']));
+}
+
+function openAIContentText(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return null;
+  const pieces = content
+    .map((part) => {
+      const text = dataValue(part, ['text']);
+      if (typeof text === 'string') return text;
+      const nestedText = dataValue(part, ['text', 'value']);
+      if (typeof nestedText === 'string') return nestedText;
+      return null;
+    })
+    .filter((part): part is string => part !== null);
+  return pieces.length > 0 ? pieces.join('') : null;
+}
+
+function openAINonStreamFallbackError(err: unknown, streamError: ProviderContentlessStreamError): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `${streamError.message}; non-streaming fallback also produced no usable content (${message})`,
+    { cause: err },
+  );
 }
 
 async function readResponseText(response: Response, label: string, retry?: ProviderRetryOptions): Promise<string> {
@@ -1154,6 +1279,17 @@ async function withProviderRetry<T>(
         const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
         retry.log?.(
           `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
+        );
+        await sleep(delay);
+        continue;
+      }
+      if (err instanceof ProviderContentlessStreamError) {
+        if (attempt >= retry.maxAttempts) throw err;
+        const delay = backoffDelayMs(attempt, retry);
+        retry.log?.(
+          `${label} retry ${String(attempt + 1)}/${String(
+            retry.maxAttempts,
+          )} after contentless stream; waiting ${String(delay)} ms`,
         );
         await sleep(delay);
         continue;

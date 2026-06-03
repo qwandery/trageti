@@ -460,7 +460,7 @@ describe('demo providers', () => {
     expect(requestBody).not.toHaveProperty('response_format');
   });
 
-  it('appends full-trace extraction stream text without per-token log entries', async () => {
+  it('appends full-trace extraction stream frames without per-token log entries', async () => {
     const messages: string[] = [];
     const appended: string[] = [];
     vi.stubGlobal(
@@ -486,9 +486,74 @@ describe('demo providers', () => {
     await expect(provider.extract('prompt')).resolves.toBe('hello world');
 
     const output = messages.join('\n');
-    expect(output).toContain('extraction stream text follows');
+    expect(output).not.toContain('extraction stream text follows');
     expect(output).not.toContain('extraction stream delta');
-    expect(appended.join('')).toBe('hello world\n');
+    expect(appended.join('')).toContain('data: {"choices":[{"delta":{"content":"hello"}}]}');
+    expect(appended.join('')).toContain('data: {"choices":[{"delta":{"content":" "}}]}');
+    expect(appended.join('')).toContain('data: {"choices":[{"delta":{"content":"world"}}]}');
+    expect(appended.join('')).toContain('data: [DONE]');
+  });
+
+  it('appends raw full-trace extraction stream payloads even when no content deltas are present', async () => {
+    const appended: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          openAIStreamDataResponse([
+            { choices: [{ delta: { reasoning: 'thinking only' } }] },
+            { choices: [{ finish_reason: 'stop' }] },
+          ]),
+        ),
+      ),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        tracePayloads: true,
+        append: (message) => appended.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'text' })).rejects.toThrow('contentless stream');
+
+    const output = appended.join('');
+    expect(output).toContain('data: {"choices":[{"delta":{"reasoning":"thinking only"}}]}');
+    expect(output).toContain('data: {"choices":[{"finish_reason":"stop"}]}');
+    expect(output).toContain('data: [DONE]');
+  });
+
+  it('does not append raw extraction stream payloads in summary trace mode', async () => {
+    const appended: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'hidden' } }] }]))),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        tracePayloads: false,
+        append: (message) => appended.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'text' })).rejects.toThrow('contentless stream');
+
+    expect(appended).toEqual([]);
   });
 
   it('streams extraction in regular mode with concise completion metering', async () => {
@@ -516,6 +581,81 @@ describe('demo providers', () => {
     expect(output).toContain('extraction stream complete');
     expect(output).toContain('2 text delta(s)');
     expect(output).not.toContain('hello world');
+  });
+
+  it('retries contentless extraction streams', async () => {
+    const messages: string[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'no final content' } }] }]))
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toContain('"assertions"');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(messages.join('\n')).toContain('after contentless stream');
+  });
+
+  it('falls back to non-streaming JSON extraction after contentless stream attempts', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'first' } }] }]))
+      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'second' } }] }]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({ stream: true });
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({ stream: true });
+    expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toMatchObject({ stream: false });
+  });
+
+  it('decodes non-streaming fallback content arrays', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'only reasoning' } }] }]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: [{ type: 'text', text: '{"assertions":[],' }, { text: '"links":[]}' }] } }],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
   });
 
   it('traces Ollama native one-request-per-text embedding behavior', async () => {
@@ -827,6 +967,16 @@ describe('demo providers', () => {
     expect(prompt).toContain('"confidence": 0.82');
     expect(prompt).not.toContain('<0..1>');
     expect(prompt).not.toContain('null |');
+  });
+
+  it('requires extraction JSON in final visible assistant content', () => {
+    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', {
+      src: 'source paragraph text',
+    });
+
+    expect(prompt).toContain('final visible assistant message');
+    expect(prompt).toContain('do not return an empty assertions array for a non-empty document');
+    expect(prompt).toContain('Emit JSON only in the final answer content');
   });
 });
 
@@ -1250,14 +1400,16 @@ function providerReturning(raw: string): ExtractionProvider {
 }
 
 function openAIStreamResponse(chunks: string[]): Response {
+  return openAIStreamDataResponse(chunks.map((chunk) => ({ choices: [{ delta: { content: chunk } }] })));
+}
+
+function openAIStreamDataResponse(data: unknown[]): Response {
   const encoder = new TextEncoder();
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const chunk of chunks) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`),
-          );
+        for (const item of data) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(item)}\n\n`));
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();

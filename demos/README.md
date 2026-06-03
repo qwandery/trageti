@@ -142,7 +142,7 @@ fields such as `{"reasoning":{"exclude":true}}`. Set
 `DEMO_EMBED_EXTRA_BODY_JSON` to merge provider-specific embedding request fields
 such as `{"response_format":{"type":"float"}}`. Normal demo output prints a
 concise stream completion meter; `--llm-trace` shows in-place stream progress,
-and `--llm-trace=full` appends streamed completion text.
+and `--llm-trace=full` appends raw streamed response frames.
 
 Pass `--warmup` to either demo to send a tiny extraction request and a tiny
 embedding request before the main run. Fixture providers are skipped. This is

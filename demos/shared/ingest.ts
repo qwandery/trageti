@@ -55,7 +55,7 @@ function parseExtractionForEpisode(raw: string, episodeId: string): ExtractionRe
     throw new Error(
       `Extraction failed for episode "${episodeId}": provider returned text that does not match the required JSON extraction schema.\n` +
         `${message}\n` +
-        'Use --llm-trace=full to inspect the streamed text, or switch to a model/provider that follows JSON object responses.',
+        'Use --llm-trace=full to inspect the streamed response frames, or switch to a model/provider that follows JSON object responses.',
       { cause: err },
     );
   }

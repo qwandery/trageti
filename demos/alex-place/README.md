@@ -63,9 +63,9 @@ embedding. Configure both capabilities for live runs. Live provider calls are
 serialized through the shared rate limiter and retry retryable HTTP failures.
 
 To inspect model boundaries while running the demo, set
-`DEMO_LLM_TRACE=summary`. To print full prompts, responses, embedding inputs,
-and vector summaries, set `DEMO_LLM_TRACE=full`. The `--llm-trace` flag is
-equivalent to summary mode.
+`DEMO_LLM_TRACE=summary`. To print full prompts, raw streamed response frames,
+responses, embedding inputs, and vector summaries, set `DEMO_LLM_TRACE=full`.
+The `--llm-trace` flag is equivalent to summary mode.
 
 ## What It Shows
 

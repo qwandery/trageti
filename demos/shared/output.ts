@@ -181,7 +181,7 @@ export function printProviderSummary(options: {
     console.log('  Live provider rate limit: 1 request per 5s');
   }
   console.log(
-    '  LLM trace: --llm-trace or DEMO_LLM_TRACE=summary shows call timing; DEMO_LLM_TRACE=full shows prompts and responses',
+    '  LLM trace: --llm-trace or DEMO_LLM_TRACE=summary shows call timing; DEMO_LLM_TRACE=full shows prompts and raw responses',
   );
 }
 

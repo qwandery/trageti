@@ -55,7 +55,7 @@ Document:
 ${document}
 ${sourceText}
 
-Output a single JSON object shaped like this example. Replace the example values with claims from the current document:
+Output a single JSON object shaped like this example in the final visible assistant message. Do not put the JSON only in hidden reasoning, analysis, tool calls, or provider-specific reasoning fields. Replace the example values with claims from the current document:
 {
   "assertions": [
     {
@@ -105,12 +105,13 @@ Citation rules:
 - If the offsets do not resolve to source text, ingestion will fail.
 
 Rules:
+- The current document is the source of truth. If it contains any substantive information, emit at least one cited assertion; do not return an empty assertions array for a non-empty document.
 - New assertion IDs must not reuse any ID listed under Existing assertions.
 - Allowed assertion types: fact, update, recontextualization, resolution, regression, absence, pattern.
 - Allowed link types: deepens, qualifies, contradicts, contextualizes, measures, related.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.
-- Emit JSON only - no prose, no markdown fences.`;
+- Emit JSON only in the final answer content - no prose, no markdown fences.`;
 }
 
 function renderCitationSpans(citationSources: Record<string, string>): string {
