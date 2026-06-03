@@ -140,6 +140,7 @@ async function main(): Promise<void> {
     sanitizeExtractionResult: (result: ExtractionResult, context: { existingAssertions: readonly Assertion[] }) =>
       sanitizeRepositoryExtractionResult(result, context.existingAssertions),
     logger,
+    trace,
   };
   await ingestEpisodes(
     fixtureData !== undefined

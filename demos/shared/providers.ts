@@ -50,6 +50,7 @@ export interface ProviderRetryOptions {
   baseDelayMs: number;
   maxDelayMs: number;
   rateLimitMs: number;
+  traceTimings?: boolean;
   log?(message: string): void;
 }
 
@@ -210,6 +211,14 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
     dimension: options.dimension,
     async embed(texts: readonly string[], embedOptions?: EmbedOptions): Promise<Float32Array[]> {
       return withProviderRetry(options.retry, `${label} embedding`, async () => {
+        const url = `${trimSlash(options.baseUrl)}/embeddings`;
+        const started = performance.now();
+        traceProviderTiming(
+          options.retry,
+          `${label} embedding HTTP request -> ${url} (${String(texts.length)} text(s), requested dimension ${String(
+            options.dimension,
+          )})`,
+        );
         const response = await fetch(`${trimSlash(options.baseUrl)}/embeddings`, {
           method: 'POST',
           ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
@@ -223,15 +232,31 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
             dimensions: options.dimension,
           }),
         });
+        const receivedAt = performance.now();
+        traceProviderTiming(
+          options.retry,
+          `${label} embedding HTTP response <- ${String(response.status)} ${response.statusText} (${(
+            receivedAt - started
+          ).toFixed(1)} ms)`,
+        );
         const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`);
+        const parsedAt = performance.now();
+        traceProviderTiming(options.retry, `${label} embedding JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
         const rows = dataValue(data, ['data']);
         if (!Array.isArray(rows)) throw new Error('OpenAI-compatible embedding response missing data[]');
-        return rows.map((row, i) => {
+        const vectors = rows.map((row, i) => {
           const embedding = dataValue(row, ['embedding']);
           if (!Array.isArray(embedding))
             throw new Error(`OpenAI-compatible embedding response missing data[${String(i)}].embedding`);
           return new Float32Array(embedding as number[]);
         });
+        traceProviderTiming(
+          options.retry,
+          `${label} embedding vectors decoded: ${String(vectors.length)} vector(s), ${String(
+            vectors[0]?.length ?? 0,
+          )} dimension(s)`,
+        );
+        return vectors;
       });
     },
   };
@@ -258,19 +283,54 @@ export function createOllamaNativeEmbeddingProvider(options: {
     name: 'ollama-native',
     dimension: options.dimension,
     async embed(texts: readonly string[], embedOptions?: EmbedOptions): Promise<Float32Array[]> {
+      traceProviderTiming(
+        options.retry,
+        `ollama-native:${options.model} embedding will call /api/embeddings once per text (${String(
+          texts.length,
+        )} request(s))`,
+      );
       return Promise.all(
-        texts.map(async (text) => {
+        texts.map(async (text, index) => {
           return withProviderRetry(options.retry, `ollama-native:${options.model} embedding`, async () => {
-            const response = await fetch(`${trimSlash(options.host)}/api/embeddings`, {
+            const url = `${trimSlash(options.host)}/api/embeddings`;
+            const started = performance.now();
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding HTTP request ${String(index + 1)}/${String(
+                texts.length,
+              )} -> ${url}`,
+            );
+            const response = await fetch(url, {
               method: 'POST',
               ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ model: options.model, prompt: text }),
             });
+            const receivedAt = performance.now();
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding HTTP response ${String(index + 1)}/${String(
+                texts.length,
+              )} <- ${String(response.status)} ${response.statusText} (${(receivedAt - started).toFixed(1)} ms)`,
+            );
             const data = await readJsonResponse(response, 'Ollama native embedding');
+            const parsedAt = performance.now();
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding JSON parsed ${String(index + 1)}/${String(texts.length)} (${(
+                parsedAt - receivedAt
+              ).toFixed(1)} ms)`,
+            );
             const embedding = dataValue(data, ['embedding']);
             if (!Array.isArray(embedding)) throw new Error('Ollama native embedding response missing embedding');
-            return new Float32Array(embedding as number[]);
+            const vector = new Float32Array(embedding as number[]);
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding vector decoded ${String(index + 1)}/${String(
+                texts.length,
+              )}: ${String(vector.length)} dimension(s)`,
+            );
+            return vector;
           });
         }),
       );
@@ -569,6 +629,7 @@ function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): P
     baseDelayMs: positiveInt(env['DEMO_PROVIDER_BASE_DELAY_MS'], 1000, 'DEMO_PROVIDER_BASE_DELAY_MS'),
     maxDelayMs: positiveInt(env['DEMO_PROVIDER_MAX_DELAY_MS'], 30000, 'DEMO_PROVIDER_MAX_DELAY_MS'),
     rateLimitMs: nonNegativeMs(env['DEMO_RATE_LIMIT']),
+    traceTimings: trace?.enabled === true,
     log:
       trace?.enabled === true
         ? (message: string) => {
@@ -591,7 +652,12 @@ async function withProviderRetry<T>(
 
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
     try {
-      await waitForProviderRateLimit(retry.rateLimitMs, label, (message) => retry.log?.(message));
+      await waitForProviderRateLimit(
+        retry.rateLimitMs,
+        label,
+        (message) => retry.log?.(message),
+        retry.traceTimings === true,
+      );
       return await operation();
     } catch (err) {
       if (!(err instanceof ProviderHttpError) || !shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) {
@@ -614,14 +680,23 @@ async function waitForProviderRateLimit(
   rateLimitMs: number,
   label: string,
   log: ((message: string) => void) | undefined,
+  traceTimings: boolean,
 ): Promise<void> {
   const previous = providerRateLimitQueue;
   let release!: () => void;
   providerRateLimitQueue = new Promise<void>((resolve) => {
     release = resolve;
   });
+  if (traceTimings && rateLimitMs > 0) {
+    log?.(`${label} rate limit: waiting for prior live provider request, if any`);
+  }
+  const queuedAt = performance.now();
   await previous;
   try {
+    const queuedMs = performance.now() - queuedAt;
+    if (traceTimings && queuedMs >= 1) {
+      log?.(`${label} rate limit: queue wait complete (${queuedMs.toFixed(1)} ms)`);
+    }
     const rawElapsedMs = Date.now() - lastLiveProviderCallAt;
     const elapsedMs = rawElapsedMs < 0 ? rateLimitMs : rawElapsedMs;
     const waitMs = Math.max(0, rateLimitMs - elapsedMs);
@@ -652,6 +727,10 @@ function backoffDelayMs(attempt: number, options: ProviderRetryOptions): number 
   const raw = Math.min(options.maxDelayMs, options.baseDelayMs * 2 ** (attempt - 1));
   const jitter = Math.round(raw * (0.8 + Math.random() * 0.4));
   return Math.max(0, jitter);
+}
+
+function traceProviderTiming(retry: ProviderRetryOptions | undefined, message: string): void {
+  if (retry?.traceTimings === true) retry.log?.(message);
 }
 
 function positiveInt(value: string | undefined, fallback: number, label: string): number {

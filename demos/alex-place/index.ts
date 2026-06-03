@@ -88,6 +88,7 @@ async function main(): Promise<void> {
     citationSources,
     providers,
     logger,
+    trace,
   };
   await ingestEpisodes(
     providers.extractor.provenance.kind === 'fixture'

@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import type { Assertion, Episode, TemporalStore } from 'trageti';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
-import type { ResolvedDemoProviders } from './providers.js';
+import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
 export interface DemoRunLogger {
@@ -139,6 +139,7 @@ export async function ingestEpisodes(options: {
     context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
   ) => ExtractionResult;
   logger?: DemoRunLogger;
+  trace?: LlmTraceOptions;
 }): Promise<void> {
   options.logger?.step('Ingesting episodes into TemporalStore');
   options.logger?.detail(
@@ -183,7 +184,12 @@ export async function ingestEpisodes(options: {
       }),
     };
     const result = await ingest(ingestOptions);
-    await indexResult(options.store, result);
+    await indexResult(options.store, result, {
+      episode,
+      providerLabel: options.providers.embedder.label,
+      embeddingDimension: options.providers.provenance.embedding.dimension,
+      trace: options.trace,
+    });
     options.logger?.detail(formatEpisode(episode));
     options.logger?.detail(
       `  Stored ${formatCount(result.assertions.length, 'claim')}; ` +
@@ -250,10 +256,31 @@ export function expectedFixtureAssertionIds(fixtures: Record<string, string>): s
     .sort();
 }
 
-async function indexResult(store: TemporalStore, result: ExtractionResult): Promise<void> {
+async function indexResult(
+  store: TemporalStore,
+  result: ExtractionResult,
+  context: {
+    episode: Omit<Episode, 'createdAt'>;
+    providerLabel: string;
+    embeddingDimension: number | undefined;
+    trace: LlmTraceOptions | undefined;
+  },
+): Promise<void> {
+  const started = performance.now();
+  traceLog(
+    context.trace,
+    `Embedding/indexing start -> ${context.episode.id}: ${String(result.assertions.length)} assertion(s), ` +
+      `${context.providerLabel}, dimension ${String(context.embeddingDimension ?? 'unknown')}`,
+  );
   const ib = await store.indexBatch(
     result.assertions.map((a) => ({ assertionId: a.id })),
     { onProviderError: 'skip' },
+  );
+  traceLog(
+    context.trace,
+    `Embedding/indexing complete <- ${context.episode.id}: indexed ${String(ib.indexed)}, skipped ${String(
+      ib.skipped.length,
+    )} (${(performance.now() - started).toFixed(1)} ms)`,
   );
   if (ib.skipped.length > 0) {
     const reason = ib.skipped[0]?.reason ?? 'UNKNOWN';
@@ -286,6 +313,7 @@ async function verifyComplete(options: {
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
   logger?: DemoRunLogger;
+  trace?: LlmTraceOptions;
 }): Promise<void> {
   options.logger?.step('Verifying demo DB completeness');
   const assertions = await options.store.getAssertions(options.namespace, { includeSuperseded: true });
@@ -302,9 +330,21 @@ async function verifyComplete(options: {
   const pending = await options.store.getPendingIndexing(options.namespace);
   if (pending.length > 0) {
     options.logger?.detail(`Re-indexing ${String(pending.length)} assertion(s) missing embeddings from a prior run`);
+    const started = performance.now();
+    traceLog(
+      options.trace,
+      `Pending embedding retry start -> ${String(pending.length)} assertion(s), ${options.providers.embedder.label}, ` +
+        `dimension ${String(options.providers.provenance.embedding.dimension ?? 'unknown')}`,
+    );
     const ib = await options.store.indexBatch(
       pending.map((row) => ({ assertionId: row.id })),
       { onProviderError: 'skip' },
+    );
+    traceLog(
+      options.trace,
+      `Pending embedding retry complete <- indexed ${String(ib.indexed)}, skipped ${String(ib.skipped.length)} (${(
+        performance.now() - started
+      ).toFixed(1)} ms)`,
     );
     if (ib.skipped.length > 0) {
       const reason = ib.skipped[0]?.reason ?? 'UNKNOWN';
@@ -328,4 +368,8 @@ async function verifyComplete(options: {
   options.logger?.detail(
     `Verified ${String(options.episodes.length)} episode(s), ${String(assertions.length)} assertion(s), 0 pending embedding(s)`,
   );
+}
+
+function traceLog(trace: LlmTraceOptions | undefined, message: string): void {
+  if (trace?.enabled) trace.log(message);
 }

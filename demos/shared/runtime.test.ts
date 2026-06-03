@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
-import type { Assertion, Episode, TemporalStore } from 'trageti';
+import type { Assertion, AssertionCitation, AssertionLink, Episode, NewAssertionInput, TemporalStore } from 'trageti';
 import { demoDataVersion, ensureDemoMetadata, ingestEpisodes } from './runtime.js';
 import { resolveDemoProviders, type ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
@@ -162,6 +162,54 @@ describe('ingestEpisodes resume checks', () => {
       }),
     ).rejects.toThrow('exists but has no assertions');
   });
+
+  it('emits no embedding trace when trace is disabled', async () => {
+    const messages: string[] = [];
+    const store = new FreshIngestStore();
+
+    await ingestEpisodes({
+      store: store as unknown as TemporalStore,
+      namespace: 'test',
+      episodes: BASE_EPISODES,
+      providers: providersWithOneAssertion(),
+      trace: fakeTrace(false, messages),
+    });
+
+    expect(messages).toEqual([]);
+  });
+
+  it('traces fresh assertion embedding/indexing progress', async () => {
+    const messages: string[] = [];
+    const store = new FreshIngestStore();
+
+    await ingestEpisodes({
+      store: store as unknown as TemporalStore,
+      namespace: 'test',
+      episodes: BASE_EPISODES,
+      providers: providersWithOneAssertion(),
+      trace: fakeTrace(true, messages),
+    });
+
+    expect(messages.join('\n')).toContain('Embedding/indexing start -> ep-1: 1 assertion(s)');
+    expect(messages.join('\n')).toContain('fixture / raw-vector');
+    expect(messages.join('\n')).toContain('Embedding/indexing complete <- ep-1: indexed 1, skipped 0');
+  });
+
+  it('traces pending embedding retry progress', async () => {
+    const messages: string[] = [];
+    const store = new ResumeStore([makeAssertion('a-1')], [{ id: 'a-1', content: 'hello world' }]);
+
+    await ingestEpisodes({
+      store: store as unknown as TemporalStore,
+      namespace: 'test',
+      episodes: BASE_EPISODES,
+      providers: fixtureProviders(),
+      trace: fakeTrace(true, messages),
+    });
+
+    expect(messages.join('\n')).toContain('Pending embedding retry start -> 1 assertion(s)');
+    expect(messages.join('\n')).toContain('Pending embedding retry complete <- indexed 1, skipped 0');
+  });
 });
 
 function fixtureProviders(): ResolvedDemoProviders {
@@ -173,6 +221,53 @@ function fixtureProviders(): ResolvedDemoProviders {
     embeddingDimension: 2,
     env: {},
   });
+}
+
+function providersWithOneAssertion(): ResolvedDemoProviders {
+  return resolveDemoProviders({
+    fixtures: {
+      'ep-1': JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'ignored',
+            type: 'fact',
+            content: 'hello world',
+            validFrom: 1,
+            confidence: 1,
+            sourceEpisodeId: 'ignored',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'ignored',
+                sourceRef: 'src',
+                excerpt: null,
+                excerptStart: '0',
+                excerptEnd: '5',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    },
+    assertionEmbeddings: { 'a-1': [0.1, 0.2] },
+    queryEmbeddings: BASE_QUERY_EMBEDDINGS,
+    queryTexts: BASE_QUERY_TEXTS,
+    embeddingDimension: 2,
+    env: {},
+  });
+}
+
+function fakeTrace(enabled: boolean, messages: string[]) {
+  return {
+    enabled,
+    includePayloads: false,
+    includeRawVectors: false,
+    log(message: string) {
+      messages.push(message);
+    },
+  };
 }
 
 function makeAssertion(id: string): Assertion {
@@ -220,6 +315,60 @@ class ResumeStore {
   indexBatch(items: Array<{ assertionId: string }>): Promise<{ indexed: number; skipped: unknown[] }> {
     this.indexedIds.push(...items.map((item) => item.assertionId));
     this.pending = [];
+    return Promise.resolve({ indexed: items.length, skipped: [] });
+  }
+}
+
+class FreshIngestStore {
+  readonly episodes: Array<Omit<Episode, 'createdAt'>> = [];
+  readonly assertions: Assertion[] = [];
+  readonly links: Array<Omit<AssertionLink, 'createdAt'>> = [];
+  readonly indexedIds: string[] = [];
+
+  getEpisode(): Promise<Episode | null> {
+    return Promise.resolve(null);
+  }
+
+  writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
+    this.episodes.push(episode);
+    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z' });
+  }
+
+  writeAssertion(assertion: NewAssertionInput): Promise<Assertion> {
+    const citations: AssertionCitation[] = assertion.citations.map((citation) => ({
+      ...citation,
+      assertionId: assertion.id,
+      createdAt: '2026-01-01T00:00:00Z',
+    }));
+    const stored: Assertion = {
+      ...assertion,
+      validUntil: assertion.validUntil ?? null,
+      supersedesId: assertion.supersedesId ?? null,
+      entityId: assertion.entityId ?? null,
+      entityType: assertion.entityType ?? null,
+      citations,
+      extensions: {},
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    this.assertions.push(stored);
+    return Promise.resolve(stored);
+  }
+
+  writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
+    this.links.push(link);
+    return Promise.resolve({ ...link, createdAt: '2026-01-01T00:00:00Z' });
+  }
+
+  getAssertions(): Promise<Assertion[]> {
+    return Promise.resolve([...this.assertions]);
+  }
+
+  getPendingIndexing(): Promise<Array<{ id: string; content: string }>> {
+    return Promise.resolve([]);
+  }
+
+  indexBatch(items: Array<{ assertionId: string }>): Promise<{ indexed: number; skipped: unknown[] }> {
+    this.indexedIds.push(...items.map((item) => item.assertionId));
     return Promise.resolve({ indexed: items.length, skipped: [] });
   }
 }

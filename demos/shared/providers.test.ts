@@ -6,6 +6,7 @@ import {
   createOpenAICompatibleExtractionProvider,
   createOpenAICompatibleEmbeddingProvider,
   createFixtureExtractionProvider,
+  createOllamaNativeEmbeddingProvider,
   resolveDemoProviders,
   type ExtractionProvider,
 } from './providers.js';
@@ -125,6 +126,67 @@ describe('demo providers', () => {
       expect(message).toContain('failed HTTP 500 Nope');
       expect(message).not.toContain('SECRET');
     }
+  });
+
+  it('traces embedding HTTP timing without raw vectors when enabled', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 }))),
+    );
+    const embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      dimension: 2,
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await embedder.provider.embed(['hello']);
+
+    const output = messages.join('\n');
+    expect(output).toContain('embedding HTTP request -> https://example.invalid/v1/embeddings');
+    expect(output).toContain('embedding HTTP response <- 200');
+    expect(output).toContain('embedding JSON parsed');
+    expect(output).toContain('embedding vectors decoded: 1 vector(s), 2 dimension(s)');
+    expect(output).not.toContain('[1,2]');
+    expect(output).not.toContain('sk-test');
+  });
+
+  it('traces Ollama native one-request-per-text embedding behavior', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ embedding: [1, 2] }), { status: 200 }))),
+    );
+    const embedder = createOllamaNativeEmbeddingProvider({
+      host: 'http://127.0.0.1:11434',
+      model: 'nomic-embed-text',
+      dimension: 2,
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await embedder.provider.embed(['first', 'second']);
+
+    const output = messages.join('\n');
+    expect(output).toContain('will call /api/embeddings once per text (2 request(s))');
+    expect(output).toContain('embedding HTTP request 1/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding HTTP request 2/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding vector decoded 2/2: 2 dimension(s)');
   });
 
   it('retries retryable extraction HTTP failures', async () => {
