@@ -160,6 +160,41 @@ describe('demo providers', () => {
     expect(captured?.signal).toBe(signal);
   });
 
+  it('can merge OpenAI-compatible embedding extra body JSON', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(new Response(JSON.stringify({ data: [{ embedding: [1, 2] }] }), { status: 200 }));
+      }),
+    );
+    const embedder = resolveLiveEmbeddingProvider({
+      embeddingDimension: 2,
+      env: {
+        DEMO_EMBED_PROVIDER: 'openai-compatible',
+        DEMO_EMBED_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EMBED_API_KEY: 'sk-test',
+        DEMO_EMBED_MODEL: 'm',
+        DEMO_EMBED_DIMENSION: '2',
+        DEMO_EMBED_EXTRA_BODY_JSON: '{"response_format":{"type":"float"},"seed":123}',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await embedder.provider.embed(['hello']);
+
+    expect(requestBody).toMatchObject({
+      model: 'm',
+      input: ['hello'],
+      dimensions: 2,
+      response_format: { type: 'float' },
+      seed: 123,
+    });
+  });
+
   it('does not include raw upstream response bodies in HTTP errors', async () => {
     vi.stubGlobal(
       'fetch',
@@ -220,11 +255,14 @@ describe('demo providers', () => {
   it('traces extraction HTTP timing without prompt or API key contents', async () => {
     const messages: string[] = [];
     let requestBody: unknown;
-    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
-      if (typeof init?.body !== 'string') throw new Error('expected string request body');
-      requestBody = JSON.parse(init.body) as unknown;
-      return Promise.resolve(openAIStreamResponse(['{"assertions":', '[],"links":[]}']));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":', '[],"links":[]}']));
+      }),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -257,11 +295,14 @@ describe('demo providers', () => {
 
   it('can disable OpenAI-compatible extraction response_format for incompatible servers', async () => {
     let requestBody: unknown;
-    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
-      if (typeof init?.body !== 'string') throw new Error('expected string request body');
-      requestBody = JSON.parse(init.body) as unknown;
-      return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
     const provider = resolveLiveExtractionProvider({
       env: {
         DEMO_EXTRACT_PROVIDER: 'openai-compatible',
@@ -280,13 +321,131 @@ describe('demo providers', () => {
     expect(requestBody).not.toHaveProperty('response_format');
   });
 
+  it('can request OpenAI-compatible extraction with strict JSON schema response format', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-test',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_RESPONSE_FORMAT: 'json_schema',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await provider.extract('prompt');
+
+    expect(requestBody).toMatchObject({
+      stream: true,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'trageti_extraction',
+          strict: true,
+          schema: {
+            type: 'object',
+            required: ['assertions', 'links'],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+  });
+
+  it('can request OpenAI-compatible extraction with raw JSON response format', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-test',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_RESPONSE_FORMAT: '{"type":"json_object"}',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await provider.extract('prompt');
+
+    expect(requestBody).toMatchObject({
+      response_format: { type: 'json_object' },
+    });
+  });
+
+  it('can merge OpenAI-compatible extraction extra body JSON', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-test',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_EXTRA_BODY_JSON: '{"reasoning":{"exclude":true},"seed":123}',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await provider.extract('prompt');
+
+    expect(requestBody).toMatchObject({
+      reasoning: { exclude: true },
+      seed: 123,
+      response_format: { type: 'json_object' },
+    });
+  });
+
+  it('rejects response_format inside OpenAI-compatible extraction extra body JSON', () => {
+    expect(() =>
+      resolveLiveExtractionProvider({
+        env: {
+          DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+          DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+          DEMO_EXTRACT_API_KEY: 'sk-test',
+          DEMO_EXTRACT_MODEL: 'm',
+          DEMO_EXTRACT_EXTRA_BODY_JSON: '{"response_format":{"type":"json_object"}}',
+        },
+      }),
+    ).toThrow('DEMO_EXTRACT_EXTRA_BODY_JSON must not include response_format');
+  });
+
   it('uses text response format per call when requested', async () => {
     let requestBody: unknown;
-    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
-      if (typeof init?.body !== 'string') throw new Error('expected string request body');
-      requestBody = JSON.parse(init.body) as unknown;
-      return Promise.resolve(openAIStreamResponse(['plain text summary']));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['plain text summary']));
+      }),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -304,7 +463,10 @@ describe('demo providers', () => {
   it('appends full-trace extraction stream text without per-token log entries', async () => {
     const messages: string[] = [];
     const appended: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' ', 'world']))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' ', 'world']))),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -331,7 +493,10 @@ describe('demo providers', () => {
 
   it('streams extraction in regular mode with concise completion metering', async () => {
     const messages: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' world']))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' world']))),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -511,9 +676,7 @@ describe('demo providers', () => {
   it('rate-limits the first attempt of consecutive live provider requests', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}'])),
-    );
+    const fetchMock = vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}'])));
     vi.stubGlobal('fetch', fetchMock);
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
@@ -538,7 +701,10 @@ describe('demo providers', () => {
     const messages: string[] = [];
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']))),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -607,7 +773,10 @@ describe('demo providers', () => {
     const timeout = new TypeError('fetch failed', {
       cause: Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' }),
     });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(timeout)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(timeout)),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -651,7 +820,9 @@ describe('demo providers', () => {
   });
 
   it('renders a valid JSON example rather than pseudo-schema placeholders', () => {
-    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', { src: 'source paragraph text' });
+    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', {
+      src: 'source paragraph text',
+    });
 
     expect(prompt).toContain('"confidence": 0.82');
     expect(prompt).not.toContain('<0..1>');

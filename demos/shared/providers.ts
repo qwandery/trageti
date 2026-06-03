@@ -202,7 +202,10 @@ export function createAnthropicExtractionProvider(
         );
         const text = dataValue(data, ['content', 0, 'text']);
         if (typeof text !== 'string') throw new Error('Anthropic extraction response missing content[0].text');
-        traceProviderTiming(extractionRetry, `${label} extraction content decoded: ${String(text.length)} character(s)`);
+        traceProviderTiming(
+          extractionRetry,
+          `${label} extraction content decoded: ${String(text.length)} character(s)`,
+        );
         return text;
       });
     },
@@ -215,7 +218,8 @@ export function createOpenAICompatibleExtractionProvider(options: {
   model: string;
   maxTokens?: number;
   label?: string;
-  responseFormat?: { type: 'json_object' } | null;
+  responseFormat?: OpenAICompatibleResponseFormat | null;
+  extraBody?: Record<string, unknown>;
   retry?: ProviderRetryOptions;
 }): ExtractionProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
@@ -235,6 +239,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
           max_tokens: maxTokens,
+          ...options.extraBody,
           ...openAICompatibleExtractionFormatBody(
             extractOptions?.responseFormat === 'text' ? null : options.responseFormat,
           ),
@@ -274,6 +279,7 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
   model: string;
   dimension: number;
   label?: string;
+  extraBody?: Record<string, unknown>;
   retry?: ProviderRetryOptions;
 }): DemoEmbeddingProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
@@ -291,6 +297,7 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
           )})`,
         );
         const body = JSON.stringify({
+          ...options.extraBody,
           model: options.model,
           input: texts,
           dimensions: options.dimension,
@@ -318,7 +325,11 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`, options.retry);
+        const data = await readJsonResponse(
+          response,
+          `${options.label ?? 'OpenAI-compatible'} embedding`,
+          options.retry,
+        );
         const parsedAt = performance.now();
         traceProviderTiming(options.retry, `${label} embedding JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
         const rows = dataValue(data, ['data']);
@@ -518,12 +529,7 @@ export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOption
   if (embeddingDimension === null || embeddingDimension === undefined) {
     throw new Error('Live embedding provider resolution requires DEMO_EMBED_DIMENSION.');
   }
-  const embedder = resolveEmbeddingProvider(
-    provider,
-    env,
-    embeddingDimension,
-    retryOptionsFromEnv(env, options.trace),
-  );
+  const embedder = resolveEmbeddingProvider(provider, env, embeddingDimension, retryOptionsFromEnv(env, options.trace));
   return options.trace?.enabled ? traceEmbeddingProvider(embedder, options.trace) : embedder;
 }
 
@@ -662,6 +668,7 @@ function resolveExtractionProvider(
   }
   if (provider === 'openai-compatible') {
     const preset = openAICompatPreset(env, 'extract');
+    const extraBody = openAICompatibleExtractionExtraBody(env);
     return createOpenAICompatibleExtractionProvider({
       baseUrl: preset.baseUrl,
       apiKey: preset.apiKey,
@@ -669,23 +676,148 @@ function resolveExtractionProvider(
       maxTokens: extractMaxTokensFromEnv(env),
       label: preset.label,
       responseFormat: openAICompatibleExtractionFormat(env),
+      ...(extraBody ? { extraBody } : {}),
       ...(retry ? { retry } : {}),
     });
   }
   throw new Error(`Unsupported DEMO_EXTRACT_PROVIDER "${provider}". Use fixture, anthropic, or openai-compatible.`);
 }
 
-function openAICompatibleExtractionFormat(env: NodeJS.ProcessEnv): { type: 'json_object' } | null {
-  const raw = env['DEMO_EXTRACT_RESPONSE_FORMAT']?.trim().toLowerCase();
-  if (raw === 'none' || raw === 'off' || raw === '0' || raw === 'false') return null;
+type OpenAICompatibleResponseFormat = Record<string, unknown>;
+
+function openAICompatibleExtractionFormat(env: NodeJS.ProcessEnv): OpenAICompatibleResponseFormat | null {
+  const raw = env['DEMO_EXTRACT_RESPONSE_FORMAT']?.trim();
+  const preset = raw?.toLowerCase();
+  if (preset === 'none' || preset === 'off' || preset === '0' || preset === 'false') return null;
+  if (preset === 'json_schema' || preset === 'schema' || preset === 'strict')
+    return extractionJsonSchemaResponseFormat();
+  if (raw?.startsWith('{')) return parseJsonObjectEnv(raw, 'DEMO_EXTRACT_RESPONSE_FORMAT');
   return { type: 'json_object' };
 }
 
-function openAICompatibleExtractionFormatBody(
-  responseFormat: { type: 'json_object' } | null | undefined,
-): { response_format?: { type: 'json_object' } } {
+function openAICompatibleExtractionFormatBody(responseFormat: OpenAICompatibleResponseFormat | null | undefined): {
+  response_format?: OpenAICompatibleResponseFormat;
+} {
   if (responseFormat === null) return {};
   return { response_format: responseFormat ?? { type: 'json_object' } };
+}
+
+function openAICompatibleExtractionExtraBody(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
+  const raw = env['DEMO_EXTRACT_EXTRA_BODY_JSON']?.trim();
+  if (!raw) return undefined;
+  const extraBody = parseJsonObjectEnv(raw, 'DEMO_EXTRACT_EXTRA_BODY_JSON');
+  if (Object.prototype.hasOwnProperty.call(extraBody, 'response_format')) {
+    throw new Error('DEMO_EXTRACT_EXTRA_BODY_JSON must not include response_format; use DEMO_EXTRACT_RESPONSE_FORMAT.');
+  }
+  return extraBody;
+}
+
+function openAICompatibleEmbeddingExtraBody(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
+  const raw = env['DEMO_EMBED_EXTRA_BODY_JSON']?.trim();
+  if (!raw) return undefined;
+  return parseJsonObjectEnv(raw, 'DEMO_EMBED_EXTRA_BODY_JSON');
+}
+
+function parseJsonObjectEnv(raw: string, name: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('value must be a JSON object');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${name} must be a JSON object (${message})`);
+  }
+}
+
+function extractionJsonSchemaResponseFormat(): OpenAICompatibleResponseFormat {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'trageti_extraction',
+      strict: true,
+      schema: extractionJsonSchema(),
+    },
+  };
+}
+
+function extractionJsonSchema(): Record<string, unknown> {
+  const citation = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'episodeId', 'sourceRef', 'excerpt', 'excerptStart', 'excerptEnd'],
+    properties: {
+      id: { type: 'string' },
+      episodeId: { type: 'string' },
+      sourceRef: { type: 'string' },
+      excerpt: { type: 'null' },
+      excerptStart: { type: 'string' },
+      excerptEnd: { type: 'string' },
+    },
+  };
+  const assertion = {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'namespace',
+      'type',
+      'content',
+      'validFrom',
+      'validUntil',
+      'confidence',
+      'sourceEpisodeId',
+      'supersedesId',
+      'entityId',
+      'entityType',
+      'citations',
+    ],
+    properties: {
+      id: { type: 'string' },
+      namespace: { type: 'string' },
+      type: {
+        type: 'string',
+        enum: ['fact', 'update', 'recontextualization', 'resolution', 'regression', 'absence', 'pattern'],
+      },
+      content: { type: 'string' },
+      validFrom: { type: 'number' },
+      validUntil: { type: ['number', 'null'] },
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      sourceEpisodeId: { type: 'string' },
+      supersedesId: { type: ['string', 'null'] },
+      entityId: { type: ['string', 'null'] },
+      entityType: { type: ['string', 'null'] },
+      citations: { type: 'array', minItems: 1, items: citation },
+    },
+  };
+  const link = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'namespace', 'fromId', 'toId', 'linkType', 'validFrom', 'validUntil', 'sourceEpisodeId'],
+    properties: {
+      id: { type: 'string' },
+      namespace: { type: 'string' },
+      fromId: { type: 'string' },
+      toId: { type: 'string' },
+      linkType: {
+        type: 'string',
+        enum: ['deepens', 'qualifies', 'contradicts', 'contextualizes', 'measures', 'related'],
+      },
+      validFrom: { type: 'number' },
+      validUntil: { type: ['number', 'null'] },
+      sourceEpisodeId: { type: 'string' },
+    },
+  };
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['assertions', 'links'],
+    properties: {
+      assertions: { type: 'array', items: assertion },
+      links: { type: 'array', items: link },
+    },
+  };
 }
 
 function resolveEmbeddingProvider(
@@ -697,12 +829,14 @@ function resolveEmbeddingProvider(
   const resolvedDimension = embeddingDimensionFromEnv(env) ?? dimension;
   if (provider === 'openai-compatible') {
     const preset = openAICompatPreset(env, 'embed');
+    const extraBody = openAICompatibleEmbeddingExtraBody(env);
     return createOpenAICompatibleEmbeddingProvider({
       baseUrl: preset.baseUrl,
       apiKey: preset.apiKey,
       model: env['DEMO_EMBED_MODEL'] ?? preset.defaultModel,
       dimension: resolvedDimension,
       label: preset.label,
+      ...(extraBody ? { extraBody } : {}),
       ...(retry ? { retry } : {}),
     });
   }
@@ -770,11 +904,7 @@ function openAICompatPreset(
   );
 }
 
-async function readJsonResponse(
-  response: Response,
-  label: string,
-  retry?: ProviderRetryOptions,
-): Promise<unknown> {
+async function readJsonResponse(response: Response, label: string, retry?: ProviderRetryOptions): Promise<unknown> {
   const text = await readResponseText(response, label, retry);
   if (!response.ok) {
     const detail = providerHttpErrorDetail(response, text);
@@ -825,7 +955,11 @@ async function readOpenAIChatCompletionStream(
     if (retry?.traceTimings !== true) return;
     if (retry.tracePayloads === true) return;
     const now = performance.now();
-    if (chunks !== 1 && chunks % STREAM_PROGRESS_CHUNK_INTERVAL !== 0 && now - lastProgressAt < STREAM_PROGRESS_MIN_INTERVAL_MS) {
+    if (
+      chunks !== 1 &&
+      chunks % STREAM_PROGRESS_CHUNK_INTERVAL !== 0 &&
+      now - lastProgressAt < STREAM_PROGRESS_MIN_INTERVAL_MS
+    ) {
       return;
     }
     lastProgressAt = now;
@@ -917,11 +1051,7 @@ function openAIStreamDelta(data: string): string | null {
   }
 }
 
-async function readResponseText(
-  response: Response,
-  label: string,
-  retry?: ProviderRetryOptions,
-): Promise<string> {
+async function readResponseText(response: Response, label: string, retry?: ProviderRetryOptions): Promise<string> {
   if (retry?.traceTimings !== true || !response.body) return await response.text();
 
   const decoder = new TextDecoder();
@@ -943,10 +1073,7 @@ async function readResponseText(
       now - lastProgressAt >= STREAM_PROGRESS_MIN_INTERVAL_MS
     ) {
       lastProgressAt = now;
-      traceProviderStatus(
-        retry,
-        `${label} response body: ${String(chunks)} chunks, ${formatBytes(totalBytes)}`,
-      );
+      traceProviderStatus(retry, `${label} response body: ${String(chunks)} chunks, ${formatBytes(totalBytes)}`);
     }
   }
   text += decoder.decode();
@@ -1086,10 +1213,9 @@ function retryAfterMs(value: string | null): number | null {
 }
 
 function providerHttpErrorDetail(response: Response, text: string): string | null {
-  const parts = [
-    rateLimitHeaderDetail(response.headers),
-    providerErrorBodyDetail(text),
-  ].filter((part): part is string => part !== null && part.length > 0);
+  const parts = [rateLimitHeaderDetail(response.headers), providerErrorBodyDetail(text)].filter(
+    (part): part is string => part !== null && part.length > 0,
+  );
   return parts.length === 0 ? null : parts.join('; ');
 }
 

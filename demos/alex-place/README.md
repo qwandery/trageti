@@ -44,14 +44,17 @@ rerun.
 The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
 configuration. Extraction and embedding are separate capabilities:
 
-| Variable                                        | Meaning                                                 |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`          |
-| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native`      |
-| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                      |
-| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                           |
-| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; inferred from fixture vectors unless overridden |
-| `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5` |
+| Variable                                        | Meaning                                                                 |
+| ----------------------------------------------- | ----------------------------------------------------------------------- |
+| `DEMO_EXTRACT_PROVIDER`                         | `fixture`, `anthropic`, or `openai-compatible`                          |
+| `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native`                      |
+| `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                                      |
+| `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                                           |
+| `DEMO_EXTRACT_RESPONSE_FORMAT`                  | `json_object` default, `json_schema`, raw JSON object, or `off`         |
+| `DEMO_EXTRACT_EXTRA_BODY_JSON`                  | Extra OpenAI-compatible extraction request body fields as a JSON object |
+| `DEMO_EMBED_EXTRA_BODY_JSON`                    | Extra OpenAI-compatible embedding request body fields as a JSON object  |
+| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; inferred from fixture vectors unless overridden    |
+| `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5`                 |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the

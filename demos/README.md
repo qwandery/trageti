@@ -132,7 +132,15 @@ Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
 OpenAI-compatible extraction requests use streaming chat completions and request
 JSON object responses so local providers such as Ollama return headers promptly
 and stay on the expected extraction schema. If a compatible server rejects JSON
-mode, set `DEMO_EXTRACT_RESPONSE_FORMAT=off`. Normal demo output prints a
+mode, set `DEMO_EXTRACT_RESPONSE_FORMAT=off`. If a gateway supports strict
+structured outputs and a model does not reliably follow JSON object mode, set
+`DEMO_EXTRACT_RESPONSE_FORMAT=json_schema` to send the extraction JSON schema in
+`response_format`. `DEMO_EXTRACT_RESPONSE_FORMAT` also accepts a raw JSON object
+for provider-specific response formats, for example `{"type":"json_object"}`.
+Set `DEMO_EXTRACT_EXTRA_BODY_JSON` to merge provider-specific extraction request
+fields such as `{"reasoning":{"exclude":true}}`. Set
+`DEMO_EMBED_EXTRA_BODY_JSON` to merge provider-specific embedding request fields
+such as `{"response_format":{"type":"float"}}`. Normal demo output prints a
 concise stream completion meter; `--llm-trace` shows in-place stream progress,
 and `--llm-trace=full` appends streamed completion text.
 
