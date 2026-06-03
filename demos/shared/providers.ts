@@ -45,6 +45,7 @@ export interface LlmTraceOptions {
   includeRawVectors: boolean;
   log(message: string): void;
   append?(message: string): void;
+  status?(message: string): void;
 }
 
 export interface ProviderRetryOptions {
@@ -56,6 +57,7 @@ export interface ProviderRetryOptions {
   tracePayloads?: boolean;
   log?(message: string): void;
   append?(message: string): void;
+  status?(message: string): void;
 }
 
 const DEFAULT_EXTRACT_MAX_TOKENS = 1200;
@@ -792,12 +794,13 @@ async function readOpenAIChatCompletionStream(
 
   const traceProgress = (): void => {
     if (retry?.traceTimings !== true) return;
+    if (retry.tracePayloads === true) return;
     const now = performance.now();
     if (chunks !== 1 && chunks % STREAM_PROGRESS_CHUNK_INTERVAL !== 0 && now - lastProgressAt < STREAM_PROGRESS_MIN_INTERVAL_MS) {
       return;
     }
     lastProgressAt = now;
-    traceProviderTiming(
+    traceProviderStatus(
       retry,
       `${label} extraction stream progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s), ` +
         `${String(deltas)} text delta(s), ${String(content.length)} character(s) so far (${(now - receivedAt).toFixed(
@@ -913,7 +916,7 @@ async function readResponseText(
       now - lastProgressAt >= STREAM_PROGRESS_MIN_INTERVAL_MS
     ) {
       lastProgressAt = now;
-      traceProviderTiming(
+      traceProviderStatus(
         retry,
         `${label} response body progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s) so far`,
       );
@@ -949,6 +952,11 @@ function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): P
   if (trace?.append) {
     options.append = (message: string) => {
       trace.append?.(message);
+    };
+  }
+  if (trace?.status) {
+    options.status = (message: string) => {
+      trace.status?.(message);
     };
   }
   return options;
@@ -1051,6 +1059,13 @@ function backoffDelayMs(attempt: number, options: ProviderRetryOptions): number 
 
 function traceProviderTiming(retry: ProviderRetryOptions | undefined, message: string): void {
   if (retry?.traceTimings === true) retry.log?.(message);
+}
+
+function traceProviderStatus(retry: ProviderRetryOptions | undefined, message: string): void {
+  if (retry?.traceTimings === true) {
+    if (retry.status) retry.status(message);
+    else retry.log?.(message);
+  }
 }
 
 function providerTransportError(err: unknown): ProviderTransportError | null {

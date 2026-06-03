@@ -77,4 +77,24 @@ describe('demo timing prefixes', () => {
       write.mockRestore();
     }
   });
+
+  it('updates LLM status in place and clears it before normal trace logs', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace'], {});
+      trace.status?.('stream progress: 1 chunk');
+      trace.status?.('stream progress: 2 chunks');
+      trace.log('complete');
+
+      const writes = write.mock.calls.map((call) => String(call[0]));
+      expect(writes.filter((value) => value.startsWith('\r[LLM '))).toHaveLength(2);
+      expect(writes.some((value) => /^\r +\r$/.test(value))).toBe(true);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('[LLM '));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('complete'));
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+  });
 });

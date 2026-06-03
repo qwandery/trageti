@@ -72,11 +72,18 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
   const raw = arg?.includes('=') ? arg.split('=')[1] : arg ? 'summary' : env['DEMO_LLM_TRACE'];
   const normalized = raw?.toLowerCase();
   const rawVectors = env['DEMO_LLM_TRACE_RAW_VECTORS']?.toLowerCase();
+  let statusLength = 0;
+  const clearStatus = (): void => {
+    if (statusLength === 0) return;
+    process.stdout.write(`\r${' '.repeat(statusLength)}\r`);
+    statusLength = 0;
+  };
   return {
     enabled: normalized === '1' || normalized === 'true' || normalized === 'summary' || normalized === 'full',
     includePayloads: normalized === 'full',
     includeRawVectors: rawVectors === '1' || rawVectors === 'true' || rawVectors === 'full',
     log(message) {
+      clearStatus();
       console.log('');
       console.log(`[LLM ${runPrefix()}]`);
       console.log(
@@ -87,7 +94,14 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
       );
     },
     append(message) {
+      clearStatus();
       process.stdout.write(sanitizeForTerminal(message));
+    },
+    status(message) {
+      const rendered = sanitizeForTerminal(`[LLM ${runPrefix()}] ${message}`);
+      const padding = statusLength > rendered.length ? ' '.repeat(statusLength - rendered.length) : '';
+      process.stdout.write(`\r${rendered}${padding}`);
+      statusLength = rendered.length;
     },
   };
 }
