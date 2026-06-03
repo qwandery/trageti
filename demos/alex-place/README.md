@@ -1,4 +1,4 @@
-# alex-place
+# Demo: Alex's Place
 
 _An aspiring chef's personal journal as a temporal RAG corpus._
 

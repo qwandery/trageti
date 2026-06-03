@@ -1,4 +1,4 @@
-# know-thyself
+# Demo: Trageti, Know Thyself
 
 _A repository-history demo that can explain how a codebase evolved._
 
