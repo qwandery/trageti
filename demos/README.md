@@ -34,28 +34,44 @@ From the repository root:
 npm install
 ```
 
-Run commands from the repository root with `npx tsx`:
+Run the shared demo CLI from the repository root:
 
 ```sh
-npx tsx demos/alex-place/index.ts
-npx tsx demos/know-thyself/index.ts
+npm run trageti-demo -- alex-place run
+npm run trageti-demo -- know-thyself run
 ```
+
+Each scenario has four phases:
+
+```sh
+npm run trageti-demo -- alex-place prepare
+npm run trageti-demo -- alex-place ingest
+npm run trageti-demo -- alex-place retrieve
+npm run trageti-demo -- alex-place run
+```
+
+`prepare` writes reviewable artifacts under
+`demos/.local/prepared/<scenario>/prepared.json`. `ingest` reads only that
+artifact and writes to `TemporalStore`. `retrieve` opens an already-ingested DB
+and runs retrieval examples without preparing or ingesting content. `run`
+performs all three phases in order.
 
 With a live embedding provider configured, either demo can replace the default
 query suite with one custom user query:
 
 ```sh
-npx tsx demos/alex-place/index.ts --query "From whom has Alex learned specific knife techniques?"
-npx tsx demos/know-thyself/index.ts --query "What changed about persistence?"
-npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456,789abcd
-npx tsx demos/know-thyself/index.ts --limit 60
+npm run trageti-demo -- alex-place run --query "From whom has Alex learned specific knife techniques?"
+npm run trageti-demo -- know-thyself run --query "What changed about persistence?"
+npm run trageti-demo -- know-thyself run --repo ../some-repo --keyframes abc123,def456,789abcd
+npm run trageti-demo -- know-thyself run --limit 60
 ```
 
 Custom-query mode runs ingestion, then prints one retrieval result and one
 assembled-context answer. It skips the built-in demo queries, follow-up API
 sections, and final narrative synthesis. Alex custom queries require a live
 embedding provider. Know Thyself supports fixture-mode custom queries for its
-default repo/keyframes because query vectors are derived at runtime.
+default repo/keyframes when the prepared artifact was created with the same
+custom query.
 
 ## Offline mode
 

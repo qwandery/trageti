@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { TemporalStore, type Assertion, type Episode } from 'trageti';
+import type { PreparedIngestionUnit } from './artifacts.js';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
 import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
@@ -168,12 +169,40 @@ export async function ingestEpisodes(options: {
   logger?: DemoRunLogger;
   trace?: LlmTraceOptions;
 }): Promise<void> {
+  const units = options.episodes.map((episode) => ({
+    id: episode.id,
+    episode,
+    document: episode.content,
+    citationSources: options.citationSources ? { ...options.citationSources } : {},
+  }));
+  await ingestPreparedUnits({
+    ...options,
+    units,
+  });
+}
+
+export async function ingestPreparedUnits(options: {
+  store: TemporalStore;
+  namespace: string;
+  units: readonly PreparedIngestionUnit[];
+  providers: ResolvedDemoProviders;
+  expectedFixtureAssertionIds?: readonly string[];
+  sanitizeExtractionResult?: (
+    result: ExtractionResult,
+    context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
+  ) => ExtractionResult;
+  logger?: DemoRunLogger;
+  trace?: LlmTraceOptions;
+  artifactPath?: string;
+}): Promise<void> {
   options.logger?.step('Ingesting episodes into TemporalStore');
+  if (options.artifactPath) options.logger?.detail(`Prepared artifact: ${options.artifactPath}`);
   options.logger?.detail(
-    'Each episode is converted into assertions and typed links, stored in SQLite, then assertion text is embedded for vector retrieval.',
+    'Prepared ingestion units are converted into assertions and typed links, stored in SQLite, then assertion text is embedded for vector retrieval.',
   );
   const accumulated: Assertion[] = [];
-  for (const episode of options.episodes) {
+  for (const unit of options.units) {
+    const episode = unit.episode;
     const existing = await options.store.getEpisode(episode.id);
     if (existing !== null) {
       validateExistingEpisode(existing, episode);
@@ -197,14 +226,19 @@ export async function ingestEpisodes(options: {
       }
       continue;
     }
+    traceLog(
+      options.trace,
+      `Prepared unit -> ${unit.id}: ${String(unit.document.length)} document char(s), ` +
+        `${String(Object.keys(unit.citationSources).length)} citation source(s), responseFormat=json`,
+    );
     const ingestOptions = {
       store: options.store,
       namespace: options.namespace,
       episode,
-      document: episode.content,
+      document: unit.document,
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
-      ...(options.citationSources !== undefined && { citationSources: options.citationSources }),
+      ...(Object.keys(unit.citationSources).length > 0 ? { citationSources: unit.citationSources } : {}),
       ...(options.sanitizeExtractionResult !== undefined && {
         sanitizeExtractionResult: (result: ExtractionResult) =>
           options.sanitizeExtractionResult?.(result, { episode, existingAssertions: accumulated }) ?? result,
@@ -336,17 +370,19 @@ async function reloadAccumulated(store: TemporalStore, namespace: string, target
 async function verifyComplete(options: {
   store: TemporalStore;
   namespace: string;
-  episodes: readonly Omit<Episode, 'createdAt'>[];
+  episodes?: readonly Omit<Episode, 'createdAt'>[];
+  units?: readonly PreparedIngestionUnit[];
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
   logger?: DemoRunLogger;
   trace?: LlmTraceOptions;
 }): Promise<void> {
   options.logger?.step('Verifying demo DB completeness');
+  const episodes = options.episodes ?? options.units?.map((unit) => unit.episode) ?? [];
   const assertions = await options.store.getAssertions(options.namespace, { includeSuperseded: true });
   const byEpisode = new Map<string, number>();
   for (const a of assertions) byEpisode.set(a.sourceEpisodeId, (byEpisode.get(a.sourceEpisodeId) ?? 0) + 1);
-  const missingEpisodes = options.episodes.filter((e) => (byEpisode.get(e.id) ?? 0) === 0);
+  const missingEpisodes = episodes.filter((e) => (byEpisode.get(e.id) ?? 0) === 0);
   if (missingEpisodes.length > 0) {
     throw new Error(
       `Demo database is partial: missing assertions for ${missingEpisodes.map((e) => e.id).join(', ')}.\n` +
@@ -393,7 +429,7 @@ async function verifyComplete(options: {
     options.logger?.detail('Fixture assertion IDs match committed fixture data');
   }
   options.logger?.detail(
-    `Verified ${String(options.episodes.length)} episode(s), ${String(assertions.length)} assertion(s), 0 pending embedding(s)`,
+    `Verified ${String(episodes.length)} episode(s), ${String(assertions.length)} assertion(s), 0 pending embedding(s)`,
   );
 }
 

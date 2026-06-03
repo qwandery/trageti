@@ -102,8 +102,7 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
       );
     },
     append(message) {
-      clearStatus();
-      process.stdout.write(sanitizeForTerminal(message));
+      process.stdout.write(sanitizeStreamText(message));
     },
     status(message) {
       const rendered = fitStatusLine(sanitizeForTerminal(`[LLM ${runPrefix()}] ${message}`));
@@ -124,6 +123,10 @@ function fitStatusLine(value: string): string {
   const columns = process.stdout.columns ?? 100;
   const max = Math.max(40, columns - 1);
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
+function sanitizeStreamText(value: string): string {
+  return sanitizeForTerminal(value).replace(/\r/g, '');
 }
 
 function runPrefix(): string {

@@ -280,6 +280,27 @@ describe('demo providers', () => {
     expect(requestBody).not.toHaveProperty('response_format');
   });
 
+  it('uses text response format per call when requested', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (typeof init?.body !== 'string') throw new Error('expected string request body');
+      requestBody = JSON.parse(init.body) as unknown;
+      return Promise.resolve(openAIStreamResponse(['plain text summary']));
+    }));
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      responseFormat: { type: 'json_object' },
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'text' })).resolves.toBe('plain text summary');
+
+    expect(requestBody).toMatchObject({ stream: true });
+    expect(requestBody).not.toHaveProperty('response_format');
+  });
+
   it('appends full-trace extraction stream text without per-token log entries', async () => {
     const messages: string[] = [];
     const appended: string[] = [];
@@ -550,6 +571,14 @@ describe('demo providers', () => {
     expect(prompt).toContain('sourceRef=source.md#2026-04-16');
     expect(prompt).toContain('excerptStart=0');
     expect(prompt).not.toContain('sourceRef=source.md; excerptStart=');
+  });
+
+  it('renders a valid JSON example rather than pseudo-schema placeholders', () => {
+    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', { src: 'source paragraph text' });
+
+    expect(prompt).toContain('"confidence": 0.82');
+    expect(prompt).not.toContain('<0..1>');
+    expect(prompt).not.toContain('null |');
   });
 });
 

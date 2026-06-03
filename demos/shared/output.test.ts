@@ -78,6 +78,20 @@ describe('demo timing prefixes', () => {
     }
   });
 
+  it('appends LLM stream text without carriage returns', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace=full'], {});
+      trace.append?.('first\rsecond\nthird');
+      expect(log).not.toHaveBeenCalled();
+      expect(write).toHaveBeenCalledWith('firstsecond\nthird');
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+  });
+
   it('accepts --llm-trace-full as an alias for full trace mode', () => {
     const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace-full'], {});
 

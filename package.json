@@ -38,6 +38,7 @@
     "test:integration": "vitest run test/integration --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --passWithNoTests",
+    "trageti-demo": "tsx demos/trageti-demo.ts",
     "lint": "eslint src test demos",
     "lint:fix": "eslint src test demos --fix",
     "format": "prettier --write .",

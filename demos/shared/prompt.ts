@@ -16,7 +16,10 @@ export function buildExtractionPrompt(
   const existing =
     existingAssertions.length === 0
       ? '(no prior assertions)'
-      : existingAssertions.map((a) => `- ${a.id}: ${a.content}`).join('\n');
+      : existingAssertions
+          .slice(-12)
+          .map((a) => `- ${a.id}: ${truncateOneLine(a.content, 200)}`)
+          .join('\n');
   const episodeContext = episode
     ? `Current episode:
 - id: ${episode.id}
@@ -39,7 +42,7 @@ example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
     ? `\nRegistered citation spans. Copy sourceRef, excerptStart, and excerptEnd exactly from one of these spans; do not calculate offsets yourself:\n${renderCitationSpans(citationSources)}\n\nRegistered citation source documents:\n${Object.entries(
         citationSources,
       )
-        .map(([sourceRef, text]) => `--- sourceRef: ${sourceRef} ---\n${text}`)
+        .map(([sourceRef, text]) => `--- sourceRef: ${sourceRef} ---\n${truncateSource(text)}`)
         .join('\n\n')}\n`
     : '';
   return `You are extracting structured temporal assertions from a document.
@@ -52,39 +55,39 @@ Document:
 ${document}
 ${sourceText}
 
-Output a single JSON object matching this schema:
+Output a single JSON object shaped like this example. Replace the example values with claims from the current document:
 {
   "assertions": [
     {
-      "id": "${idPattern}",
+      "id": "${idPattern.replace('<index>', '0')}",
       "namespace": "${namespaceValue}",
-      "type": "fact|update|recontextualization|resolution|regression|absence|pattern",
-      "content": "<self-contained claim>",
+      "type": "fact",
+      "content": "A self-contained claim grounded in the current document.",
       "validFrom": ${validFromValue},
-      "confidence": <0..1>,
+      "confidence": 0.82,
       "sourceEpisodeId": "${sourceEpisodeValue}",
-      "supersedesId": null | "<prior assertion id this replaces>",
-      "entityId": null | "<entity grouping id>",
-      "entityType": null | "<entity classification>",
+      "supersedesId": null,
+      "entityId": null,
+      "entityType": null,
       "citations": [
         {
-          "id": "${citationPattern}",
+          "id": "${citationPattern.replace('<index>', '0')}",
           "episodeId": "${sourceEpisodeValue}",
-          "sourceRef": "<stable locator>",
+          "sourceRef": "copy one listed sourceRef",
           "excerpt": null,
-          "excerptStart": "<zero-based start character offset in sourceRef>",
-          "excerptEnd": "<exclusive end character offset in sourceRef>"
+          "excerptStart": "copy listed excerptStart",
+          "excerptEnd": "copy listed excerptEnd"
         }
       ]
     }
   ],
   "links": [
     {
-      "id": "${linkPattern}",
+      "id": "${linkPattern.replace('<index>', '0')}",
       "namespace": "${namespaceValue}",
-      "fromId": "<assertion id>",
-      "toId": "<prior assertion id>",
-      "linkType": "deepens|qualifies|contradicts|contextualizes|measures|related",
+      "fromId": "${idPattern.replace('<index>', '0')}",
+      "toId": "a-prior-claim-id",
+      "linkType": "related",
       "validFrom": ${validFromValue},
       "validUntil": null,
       "sourceEpisodeId": "${sourceEpisodeValue}"
@@ -103,6 +106,8 @@ Citation rules:
 
 Rules:
 - New assertion IDs must not reuse any ID listed under Existing assertions.
+- Allowed assertion types: fact, update, recontextualization, resolution, regression, absence, pattern.
+- Allowed link types: deepens, qualifies, contradicts, contextualizes, measures, related.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.
 - Emit JSON only - no prose, no markdown fences.`;
@@ -157,4 +162,14 @@ function paragraphSpans(sourceRef: string, text: string): string[] {
     );
   }
   return spans;
+}
+
+function truncateSource(text: string): string {
+  const limit = 3000;
+  return text.length <= limit ? text : `${text.slice(0, limit)}\n... [truncated for prompt display]`;
+}
+
+function truncateOneLine(text: string, limit: number): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= limit ? oneLine : `${oneLine.slice(0, limit - 3)}...`;
 }

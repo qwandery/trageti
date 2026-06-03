@@ -18,7 +18,7 @@ export interface ExtractionProvider {
   name: string;
   label: string;
   provenance: ProviderProvenance;
-  extract(prompt: string, options?: { episodeId?: string }): Promise<string>;
+  extract(prompt: string, options?: { episodeId?: string; responseFormat?: 'json' | 'text' }): Promise<string>;
 }
 
 export interface DemoEmbeddingProvider {
@@ -218,7 +218,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
     name: 'openai-compatible',
     label,
     provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl, maxTokens }),
-    async extract(prompt) {
+    async extract(prompt, extractOptions) {
       return withProviderRetry(options.retry, `${label} extraction`, async () => {
         const url = `${trimSlash(options.baseUrl)}/chat/completions`;
         const started = performance.now();
@@ -228,7 +228,9 @@ export function createOpenAICompatibleExtractionProvider(options: {
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
           max_tokens: maxTokens,
-          ...openAICompatibleExtractionFormatBody(options.responseFormat),
+          ...openAICompatibleExtractionFormatBody(
+            extractOptions?.responseFormat === 'text' ? null : options.responseFormat,
+          ),
           stream: true,
         });
         traceProviderTiming(

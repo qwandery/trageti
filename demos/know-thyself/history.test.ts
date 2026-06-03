@@ -79,6 +79,33 @@ describe('deriveHistoryData', () => {
     expect(data.citationSources['sources/kf-1..kf-2.md']).toContain('## git diff --stat');
   });
 
+  it('summarizes selected repository content one file at a time', async () => {
+    const repo = createRepo();
+    const first = commit(repo, 'initial architecture', {
+      'README.md': '# Demo\n\nInitial architecture\n',
+      'src/store/TemporalStore.ts': 'export const store = true;\n',
+    });
+    const calls: string[] = [];
+
+    await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: [first],
+      summarizer: {
+        summarize(prompt) {
+          calls.push(prompt);
+          return Promise.resolve(`summary ${String(calls.length)}`);
+        },
+      },
+      tokenBudget: 2048,
+    });
+
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls.every((prompt) => prompt.includes('Write a focused source summary for one file'))).toBe(true);
+    expect(calls[0]).not.toContain('### README.md');
+    expect(calls.join('\n')).toContain('File: README.md');
+    expect(calls.join('\n')).toContain('File: src/store/TemporalStore.ts');
+  });
+
   it('creates deterministic fixtures with valid source-span citations', async () => {
     const repo = createRepo();
     const first = commit(repo, 'initial architecture', { 'README.md': '# Demo\n\nInitial architecture\n' });

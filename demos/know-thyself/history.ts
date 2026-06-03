@@ -216,7 +216,7 @@ export function createDeterministicSummarizer(): SourceSummarizer {
 export function createLiveSummarizer(extractor: ExtractionProvider): SourceSummarizer {
   return {
     summarize(prompt) {
-      return extractor.extract(prompt);
+      return extractor.extract(prompt, { responseFormat: 'text' });
     },
   };
 }
@@ -245,7 +245,10 @@ export function createCachedLiveSummarizer(options: {
           return cached.summary;
         }
       }
-      const summary = (await options.extractor.extract(prompt)).trim();
+      const summary = (await options.extractor.extract(prompt, {
+        responseFormat: 'text',
+        ...(context?.sourceRef ? { episodeId: context.sourceRef } : {}),
+      })).trim();
       if (context) context.cacheHit = false;
       writeFileSync(path, JSON.stringify({ summary }, null, 2));
       return summary;
@@ -594,20 +597,29 @@ async function buildInitialSource(
   const sourceRef = sourceRefFor(current);
   const message = git(repoPath, ['log', current.hash, '-1', '--format=%B']).trim();
   const files = initialFiles(repoPath, current).slice(0, 8);
-  const fileSections = files.map(
-    (path) =>
-      `### ${path}\n\n\`\`\`txt\n${fileAt(repoPath, current, path, tokenBudget / Math.max(1, files.length))}\n\`\`\``,
-  );
-  const prompt = [
-    `Write a detailed source summary for repository keyframe ${current.hash} (${current.label}).`,
-    'Focus on architecture, public concepts, behavior, and data integrity. Use only the supplied commit message and source excerpts.',
+  const fileSections: string[] = [];
+  const fileSummaries: string[] = [];
+  for (const path of files) {
+    const excerpt = fileAt(repoPath, current, path, tokenBudget / Math.max(1, files.length));
+    fileSections.push(`### ${path}\n\n\`\`\`txt\n${excerpt}\n\`\`\``);
+    const prompt = [
+      `Write a focused source summary for one file in repository keyframe ${current.hash} (${current.label}).`,
+      'Use only the supplied commit message and file excerpt. Focus on architecture, public concepts, behavior, and data integrity.',
+      '',
+      `Commit message: ${message}`,
+      `File: ${path}`,
+      '',
+      'File excerpt:',
+      `\`\`\`txt\n${excerpt}\n\`\`\``,
+    ].join('\n');
+    const fileContext: SourceSummaryContext = { ...context, sourceRef: `${context.sourceRef}#${path}` };
+    fileSummaries.push(`### ${path}\n\n${(await summarizer.summarize(prompt, fileContext)).trim()}`);
+  }
+  const summary = [
+    `Keyframe ${String(current.position)} records commit context: ${message}`,
     '',
-    `Commit message: ${message}`,
-    '',
-    'Source excerpts:',
-    fileSections.join('\n\n'),
+    ...fileSummaries,
   ].join('\n');
-  const summary = (await summarizer.summarize(prompt, context)).trim();
   return {
     sourceRef,
     summary,
@@ -648,7 +660,9 @@ async function buildPairSource(
   const nameStatus = git(repoPath, ['diff', '--name-status', previous.hash, current.hash]).trim();
   const numstat = git(repoPath, ['diff', '--numstat', previous.hash, current.hash]).trim();
   const files = selectedFiles(repoPath, previous, current);
-  const fileSections = files.map((file) => {
+  const fileSections: string[] = [];
+  const fileSummaries: string[] = [];
+  for (const file of files) {
     const diff = fileDiff(
       repoPath,
       previous,
@@ -656,23 +670,34 @@ async function buildPairSource(
       file.path,
       Math.max(800, tokenBudget / Math.max(1, files.length)),
     );
-    return `### ${file.path} (${file.status}, +${String(file.added)}/-${String(file.deleted)})\n\n\`\`\`diff\n${diff}\n\`\`\``;
-  });
-  const prompt = [
-    `Write a detailed source summary for the repository keyframe transition from ${previous.hash} (${previous.label}) to ${current.hash} (${current.label}).`,
-    'Focus on architectural, API, retrieval, validation, data-model, and operational changes. Use only the supplied git metadata and selected diffs.',
+    fileSections.push(
+      `### ${file.path} (${file.status}, +${String(file.added)}/-${String(file.deleted)})\n\n\`\`\`diff\n${diff}\n\`\`\``,
+    );
+    const prompt = [
+      `Write a focused source summary for one changed file in the repository transition from ${previous.hash} (${previous.label}) to ${current.hash} (${current.label}).`,
+      'Use only the supplied git metadata and this single file diff. Focus on architectural, API, retrieval, validation, data-model, and operational changes.',
+      '',
+      `Commit message: ${message}`,
+      `File: ${file.path}`,
+      `Status: ${file.status}, +${String(file.added)}/-${String(file.deleted)}`,
+      '',
+      'File diff:',
+      `\`\`\`diff\n${diff}\n\`\`\``,
+    ].join('\n');
+    const fileContext: SourceSummaryContext = { ...context, sourceRef: `${context.sourceRef}#${file.path}` };
+    fileSummaries.push(
+      `### ${file.path} (${file.status}, +${String(file.added)}/-${String(file.deleted)})\n\n${(
+        await summarizer.summarize(prompt, fileContext)
+      ).trim()}`,
+    );
+  }
+  const summary = [
+    `Keyframe transition records commit context: ${message}`,
     '',
-    `Commit message: ${message}`,
+    'Per-file summaries:',
     '',
-    `Diff stat:\n${stat}`,
-    '',
-    `Name status:\n${nameStatus}`,
-    '',
-    `Numstat:\n${numstat}`,
-    '',
-    `Selected diffs:\n${fileSections.join('\n\n')}`,
+    ...fileSummaries,
   ].join('\n');
-  const summary = (await summarizer.summarize(prompt, context)).trim();
   return {
     sourceRef,
     summary,

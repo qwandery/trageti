@@ -90,7 +90,7 @@ export async function warmupDemoProviders(options: {
     logger.detail('Extraction warmup skipped for fixture provider');
   } else {
     const started = performance.now();
-    await providers.extractor.extract('Warm up. Reply with: ok');
+    await providers.extractor.extract('Warm up. Reply with: ok', { responseFormat: 'text' });
     logger.success(`Extraction provider warmed (${(performance.now() - started).toFixed(1)} ms)`);
   }
 

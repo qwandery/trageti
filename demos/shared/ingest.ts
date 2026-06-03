@@ -30,8 +30,8 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
     options;
   const prompt =
     promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources);
-  const raw = await extractor.extract(prompt, { episodeId: episode.id });
-  const result = parseExtraction(raw);
+  const raw = await extractor.extract(prompt, { episodeId: episode.id, responseFormat: 'json' });
+  const result = parseExtractionForEpisode(raw, episode.id);
   const resolved = resolveCitationExcerpts(result, document, citationSources);
   const cited = options.sanitizeExtractionResult?.(resolved) ?? resolved;
   validateExtractionResult(cited, existingAssertions ?? []);
@@ -45,6 +45,20 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
     await store.writeLink(l);
   }
   return normalized;
+}
+
+function parseExtractionForEpisode(raw: string, episodeId: string): ExtractionResult {
+  try {
+    return parseExtraction(raw);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Extraction failed for episode "${episodeId}": provider returned text that does not match the required JSON extraction schema.\n` +
+        `${message}\n` +
+        'Use --llm-trace=full to inspect the streamed text, or switch to a model/provider that follows JSON object responses.',
+      { cause: err },
+    );
+  }
 }
 
 export function resolveCitationExcerpts(
