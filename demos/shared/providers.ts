@@ -209,6 +209,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
   model: string;
   maxTokens?: number;
   label?: string;
+  responseFormat?: { type: 'json_object' } | null;
   retry?: ProviderRetryOptions;
 }): ExtractionProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
@@ -227,6 +228,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
           max_tokens: maxTokens,
+          ...openAICompatibleExtractionFormatBody(options.responseFormat),
           stream: true,
         });
         traceProviderTiming(
@@ -657,10 +659,24 @@ function resolveExtractionProvider(
       model: env['DEMO_EXTRACT_MODEL'] ?? preset.defaultModel,
       maxTokens: extractMaxTokensFromEnv(env),
       label: preset.label,
+      responseFormat: openAICompatibleExtractionFormat(env),
       ...(retry ? { retry } : {}),
     });
   }
   throw new Error(`Unsupported DEMO_EXTRACT_PROVIDER "${provider}". Use fixture, anthropic, or openai-compatible.`);
+}
+
+function openAICompatibleExtractionFormat(env: NodeJS.ProcessEnv): { type: 'json_object' } | null {
+  const raw = env['DEMO_EXTRACT_RESPONSE_FORMAT']?.trim().toLowerCase();
+  if (raw === 'none' || raw === 'off' || raw === '0' || raw === 'false') return null;
+  return { type: 'json_object' };
+}
+
+function openAICompatibleExtractionFormatBody(
+  responseFormat: { type: 'json_object' } | null | undefined,
+): { response_format?: { type: 'json_object' } } {
+  if (responseFormat === null) return {};
+  return { response_format: responseFormat ?? { type: 'json_object' } };
 }
 
 function resolveEmbeddingProvider(

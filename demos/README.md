@@ -111,10 +111,12 @@ with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
 `DEMO_PROVIDER_MAX_DELAY_MS`.
 
 Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
-OpenAI-compatible extraction requests use streaming chat completions so local
-providers such as Ollama return headers promptly. Normal demo output prints a
-concise stream completion meter; `--llm-trace` additionally prints streamed text
-deltas for completion calls.
+OpenAI-compatible extraction requests use streaming chat completions and request
+JSON object responses so local providers such as Ollama return headers promptly
+and stay on the expected extraction schema. If a compatible server rejects JSON
+mode, set `DEMO_EXTRACT_RESPONSE_FORMAT=off`. Normal demo output prints a
+concise stream completion meter; `--llm-trace` shows in-place stream progress,
+and `--llm-trace=full` appends streamed completion text.
 
 Pass `--warmup` to either demo to send a tiny extraction request and a tiny
 embedding request before the main run. Fixture providers are skipped. This is

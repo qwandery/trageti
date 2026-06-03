@@ -8,6 +8,7 @@ import {
   createFixtureExtractionProvider,
   createOllamaNativeEmbeddingProvider,
   resolveDemoProviders,
+  resolveLiveExtractionProvider,
   resolveLiveEmbeddingProvider,
   type ExtractionProvider,
 } from './providers.js';
@@ -251,7 +252,32 @@ describe('demo providers', () => {
     expect(output).not.toContain('extraction stream delta');
     expect(output).not.toContain('SECRET PROMPT');
     expect(output).not.toContain('sk-test');
-    expect(requestBody).toMatchObject({ max_tokens: 321, stream: true });
+    expect(requestBody).toMatchObject({ max_tokens: 321, response_format: { type: 'json_object' }, stream: true });
+  });
+
+  it('can disable OpenAI-compatible extraction response_format for incompatible servers', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (typeof init?.body !== 'string') throw new Error('expected string request body');
+      requestBody = JSON.parse(init.body) as unknown;
+      return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+    }));
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-test',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_RESPONSE_FORMAT: 'off',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await provider.extract('prompt');
+
+    expect(requestBody).toMatchObject({ stream: true });
+    expect(requestBody).not.toHaveProperty('response_format');
   });
 
   it('appends full-trace extraction stream text without per-token log entries', async () => {

@@ -1,4 +1,5 @@
 import type { ExtractionResult } from './ingest.js';
+import { sanitizeForTerminal } from './sanitize.js';
 
 /**
  * Parse an LLM extraction response into ExtractionResult. Tolerates:
@@ -17,7 +18,7 @@ export function parseExtraction(raw: string): ExtractionResult {
   const start = stripped.indexOf('{');
   const end = stripped.lastIndexOf('}');
   if (start < 0 || end < 0 || end <= start) {
-    throw new Error(`parseExtraction: no JSON object in response: ${trimmed.slice(0, 200)}`);
+    throw new Error(`parseExtraction: no JSON object in response (${String(trimmed.length)} chars): ${preview(trimmed)}`);
   }
   const slice = stripped.slice(start, end + 1);
   let obj: unknown;
@@ -25,11 +26,15 @@ export function parseExtraction(raw: string): ExtractionResult {
     obj = JSON.parse(slice);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`parseExtraction: JSON.parse failed (${msg}): ${slice.slice(0, 200)}`);
+    throw new Error(`parseExtraction: JSON.parse failed (${msg}; ${String(slice.length)} chars): ${preview(slice)}`);
   }
   const o = obj as { assertions?: unknown; links?: unknown };
   return {
     assertions: Array.isArray(o.assertions) ? (o.assertions as ExtractionResult['assertions']) : [],
     links: Array.isArray(o.links) ? (o.links as ExtractionResult['links']) : [],
   };
+}
+
+function preview(value: string): string {
+  return sanitizeForTerminal(value).replace(/\s+/g, ' ').slice(0, 160);
 }
