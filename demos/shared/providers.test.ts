@@ -360,6 +360,56 @@ describe('demo providers', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('retries fetch transport timeouts and reports the transport code', async () => {
+    const messages: string[] = [];
+    const timeout = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' }),
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(messages.join('\n')).toContain('after transport UND_ERR_HEADERS_TIMEOUT');
+  });
+
+  it('sanitizes fetch transport timeout failures after retry exhaustion', async () => {
+    const timeout = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' }),
+    });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(timeout)));
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).rejects.toThrow(
+      'Provider transport failed (UND_ERR_HEADERS_TIMEOUT): Headers Timeout Error',
+    );
+  });
+
   it('does not retry non-retryable HTTP failures', async () => {
     vi.stubGlobal(
       'fetch',

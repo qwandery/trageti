@@ -64,6 +64,16 @@ class ProviderHttpError extends Error {
   }
 }
 
+class ProviderTransportError extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail: string,
+    cause: unknown,
+  ) {
+    super(`Provider transport failed (${code}): ${detail}`, { cause });
+  }
+}
+
 export interface ResolveDemoProvidersOptions {
   fixtures: Record<string, string>;
   assertionEmbeddings: Record<string, number[]>;
@@ -726,14 +736,26 @@ async function withProviderRetry<T>(
       );
       return await operation();
     } catch (err) {
-      if (!(err instanceof ProviderHttpError) || !shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) {
-        throw err;
+      const transportError = providerTransportError(err);
+      if (transportError) {
+        if (attempt >= retry.maxAttempts) throw transportError;
+        const delay = backoffDelayMs(attempt, retry);
+        retry.log?.(
+          `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after transport ${transportError.code}; waiting ${String(delay)} ms`,
+        );
+        await sleep(delay);
+        continue;
       }
-      const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
-      retry.log?.(
-        `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
-      );
-      await sleep(delay);
+      if (err instanceof ProviderHttpError) {
+        if (!shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) throw err;
+        const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
+        retry.log?.(
+          `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
+        );
+        await sleep(delay);
+        continue;
+      }
+      throw err;
     }
   }
   throw new Error(`Internal error: exhausted retry loop for ${label}`);
@@ -794,6 +816,28 @@ function backoffDelayMs(attempt: number, options: ProviderRetryOptions): number 
 
 function traceProviderTiming(retry: ProviderRetryOptions | undefined, message: string): void {
   if (retry?.traceTimings === true) retry.log?.(message);
+}
+
+function providerTransportError(err: unknown): ProviderTransportError | null {
+  if (!(err instanceof Error)) return null;
+  if (err.name !== 'TypeError' || !/fetch failed/i.test(err.message)) return null;
+  const cause = (err as { cause?: unknown }).cause;
+  const code = transportCauseCode(cause);
+  const detail = transportCauseDetail(cause);
+  return new ProviderTransportError(code, detail, err);
+}
+
+function transportCauseCode(cause: unknown): string {
+  if (cause && typeof cause === 'object' && 'code' in cause) {
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === 'string' && code.trim()) return code;
+  }
+  return 'FETCH_FAILED';
+}
+
+function transportCauseDetail(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim()) return cause.message;
+  return 'fetch failed before an HTTP response was available';
 }
 
 function positiveInt(value: string | undefined, fallback: number, label: string): number {
