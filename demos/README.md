@@ -110,6 +110,12 @@ with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Override retry behavior
 with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
 `DEMO_PROVIDER_MAX_DELAY_MS`.
 
+Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
+OpenAI-compatible extraction requests use streaming chat completions so local
+providers such as Ollama return headers promptly. Normal demo output prints a
+concise stream completion meter; `--llm-trace` additionally prints streamed text
+deltas for completion calls.
+
 ## OpenAI walkthrough
 
 Use OpenAI for both extraction and embeddings:

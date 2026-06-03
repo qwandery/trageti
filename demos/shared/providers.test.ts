@@ -83,6 +83,26 @@ describe('demo providers', () => {
     expect(providers.embedder.provenance.kind).toBe('ollama-native');
   });
 
+  it('includes extraction max-token configuration in live provider provenance', () => {
+    const providers = resolveDemoProviders({
+      fixtures: { ep: fixture },
+      assertionEmbeddings: { 'a-1': [0, 1] },
+      queryEmbeddings: { q: [1, 0] },
+      queryTexts: ['q'],
+      embeddingDimension: 2,
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'http://localhost:11434/v1',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_MAX_TOKENS: '333',
+        DEMO_EMBED_PROVIDER: 'ollama-native',
+        OLLAMA_HOST: 'http://localhost:11434',
+      },
+    });
+
+    expect(providers.extractor.provenance.maxTokens).toBe(333);
+  });
+
   it('passes embedding AbortSignal through to fetch', async () => {
     let captured: RequestInit | undefined;
     vi.stubGlobal(
@@ -164,20 +184,17 @@ describe('demo providers', () => {
 
   it('traces extraction HTTP timing without prompt or API key contents', async () => {
     const messages: string[] = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
-            status: 200,
-          }),
-        ),
-      ),
-    );
+    let requestBody: unknown;
+    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (typeof init?.body !== 'string') throw new Error('expected string request body');
+      requestBody = JSON.parse(init.body) as unknown;
+      return Promise.resolve(openAIStreamResponse(['{"assertions":', '[],"links":[]}']));
+    }));
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      maxTokens: 321,
       retry: {
         maxAttempts: 1,
         baseDelayMs: 1,
@@ -195,10 +212,36 @@ describe('demo providers', () => {
     expect(output).toContain('extraction request body serialized');
     expect(output).toContain('extraction fetch invoked -> https://example.invalid/v1/chat/completions');
     expect(output).toContain('extraction HTTP response <- 200');
-    expect(output).toContain('extraction JSON parsed');
-    expect(output).toContain('extraction content decoded');
+    expect(output).toContain('extraction stream chunk');
+    expect(output).toContain('extraction stream delta 1');
+    expect(output).toContain('extraction stream complete');
     expect(output).not.toContain('SECRET PROMPT');
     expect(output).not.toContain('sk-test');
+    expect(requestBody).toMatchObject({ max_tokens: 321, stream: true });
+  });
+
+  it('streams extraction in regular mode with concise completion metering', async () => {
+    const messages: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' world']))));
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toBe('hello world');
+
+    const output = messages.join('\n');
+    expect(output).toContain('extraction stream complete');
+    expect(output).toContain('2 text delta(s)');
+    expect(output).not.toContain('hello world');
   });
 
   it('traces Ollama native one-request-per-text embedding behavior', async () => {
@@ -237,11 +280,7 @@ describe('demo providers', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 429, statusText: 'Too Many Requests' }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
-          status: 200,
-        }),
-      );
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
     vi.stubGlobal('fetch', fetchMock);
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
@@ -271,6 +310,7 @@ describe('demo providers', () => {
         baseDelayMs: 1000,
         maxDelayMs: 1000,
         rateLimitMs: 0,
+        traceTimings: true,
         log: (message) => messages.push(message),
       },
     });
@@ -279,17 +319,14 @@ describe('demo providers', () => {
 
     expect(messages.join('\n')).toContain('HTTP 429');
     expect(messages.join('\n')).toContain('waiting 1 ms');
+    expect(messages.join('\n')).toContain('response body complete');
   });
 
   it('rate-limits the first attempt of consecutive live provider requests', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
     const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
-          status: 200,
-        }),
-      ),
+      Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}'])),
     );
     vi.stubGlobal('fetch', fetchMock);
     const provider = createOpenAICompatibleExtractionProvider({
@@ -315,16 +352,7 @@ describe('demo providers', () => {
     const messages: string[] = [];
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
-            status: 200,
-          }),
-        ),
-      ),
-    );
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']))));
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -368,11 +396,7 @@ describe('demo providers', () => {
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(timeout)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
-          status: 200,
-        }),
-      );
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
     vi.stubGlobal('fetch', fetchMock);
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
@@ -858,6 +882,24 @@ function providerReturning(raw: string): ExtractionProvider {
       return Promise.resolve(raw);
     },
   };
+}
+
+function openAIStreamResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`),
+          );
+        }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
 }
 
 function makeEpisode(): Omit<Episode, 'createdAt'> {

@@ -10,6 +10,7 @@ export interface ProviderProvenance {
   model?: string;
   baseUrl?: string;
   dimension?: number;
+  maxTokens?: number;
   configHash: string;
 }
 
@@ -53,6 +54,8 @@ export interface ProviderRetryOptions {
   traceTimings?: boolean;
   log?(message: string): void;
 }
+
+const DEFAULT_EXTRACT_MAX_TOKENS = 1200;
 
 class ProviderHttpError extends Error {
   constructor(
@@ -141,12 +144,13 @@ export function createAnthropicExtractionProvider(
   apiKey: string,
   model = 'claude-sonnet-4-20250514',
   retry?: ProviderRetryOptions,
+  maxTokens = DEFAULT_EXTRACT_MAX_TOKENS,
 ): ExtractionProvider {
   const label = `anthropic:${model}`;
   return {
     name: 'anthropic',
     label,
-    provenance: provenance({ kind: 'anthropic', model }),
+    provenance: provenance({ kind: 'anthropic', model, maxTokens }),
     async extract(prompt) {
       return withProviderRetry(retry, `${label} extraction`, async () => {
         const url = 'https://api.anthropic.com/v1/messages';
@@ -154,7 +158,7 @@ export function createAnthropicExtractionProvider(
         traceProviderTiming(retry, `${label} extraction preparing HTTP POST -> ${url}`);
         const body = JSON.stringify({
           model,
-          max_tokens: 4096,
+          max_tokens: maxTokens,
           messages: [{ role: 'user', content: prompt }],
         });
         traceProviderTiming(
@@ -180,7 +184,7 @@ export function createAnthropicExtractionProvider(
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        const data = await readJsonResponse(response, 'Anthropic extraction');
+        const data = await readJsonResponse(response, 'Anthropic extraction', retry);
         const parsedAt = performance.now();
         traceProviderTiming(retry, `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
         const text = dataValue(data, ['content', 0, 'text']);
@@ -196,14 +200,16 @@ export function createOpenAICompatibleExtractionProvider(options: {
   baseUrl: string;
   apiKey: string;
   model: string;
+  maxTokens?: number;
   label?: string;
   retry?: ProviderRetryOptions;
 }): ExtractionProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
+  const maxTokens = options.maxTokens ?? DEFAULT_EXTRACT_MAX_TOKENS;
   return {
     name: 'openai-compatible',
     label,
-    provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl }),
+    provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl, maxTokens }),
     async extract(prompt) {
       return withProviderRetry(options.retry, `${label} extraction`, async () => {
         const url = `${trimSlash(options.baseUrl)}/chat/completions`;
@@ -213,6 +219,8 @@ export function createOpenAICompatibleExtractionProvider(options: {
           model: options.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
+          max_tokens: maxTokens,
+          stream: true,
         });
         traceProviderTiming(
           options.retry,
@@ -236,17 +244,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} extraction`);
-        const parsedAt = performance.now();
-        traceProviderTiming(
-          options.retry,
-          `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`,
-        );
-        const content = dataValue(data, ['choices', 0, 'message', 'content']);
-        if (typeof content !== 'string')
-          throw new Error('OpenAI-compatible extraction response missing choices[0].message.content');
-        traceProviderTiming(options.retry, `${label} extraction content decoded: ${String(content.length)} character(s)`);
-        return content;
+        return await readOpenAIChatCompletionStream(response, label, options.retry, receivedAt);
       });
     },
   };
@@ -302,7 +300,7 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`);
+        const data = await readJsonResponse(response, `${options.label ?? 'OpenAI-compatible'} embedding`, options.retry);
         const parsedAt = performance.now();
         traceProviderTiming(options.retry, `${label} embedding JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
         const rows = dataValue(data, ['data']);
@@ -389,7 +387,7 @@ export function createOllamaNativeEmbeddingProvider(options: {
                 texts.length,
               )} <- ${String(response.status)} ${response.statusText} (${(receivedAt - started).toFixed(1)} ms)`,
             );
-            const data = await readJsonResponse(response, 'Ollama native embedding');
+            const data = await readJsonResponse(response, 'Ollama native embedding', options.retry);
             const parsedAt = performance.now();
             traceProviderTiming(
               options.retry,
@@ -582,7 +580,12 @@ function resolveExtractionProvider(
       env['DEMO_EXTRACT_API_KEY'] ?? env['ANTHROPIC_API_KEY'],
       'DEMO_EXTRACT_API_KEY or ANTHROPIC_API_KEY',
     );
-    return createAnthropicExtractionProvider(apiKey, env['DEMO_EXTRACT_MODEL'] ?? 'claude-sonnet-4-20250514', retry);
+    return createAnthropicExtractionProvider(
+      apiKey,
+      env['DEMO_EXTRACT_MODEL'] ?? 'claude-sonnet-4-20250514',
+      retry,
+      extractMaxTokensFromEnv(env),
+    );
   }
   if (provider === 'openai-compatible') {
     const preset = openAICompatPreset(env, 'extract');
@@ -590,6 +593,7 @@ function resolveExtractionProvider(
       baseUrl: preset.baseUrl,
       apiKey: preset.apiKey,
       model: env['DEMO_EXTRACT_MODEL'] ?? preset.defaultModel,
+      maxTokens: extractMaxTokensFromEnv(env),
       label: preset.label,
       ...(retry ? { retry } : {}),
     });
@@ -682,8 +686,12 @@ function openAICompatPreset(
   );
 }
 
-async function readJsonResponse(response: Response, label: string): Promise<unknown> {
-  const text = await response.text();
+async function readJsonResponse(
+  response: Response,
+  label: string,
+  retry?: ProviderRetryOptions,
+): Promise<unknown> {
+  const text = await readResponseText(response, label, retry);
   if (!response.ok) {
     throw new ProviderHttpError(
       `${label} failed HTTP ${String(response.status)} ${response.statusText}`,
@@ -697,6 +705,140 @@ async function readJsonResponse(response: Response, label: string): Promise<unkn
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`${label} returned non-JSON response (${msg})`);
   }
+}
+
+async function readOpenAIChatCompletionStream(
+  response: Response,
+  label: string,
+  retry: ProviderRetryOptions | undefined,
+  receivedAt: number,
+): Promise<string> {
+  if (!response.ok) {
+    await readResponseText(response, `${label} extraction stream error`, retry);
+    throw new ProviderHttpError(
+      `${label} extraction failed HTTP ${String(response.status)} ${response.statusText}`,
+      response.status,
+      retryAfterMs(response.headers.get('retry-after')),
+    );
+  }
+  if (!response.body) throw new Error(`${label} extraction streaming response missing body`);
+
+  const decoder = new TextDecoder();
+  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
+  let buffer = '';
+  let content = '';
+  let totalBytes = 0;
+  let chunks = 0;
+  let deltas = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks += 1;
+    totalBytes += value.byteLength;
+    traceProviderTiming(
+      retry,
+      `${label} extraction stream chunk ${String(chunks)}: ${String(value.byteLength)} byte(s), total ${String(
+        totalBytes,
+      )}`,
+    );
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = consumeSseBuffer(buffer, (data) => {
+      if (data === '[DONE]') return;
+      const delta = openAIStreamDelta(data);
+      if (delta === null || delta.length === 0) return;
+      deltas += 1;
+      content += delta;
+      traceProviderTiming(retry, `${label} extraction stream delta ${String(deltas)}:\n${delta}`);
+    });
+    buffer = parsed.remaining;
+  }
+  buffer += decoder.decode();
+  consumeSseBuffer(buffer, (data) => {
+    if (data === '[DONE]') return;
+    const delta = openAIStreamDelta(data);
+    if (delta === null || delta.length === 0) return;
+    deltas += 1;
+    content += delta;
+    traceProviderTiming(retry, `${label} extraction stream delta ${String(deltas)}:\n${delta}`);
+  });
+
+  traceProviderTiming(
+    retry,
+    `${label} extraction stream complete: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s), ` +
+      `${String(deltas)} text delta(s), ${String(content.length)} character(s) (${(
+        performance.now() - receivedAt
+      ).toFixed(1)} ms)`,
+  );
+  if (retry?.traceTimings !== true) {
+    retry?.log?.(
+      `${label} extraction stream complete: ${String(chunks)} chunk(s), ${String(deltas)} text delta(s), ` +
+        `${String(content.length)} character(s)`,
+    );
+  }
+  if (content.length === 0) throw new Error(`${label} extraction streaming response produced no content`);
+  return content;
+}
+
+function consumeSseBuffer(buffer: string, onData: (data: string) => void): { remaining: string } {
+  const normalized = buffer.replace(/\r\n/g, '\n');
+  const parts = normalized.split('\n\n');
+  const remaining = parts.pop() ?? '';
+  for (const part of parts) {
+    const data = part
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trimStart())
+      .join('\n')
+      .trim();
+    if (data) onData(data);
+  }
+  return { remaining };
+}
+
+function openAIStreamDelta(data: string): string | null {
+  try {
+    const parsed = JSON.parse(data) as unknown;
+    const delta = dataValue(parsed, ['choices', 0, 'delta', 'content']);
+    if (typeof delta === 'string') return delta;
+    const content = dataValue(parsed, ['choices', 0, 'message', 'content']);
+    return typeof content === 'string' ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readResponseText(
+  response: Response,
+  label: string,
+  retry?: ProviderRetryOptions,
+): Promise<string> {
+  if (retry?.traceTimings !== true || !response.body) return await response.text();
+
+  const decoder = new TextDecoder();
+  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
+  let text = '';
+  let totalBytes = 0;
+  let chunks = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks += 1;
+    totalBytes += value.byteLength;
+    traceProviderTiming(
+      retry,
+      `${label} response body chunk ${String(chunks)}: ${String(value.byteLength)} byte(s), total ${String(
+        totalBytes,
+      )}`,
+    );
+    text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode();
+  traceProviderTiming(
+    retry,
+    `${label} response body complete: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s)`,
+  );
+  return text;
 }
 
 function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): ProviderRetryOptions {
@@ -845,6 +987,10 @@ function positiveInt(value: string | undefined, fallback: number, label: string)
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer`);
   return parsed;
+}
+
+function extractMaxTokensFromEnv(env: NodeJS.ProcessEnv): number {
+  return positiveInt(env['DEMO_EXTRACT_MAX_TOKENS'], DEFAULT_EXTRACT_MAX_TOKENS, 'DEMO_EXTRACT_MAX_TOKENS');
 }
 
 function nonNegativeMs(rateLimitSeconds: string | undefined): number {
