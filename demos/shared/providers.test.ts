@@ -212,12 +212,40 @@ describe('demo providers', () => {
     expect(output).toContain('extraction request body serialized');
     expect(output).toContain('extraction fetch invoked -> https://example.invalid/v1/chat/completions');
     expect(output).toContain('extraction HTTP response <- 200');
-    expect(output).toContain('extraction stream chunk');
-    expect(output).toContain('extraction stream delta 1');
+    expect(output).toContain('extraction stream progress');
     expect(output).toContain('extraction stream complete');
+    expect(output).not.toContain('extraction stream delta');
     expect(output).not.toContain('SECRET PROMPT');
     expect(output).not.toContain('sk-test');
     expect(requestBody).toMatchObject({ max_tokens: 321, stream: true });
+  });
+
+  it('appends full-trace extraction stream text without per-token log entries', async () => {
+    const messages: string[] = [];
+    const appended: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse(['hello', ' ', 'world']))));
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        traceTimings: true,
+        tracePayloads: true,
+        log: (message) => messages.push(message),
+        append: (message) => appended.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toBe('hello world');
+
+    const output = messages.join('\n');
+    expect(output).toContain('extraction stream text follows');
+    expect(output).not.toContain('extraction stream delta');
+    expect(appended.join('')).toBe('hello world\n');
   });
 
   it('streams extraction in regular mode with concise completion metering', async () => {

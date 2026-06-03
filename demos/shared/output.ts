@@ -86,6 +86,9 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
           .join('\n'),
       );
     },
+    append(message) {
+      process.stdout.write(sanitizeForTerminal(message));
+    },
   };
 }
 

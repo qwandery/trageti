@@ -63,4 +63,18 @@ describe('demo timing prefixes', () => {
     expect(printed).toMatch(/\[LLM \[\d{2}:\d{2}:\d{2} \+\d{2}:\d{2}\.\d\]\]/);
     expect(printed).toContain('request started');
   });
+
+  it('appends sanitized LLM stream text without adding trace headers', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace=full'], {});
+      trace.append?.('hello\u001B[31m world');
+      expect(log).not.toHaveBeenCalled();
+      expect(write).toHaveBeenCalledWith('hello world');
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+  });
 });

@@ -44,6 +44,7 @@ export interface LlmTraceOptions {
   includePayloads: boolean;
   includeRawVectors: boolean;
   log(message: string): void;
+  append?(message: string): void;
 }
 
 export interface ProviderRetryOptions {
@@ -52,10 +53,14 @@ export interface ProviderRetryOptions {
   maxDelayMs: number;
   rateLimitMs: number;
   traceTimings?: boolean;
+  tracePayloads?: boolean;
   log?(message: string): void;
+  append?(message: string): void;
 }
 
 const DEFAULT_EXTRACT_MAX_TOKENS = 1200;
+const STREAM_PROGRESS_CHUNK_INTERVAL = 50;
+const STREAM_PROGRESS_MIN_INTERVAL_MS = 1000;
 
 class ProviderHttpError extends Error {
   constructor(
@@ -730,38 +735,60 @@ async function readOpenAIChatCompletionStream(
   let totalBytes = 0;
   let chunks = 0;
   let deltas = 0;
+  let lastProgressAt = receivedAt;
+  let textStreamStarted = false;
+
+  const traceProgress = (): void => {
+    if (retry?.traceTimings !== true) return;
+    const now = performance.now();
+    if (chunks !== 1 && chunks % STREAM_PROGRESS_CHUNK_INTERVAL !== 0 && now - lastProgressAt < STREAM_PROGRESS_MIN_INTERVAL_MS) {
+      return;
+    }
+    lastProgressAt = now;
+    traceProviderTiming(
+      retry,
+      `${label} extraction stream progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s), ` +
+        `${String(deltas)} text delta(s), ${String(content.length)} character(s) so far (${(now - receivedAt).toFixed(
+          1,
+        )} ms)`,
+    );
+  };
+
+  const appendDelta = (delta: string): void => {
+    deltas += 1;
+    content += delta;
+    if (retry?.tracePayloads === true && retry.append) {
+      if (!textStreamStarted) {
+        textStreamStarted = true;
+        traceProviderTiming(retry, `${label} extraction stream text follows:`);
+      }
+      retry.append(delta);
+    }
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     chunks += 1;
     totalBytes += value.byteLength;
-    traceProviderTiming(
-      retry,
-      `${label} extraction stream chunk ${String(chunks)}: ${String(value.byteLength)} byte(s), total ${String(
-        totalBytes,
-      )}`,
-    );
     buffer += decoder.decode(value, { stream: true });
     const parsed = consumeSseBuffer(buffer, (data) => {
       if (data === '[DONE]') return;
       const delta = openAIStreamDelta(data);
       if (delta === null || delta.length === 0) return;
-      deltas += 1;
-      content += delta;
-      traceProviderTiming(retry, `${label} extraction stream delta ${String(deltas)}:\n${delta}`);
+      appendDelta(delta);
     });
     buffer = parsed.remaining;
+    traceProgress();
   }
   buffer += decoder.decode();
   consumeSseBuffer(buffer, (data) => {
     if (data === '[DONE]') return;
     const delta = openAIStreamDelta(data);
     if (delta === null || delta.length === 0) return;
-    deltas += 1;
-    content += delta;
-    traceProviderTiming(retry, `${label} extraction stream delta ${String(deltas)}:\n${delta}`);
+    appendDelta(delta);
   });
+  if (textStreamStarted) retry?.append?.('\n');
 
   traceProviderTiming(
     retry,
@@ -820,18 +847,25 @@ async function readResponseText(
   let text = '';
   let totalBytes = 0;
   let chunks = 0;
+  let lastProgressAt = performance.now();
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     chunks += 1;
     totalBytes += value.byteLength;
-    traceProviderTiming(
-      retry,
-      `${label} response body chunk ${String(chunks)}: ${String(value.byteLength)} byte(s), total ${String(
-        totalBytes,
-      )}`,
-    );
     text += decoder.decode(value, { stream: true });
+    const now = performance.now();
+    if (
+      chunks === 1 ||
+      chunks % STREAM_PROGRESS_CHUNK_INTERVAL === 0 ||
+      now - lastProgressAt >= STREAM_PROGRESS_MIN_INTERVAL_MS
+    ) {
+      lastProgressAt = now;
+      traceProviderTiming(
+        retry,
+        `${label} response body progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s) so far`,
+      );
+    }
   }
   text += decoder.decode();
   traceProviderTiming(
@@ -842,12 +876,13 @@ async function readResponseText(
 }
 
 function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): ProviderRetryOptions {
-  return {
+  const options: ProviderRetryOptions = {
     maxAttempts: positiveInt(env['DEMO_PROVIDER_MAX_ATTEMPTS'], 6, 'DEMO_PROVIDER_MAX_ATTEMPTS'),
     baseDelayMs: positiveInt(env['DEMO_PROVIDER_BASE_DELAY_MS'], 1000, 'DEMO_PROVIDER_BASE_DELAY_MS'),
     maxDelayMs: positiveInt(env['DEMO_PROVIDER_MAX_DELAY_MS'], 30000, 'DEMO_PROVIDER_MAX_DELAY_MS'),
     rateLimitMs: nonNegativeMs(env['DEMO_RATE_LIMIT']),
     traceTimings: trace?.enabled === true,
+    tracePayloads: trace?.includePayloads === true,
     log:
       trace?.enabled === true
         ? (message: string) => {
@@ -859,6 +894,12 @@ function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): P
             console.log(`  ${message}`);
           },
   };
+  if (trace?.append) {
+    options.append = (message: string) => {
+      trace.append?.(message);
+    };
+  }
+  return options;
 }
 
 async function withProviderRetry<T>(
