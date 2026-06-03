@@ -2,12 +2,12 @@
 // in fixture mode by default; set explicit demo provider env vars for live mode.
 
 import 'dotenv/config';
-import { TemporalStore, type RetrievedAssertion } from 'trageti';
+import type { RetrievedAssertion } from 'trageti';
 import {
   createDemoTimeline,
   createDemoLogger,
   printBanner,
-  printProviderSummary,
+  printResolvedProviderSummary,
   printQueryPlan,
   printRetrievalResult,
   printSnapshot,
@@ -26,15 +26,15 @@ import {
 } from '../shared/cli.js';
 import {
   demoDataVersion,
-  ensureDemoMetadata,
   expectedFixtureAssertionIds,
   ingestEpisodes,
+  prepareDemoStore,
   runtimeDbPath,
 } from '../shared/runtime.js';
 import { NAMESPACE, episodes } from './data/episodes.js';
 import { fixtures } from './data/fixtures.js';
 import { citationSources } from './data/sources.js';
-import { EMBEDDING_DIMENSION, QUERY_TEXTS, assertionEmbeddings, queryEmbeddings } from './data/embeddings.js';
+import { QUERY_TEXTS, assertionEmbeddings, queryEmbeddings } from './data/embeddings.js';
 import { retrieveQueries, literatureSemanticQuery, dadSemanticQuery } from './queries.js';
 import { generateNarrative } from './narrative.js';
 
@@ -46,7 +46,6 @@ async function main(): Promise<void> {
     assertionEmbeddings,
     queryEmbeddings,
     queryTexts: QUERY_TEXTS,
-    embeddingDimension: EMBEDDING_DIMENSION,
     env: envWithDemoRateLimit(process.env, cli.rateLimitSeconds),
     trace,
   });
@@ -56,32 +55,21 @@ async function main(): Promise<void> {
 
   const database = runtimeDbPath('alex-place');
   const logger = createDemoLogger();
-  printProviderSummary({
-    modeLabel: providers.modeLabel,
+  printResolvedProviderSummary({
+    providers,
     namespace: NAMESPACE,
     database,
-    extractionLabel: providers.extractor.label,
-    embeddingLabel: providers.embedder.label,
-    embeddingDimension: EMBEDDING_DIMENSION,
     rateLimitSeconds: cli.rateLimitSeconds,
   });
   if (cli.warmup) await warmupDemoProviders({ providers, logger });
-  ensureDemoMetadata({
+  const store = await prepareDemoStore({
     database,
     demoName: 'alex-place',
     dataVersion: demoDataVersion('alex-place', episodes, fixtures, assertionEmbeddings, queryEmbeddings, QUERY_TEXTS),
+    namespace: NAMESPACE,
     providers,
     logger,
   });
-
-  logger.step('Opening TemporalStore');
-  const store = await TemporalStore.create({
-    database,
-    namespace: NAMESPACE,
-    embeddingDimension: EMBEDDING_DIMENSION,
-    embeddingProvider: providers.embedder.provider,
-  });
-  logger.success('TemporalStore is ready');
 
   const ingestOptions = {
     store,

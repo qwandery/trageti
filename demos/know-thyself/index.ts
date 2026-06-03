@@ -3,12 +3,12 @@
 // set explicit demo provider env vars for live mode.
 
 import 'dotenv/config';
-import { TemporalStore, type Assertion } from 'trageti';
+import type { Assertion } from 'trageti';
 import {
   createDemoTimeline,
   createDemoLogger,
   printBanner,
-  printProviderSummary,
+  printResolvedProviderSummary,
   printQueryPlan,
   printRetrievalResult,
   printSnapshot,
@@ -16,17 +16,11 @@ import {
   printAssembledAnswer,
   createLlmTraceOptions,
 } from '../shared/output.js';
-import {
-  resolveLiveEmbeddingProvider,
-  resolveLiveExtractionProvider,
-  type ResolvedDemoProviders,
-} from '../shared/providers.js';
 import { generateAssembledAnswer } from '../shared/synthesis.js';
-import { buildCustomRetrievalQuery, envWithDemoRateLimit, warmupDemoProviders } from '../shared/cli.js';
+import { buildCustomRetrievalQuery, warmupDemoProviders } from '../shared/cli.js';
 import type { ExtractionResult } from '../shared/ingest.js';
-import { ensureDemoMetadata, expectedFixtureAssertionIds, ingestEpisodes } from '../shared/runtime.js';
+import { expectedFixtureAssertionIds, ingestEpisodes, prepareDemoStore } from '../shared/runtime.js';
 import {
-  EMBEDDING_DIMENSION,
   NAMESPACE,
   createDeterministicFixtures,
   createDeterministicSummarizer,
@@ -36,8 +30,8 @@ import {
   defaultQueryTexts,
   deriveHistoryData,
   type HistoryProgress,
-  isDefaultFixtureEligible,
   parseKnowThyselfCliOptions,
+  resolveProvidersAndDataMode,
   resolveRepoPath,
   runHash,
   runtimeDatabasePath,
@@ -50,7 +44,7 @@ async function main(): Promise<void> {
   const cli = parseKnowThyselfCliOptions();
   const trace = createLlmTraceOptions();
   const queryTexts = cli.query ? [...defaultQueryTexts(), cli.query] : [...defaultQueryTexts()];
-  const providers = resolveProvidersAndDataMode(cli, queryTexts, trace);
+  const providers = resolveProvidersAndDataMode(cli, trace);
   const initialLogger = createDemoLogger();
   printBanner(`know-thyself - mode: ${providers.modeLabel}`);
   if (cli.warmup) await warmupDemoProviders({ providers, logger: initialLogger });
@@ -98,18 +92,15 @@ async function main(): Promise<void> {
   });
   const database = runtimeDatabasePath(hash);
   const logger = initialLogger;
-  printProviderSummary({
-    modeLabel: resolvedProviders.modeLabel,
+  printResolvedProviderSummary({
+    providers: resolvedProviders,
     namespace: NAMESPACE,
     database,
-    extractionLabel: resolvedProviders.extractor.label,
-    embeddingLabel: resolvedProviders.embedder.label,
-    embeddingDimension: EMBEDDING_DIMENSION,
     rateLimitSeconds: cli.rateLimitSeconds,
   });
   logger.detail(`Repository: ${data.repoPath}`);
   logger.detail(`Keyframes: ${data.keyframes.map((k) => k.hash.slice(0, 12)).join(', ')}`);
-  ensureDemoMetadata({
+  const store = await prepareDemoStore({
     database,
     demoName: 'know-thyself',
     dataVersion: dataVersion({
@@ -119,18 +110,10 @@ async function main(): Promise<void> {
       citationSources: data.citationSources,
       queryTexts,
     }),
+    namespace: NAMESPACE,
     providers: resolvedProviders,
     logger,
   });
-
-  logger.step('Opening TemporalStore');
-  const store = await TemporalStore.create({
-    database,
-    namespace: NAMESPACE,
-    embeddingDimension: EMBEDDING_DIMENSION,
-    embeddingProvider: resolvedProviders.embedder.provider,
-  });
-  logger.success('TemporalStore is ready');
 
   const ingestOptions = {
     store,
@@ -211,73 +194,6 @@ main().then(
   },
 );
 
-function resolveProvidersAndDataMode(
-  cli: ReturnType<typeof parseKnowThyselfCliOptions>,
-  queryTexts: readonly string[],
-  trace: ReturnType<typeof createLlmTraceOptions>,
-): ResolvedDemoProviders {
-  const env = envWithDemoRateLimit(process.env, cli.rateLimitSeconds);
-  if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
-    return {
-      modeLabel: 'fixture / derived raw-vector',
-      isLive: false,
-      // Temporary placeholder; replaced after deterministic fixture generation.
-      extractor: {
-        name: 'fixture',
-        label: 'fixture',
-        provenance: { kind: 'fixture', model: 'derived-fixtures', configHash: 'derived-fixtures' },
-        extract() {
-          return Promise.reject(new Error('fixture provider is initialized after data derivation'));
-        },
-      },
-      embedder: {
-        name: 'fixture',
-        label: 'fixture / derived hash-vector',
-        provenance: {
-          kind: 'fixture',
-          model: 'derived-hash-vectors',
-          dimension: EMBEDDING_DIMENSION,
-          configHash: 'derived-hash-vectors',
-        },
-        provider: {
-          name: 'fixture',
-          dimension: EMBEDDING_DIMENSION,
-          embed() {
-            return Promise.reject(new Error('fixture embedder is initialized after data derivation'));
-          },
-        },
-      },
-      provenance: {
-        extraction: { kind: 'fixture', model: 'derived-fixtures', configHash: 'derived-fixtures' },
-        embedding: {
-          kind: 'fixture',
-          model: 'derived-hash-vectors',
-          dimension: EMBEDDING_DIMENSION,
-          configHash: 'derived-hash-vectors',
-        },
-      },
-    };
-  }
-
-  if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
-    throw new Error(
-      'Custom --repo and --keyframes runs require live extraction and live embedding providers.\n' +
-        'Set DEMO_EXTRACT_PROVIDER and DEMO_EMBED_PROVIDER with their required model/base URL/key settings.',
-    );
-  }
-
-  const extractor = resolveLiveExtractionProvider({ env, trace });
-  const embedder = resolveLiveEmbeddingProvider({ embeddingDimension: EMBEDDING_DIMENSION, env, trace });
-  void queryTexts;
-  return {
-    modeLabel: `live (${extractor.label} + ${embedder.label})`,
-    isLive: true,
-    extractor,
-    embedder,
-    provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
-  };
-}
-
 function progressLogger(logger: ReturnType<typeof createDemoLogger>): HistoryProgress {
   return {
     start(event) {
@@ -292,20 +208,4 @@ function progressLogger(logger: ReturnType<typeof createDemoLogger>): HistoryPro
       logger.detail(`  ${event.cached ? 'Reused cached summary for' : 'Completed source bundle'} ${event.sourceRef}`);
     },
   };
-}
-
-function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
-  const explicitExtract = env['DEMO_EXTRACT_PROVIDER']?.trim();
-  const explicitEmbed = env['DEMO_EMBED_PROVIDER']?.trim();
-  if (explicitExtract === 'fixture' && explicitEmbed === 'fixture') return false;
-  if (explicitExtract && explicitExtract !== 'fixture') return true;
-  if (explicitEmbed && explicitEmbed !== 'fixture') return true;
-  return Boolean(
-    env['ANTHROPIC_API_KEY'] ??
-    env['OPENAI_API_KEY'] ??
-    env['OPENROUTER_API_KEY'] ??
-    env['OLLAMA_HOST'] ??
-    env['DEMO_EXTRACT_BASE_URL'] ??
-    env['DEMO_EMBED_BASE_URL'],
-  );
 }

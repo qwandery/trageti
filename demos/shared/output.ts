@@ -11,7 +11,7 @@ import type {
   Episode,
 } from 'trageti';
 import type { DemoRunLogger } from './runtime.js';
-import type { LlmTraceOptions } from './providers.js';
+import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
 import type { SynthesisResult } from './synthesis.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
@@ -145,6 +145,25 @@ export function printProviderSummary(options: {
   }
   console.log(
     '  LLM trace: --llm-trace or DEMO_LLM_TRACE=summary shows call timing; DEMO_LLM_TRACE=full shows prompts and responses',
+  );
+}
+
+export function printResolvedProviderSummary(options: {
+  providers: ResolvedDemoProviders;
+  namespace: string;
+  database: string;
+  rateLimitSeconds?: number | null;
+}): void {
+  const summary = {
+    modeLabel: options.providers.modeLabel,
+    namespace: options.namespace,
+    database: options.database,
+    extractionLabel: options.providers.extractor.label,
+    embeddingLabel: options.providers.embedder.label,
+    embeddingDimension: options.providers.embedder.provider.dimension,
+  };
+  printProviderSummary(
+    options.rateLimitSeconds === undefined ? summary : { ...summary, rateLimitSeconds: options.rateLimitSeconds },
   );
 }
 

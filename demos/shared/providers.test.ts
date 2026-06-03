@@ -8,6 +8,7 @@ import {
   createFixtureExtractionProvider,
   createOllamaNativeEmbeddingProvider,
   resolveDemoProviders,
+  resolveLiveEmbeddingProvider,
   type ExtractionProvider,
 } from './providers.js';
 
@@ -81,6 +82,39 @@ describe('demo providers', () => {
     });
     expect(providers.extractor.provenance.kind).toBe('anthropic');
     expect(providers.embedder.provenance.kind).toBe('ollama-native');
+  });
+
+  it('infers demo embedding dimension from vectors and lets env override live providers', () => {
+    const providers = resolveDemoProviders({
+      fixtures: { ep: fixture },
+      assertionEmbeddings: { 'a-1': [0, 1, 2] },
+      queryEmbeddings: { q: [1, 0, 1] },
+      queryTexts: ['q'],
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'fixture',
+        DEMO_EMBED_PROVIDER: 'openai-compatible',
+        DEMO_EMBED_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EMBED_MODEL: 'embed-model',
+        DEMO_EMBED_API_KEY: 'sk-test',
+        DEMO_EMBED_DIMENSION: '1024',
+      },
+    });
+
+    expect(providers.embedder.provider.dimension).toBe(1024);
+    expect(providers.provenance.embedding.dimension).toBe(1024);
+  });
+
+  it('does not guess a live embedding dimension without fixtures or env config', () => {
+    expect(() =>
+      resolveLiveEmbeddingProvider({
+        env: {
+          DEMO_EMBED_PROVIDER: 'openai-compatible',
+          DEMO_EMBED_BASE_URL: 'https://example.invalid/v1',
+          DEMO_EMBED_MODEL: 'embed-model',
+          DEMO_EMBED_API_KEY: 'sk-test',
+        },
+      }),
+    ).toThrow('DEMO_EMBED_DIMENSION');
   });
 
   it('includes extraction max-token configuration in live provider provenance', () => {

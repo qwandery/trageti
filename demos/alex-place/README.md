@@ -50,7 +50,7 @@ configuration. Extraction and embedding are separate capabilities:
 | `DEMO_EMBED_PROVIDER`                           | `fixture`, `openai-compatible`, or `ollama-native`      |
 | `DEMO_EXTRACT_BASE_URL` / `DEMO_EMBED_BASE_URL` | Provider base URLs                                      |
 | `DEMO_EXTRACT_MODEL` / `DEMO_EMBED_MODEL`       | Provider-specific model names                           |
-| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; defaults to `768`                  |
+| `DEMO_EMBED_DIMENSION`                          | Embedding dimension; inferred from fixture vectors unless overridden |
 | `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5` |
 
 Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,

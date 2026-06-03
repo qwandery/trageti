@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import type { Assertion, Episode, TemporalStore } from 'trageti';
+import { TemporalStore, type Assertion, type Episode } from 'trageti';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
 import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
@@ -125,6 +125,33 @@ export function ensureDemoMetadata(options: {
   } finally {
     db.close();
   }
+}
+
+export async function prepareDemoStore(options: {
+  database: string;
+  demoName: string;
+  dataVersion: string;
+  namespace: string;
+  providers: ResolvedDemoProviders;
+  logger?: DemoRunLogger;
+}): Promise<TemporalStore> {
+  const metadataOptions = {
+    database: options.database,
+    demoName: options.demoName,
+    dataVersion: options.dataVersion,
+    providers: options.providers,
+  };
+  ensureDemoMetadata(options.logger ? { ...metadataOptions, logger: options.logger } : metadataOptions);
+
+  options.logger?.step('Opening TemporalStore');
+  const store = await TemporalStore.create({
+    database: options.database,
+    namespace: options.namespace,
+    embeddingDimension: options.providers.embedder.provider.dimension,
+    embeddingProvider: options.providers.embedder.provider,
+  });
+  options.logger?.success('TemporalStore is ready');
+  return store;
 }
 
 export async function ingestEpisodes(options: {

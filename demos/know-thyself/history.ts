@@ -8,13 +8,19 @@ import { parseExtraction } from '../shared/parse.js';
 import type {
   DemoEmbeddingProvider,
   ExtractionProvider,
+  LlmTraceOptions,
   ProviderProvenance,
   ResolvedDemoProviders,
 } from '../shared/providers.js';
-import { createFixtureExtractionProvider } from '../shared/providers.js';
+import {
+  createFixtureExtractionProvider,
+  inferEmbeddingDimensionFromVectors,
+  resolveLiveEmbeddingProvider,
+  resolveLiveExtractionProvider,
+} from '../shared/providers.js';
 import type { ExtractionResult } from '../shared/ingest.js';
 import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js';
-import { isWarmupArg } from '../shared/cli.js';
+import { envWithDemoRateLimit, isWarmupArg } from '../shared/cli.js';
 import { defaultKeyframes } from './data/keyframes.js';
 
 export const NAMESPACE = 'repository-history';
@@ -362,7 +368,8 @@ export function createFixtureProviders(options: {
   queryTexts: readonly string[];
 }): ResolvedDemoProviders {
   const extractor = createFixtureExtractionProvider(options.fixtures);
-  const raw = new RawVectorProvider(EMBEDDING_DIMENSION);
+  const dimension = inferEmbeddingDimensionFromVectors(options);
+  const raw = new RawVectorProvider(dimension);
   for (const rawFixture of Object.values(options.fixtures)) {
     for (const assertion of parseExtraction(rawFixture).assertions) {
       const vector = options.assertionEmbeddings[assertion.id];
@@ -378,7 +385,7 @@ export function createFixtureProviders(options: {
   const embedder: DemoEmbeddingProvider = {
     name: raw.name,
     label: 'fixture / derived hash-vector',
-    provenance: provenance({ kind: 'fixture', model: 'derived-hash-vectors', dimension: EMBEDDING_DIMENSION }),
+    provenance: provenance({ kind: 'fixture', model: 'derived-hash-vectors', dimension }),
     provider: raw,
   };
   return {
@@ -388,6 +395,84 @@ export function createFixtureProviders(options: {
     embedder,
     provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
   };
+}
+
+export function resolveProvidersAndDataMode(
+  cli: KnowThyselfCliOptions,
+  trace: LlmTraceOptions,
+): ResolvedDemoProviders {
+  const env = envWithDemoRateLimit(process.env, cli.rateLimitSeconds);
+  if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
+    return createPendingFixtureProviders();
+  }
+
+  if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
+    throw new Error(
+      'Custom --repo and --keyframes runs require live extraction and live embedding providers.\n' +
+        'Set DEMO_EXTRACT_PROVIDER and DEMO_EMBED_PROVIDER with their required model/base URL/key settings.',
+    );
+  }
+
+  const extractor = resolveLiveExtractionProvider({ env, trace });
+  const embedder = resolveLiveEmbeddingProvider({ env, trace });
+  return {
+    modeLabel: `live (${extractor.label} + ${embedder.label})`,
+    isLive: true,
+    extractor,
+    embedder,
+    provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
+  };
+}
+
+function createPendingFixtureProviders(): ResolvedDemoProviders {
+  const extractor: ExtractionProvider = {
+    name: 'fixture',
+    label: 'fixture',
+    provenance: { kind: 'fixture', model: 'derived-fixtures', configHash: 'derived-fixtures' },
+    extract() {
+      return Promise.reject(new Error('fixture provider is initialized after data derivation'));
+    },
+  };
+  const embedder: DemoEmbeddingProvider = {
+    name: 'fixture',
+    label: 'fixture / derived hash-vector',
+    provenance: {
+      kind: 'fixture',
+      model: 'derived-hash-vectors',
+      dimension: EMBEDDING_DIMENSION,
+      configHash: 'derived-hash-vectors',
+    },
+    provider: {
+      name: 'fixture',
+      dimension: EMBEDDING_DIMENSION,
+      embed() {
+        return Promise.reject(new Error('fixture embedder is initialized after data derivation'));
+      },
+    },
+  };
+  return {
+    modeLabel: 'fixture / derived raw-vector',
+    isLive: false,
+    extractor,
+    embedder,
+    provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
+  };
+}
+
+function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
+  const explicitExtract = env['DEMO_EXTRACT_PROVIDER']?.trim();
+  const explicitEmbed = env['DEMO_EMBED_PROVIDER']?.trim();
+  if (explicitExtract === 'fixture' && explicitEmbed === 'fixture') return false;
+  if (explicitExtract && explicitExtract !== 'fixture') return true;
+  if (explicitEmbed && explicitEmbed !== 'fixture') return true;
+  return Boolean(
+    env['ANTHROPIC_API_KEY'] ??
+      env['OPENAI_API_KEY'] ??
+      env['OPENROUTER_API_KEY'] ??
+      env['OLLAMA_HOST'] ??
+      env['DEMO_EXTRACT_BASE_URL'] ??
+      env['DEMO_EMBED_BASE_URL'],
+  );
 }
 
 export function defaultQueryTexts(): readonly string[] {

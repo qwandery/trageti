@@ -87,13 +87,13 @@ export interface ResolveDemoProvidersOptions {
   assertionEmbeddings: Record<string, number[]>;
   queryEmbeddings: Record<string, number[]>;
   queryTexts: readonly string[];
-  embeddingDimension: number;
+  embeddingDimension?: number;
   env?: NodeJS.ProcessEnv;
   trace?: LlmTraceOptions;
 }
 
 export interface ResolveLiveProvidersOptions {
-  embeddingDimension: number;
+  embeddingDimension?: number;
   env?: NodeJS.ProcessEnv;
   trace?: LlmTraceOptions;
 }
@@ -446,6 +446,7 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
 
   const extractProvider = explicitExtract ?? inferExtractionProvider(env, hasAnyLiveHint);
   const embedProvider = explicitEmbed ?? inferEmbeddingProvider(env, hasAnyLiveHint);
+  const embeddingDimension = resolveDemoEmbeddingDimension(options);
 
   if (extractProvider !== 'fixture' && embedProvider === 'fixture') {
     throw new Error(
@@ -466,9 +467,9 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
           assertionEmbeddings: options.assertionEmbeddings,
           queryEmbeddings: options.queryEmbeddings,
           queryTexts: options.queryTexts,
-          dimension: options.embeddingDimension,
+          dimension: embeddingDimension,
         })
-      : resolveEmbeddingProvider(embedProvider, env, options.embeddingDimension, retry);
+      : resolveEmbeddingProvider(embedProvider, env, embeddingDimension, retry);
   if (options.trace?.enabled) {
     extractor = traceExtractionProvider(extractor, options.trace);
     embedder = traceEmbeddingProvider(embedder, options.trace);
@@ -500,13 +501,50 @@ export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOption
   const env = options.env ?? process.env;
   const provider = env['DEMO_EMBED_PROVIDER'] ?? inferEmbeddingProvider(env, true);
   if (provider === 'fixture') throw new Error('A live embedding provider is required; set DEMO_EMBED_PROVIDER.');
+  const embeddingDimension = options.embeddingDimension ?? embeddingDimensionFromEnv(env);
+  if (embeddingDimension === null || embeddingDimension === undefined) {
+    throw new Error('Live embedding provider resolution requires DEMO_EMBED_DIMENSION.');
+  }
   const embedder = resolveEmbeddingProvider(
     provider,
     env,
-    options.embeddingDimension,
+    embeddingDimension,
     retryOptionsFromEnv(env, options.trace),
   );
   return options.trace?.enabled ? traceEmbeddingProvider(embedder, options.trace) : embedder;
+}
+
+export function inferEmbeddingDimensionFromVectors(options: {
+  assertionEmbeddings: Record<string, number[]>;
+  queryEmbeddings: Record<string, number[]>;
+  queryTexts?: readonly string[];
+}): number {
+  const vectors = [
+    ...Object.entries(options.assertionEmbeddings).map(([id, vector]) => ({ id, vector })),
+    ...Object.entries(options.queryEmbeddings).map(([id, vector]) => ({ id, vector })),
+  ];
+  const first = vectors[0];
+  if (!first) {
+    throw new Error('Unable to infer embedding dimension: no fixture embedding vectors are available.');
+  }
+  const dimension = first.vector.length;
+  if (!Number.isInteger(dimension) || dimension <= 0) {
+    throw new Error(`Embedding vector "${first.id}" has invalid dimension ${String(dimension)}.`);
+  }
+  for (const { id, vector } of vectors) {
+    if (vector.length !== dimension) {
+      throw new Error(
+        `Embedding vector "${id}" has dimension ${String(vector.length)}; expected ${String(dimension)}.`,
+      );
+    }
+  }
+  if (options.queryTexts) {
+    for (const text of options.queryTexts) {
+      const vector = options.queryEmbeddings[text];
+      if (!vector) throw new Error(`missing query embedding: ${text}`);
+    }
+  }
+  return dimension;
 }
 
 export function traceExtractionProvider(provider: ExtractionProvider, trace: LlmTraceOptions): ExtractionProvider {
@@ -574,6 +612,23 @@ function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean)
   return 'fixture';
 }
 
+function resolveDemoEmbeddingDimension(options: ResolveDemoProvidersOptions): number {
+  const fromEnv = embeddingDimensionFromEnv(options.env ?? process.env);
+  const dimension = fromEnv ?? options.embeddingDimension ?? inferEmbeddingDimensionFromVectors(options);
+  if (!Number.isInteger(dimension) || dimension <= 0) {
+    throw new Error(`Embedding dimension must be a positive integer, got ${String(dimension)}.`);
+  }
+  return dimension;
+}
+
+function embeddingDimensionFromEnv(env: NodeJS.ProcessEnv): number | null {
+  const envDim = env['DEMO_EMBED_DIMENSION'];
+  if (!envDim) return null;
+  const dimension = Number(envDim);
+  if (!Number.isFinite(dimension)) throw new Error(`DEMO_EMBED_DIMENSION must be numeric, got ${envDim}`);
+  return dimension;
+}
+
 function resolveExtractionProvider(
   provider: string,
   env: NodeJS.ProcessEnv,
@@ -612,10 +667,7 @@ function resolveEmbeddingProvider(
   dimension: number,
   retry?: ProviderRetryOptions,
 ): DemoEmbeddingProvider {
-  const envDim = env['DEMO_EMBED_DIMENSION'];
-  const resolvedDimension = envDim ? Number(envDim) : dimension;
-  if (!Number.isFinite(resolvedDimension))
-    throw new Error(`DEMO_EMBED_DIMENSION must be numeric, got ${String(envDim)}`);
+  const resolvedDimension = embeddingDimensionFromEnv(env) ?? dimension;
   if (provider === 'openai-compatible') {
     const preset = openAICompatPreset(env, 'embed');
     return createOpenAICompatibleEmbeddingProvider({
