@@ -152,7 +152,9 @@ describe('demo providers', () => {
     await embedder.provider.embed(['hello']);
 
     const output = messages.join('\n');
-    expect(output).toContain('embedding HTTP request -> https://example.invalid/v1/embeddings');
+    expect(output).toContain('embedding preparing HTTP POST -> https://example.invalid/v1/embeddings');
+    expect(output).toContain('embedding request body serialized');
+    expect(output).toContain('embedding fetch invoked -> https://example.invalid/v1/embeddings');
     expect(output).toContain('embedding HTTP response <- 200');
     expect(output).toContain('embedding JSON parsed');
     expect(output).toContain('embedding vectors decoded: 1 vector(s), 2 dimension(s)');
@@ -189,7 +191,9 @@ describe('demo providers', () => {
     await provider.extract('SECRET PROMPT');
 
     const output = messages.join('\n');
-    expect(output).toContain('extraction HTTP request -> https://example.invalid/v1/chat/completions');
+    expect(output).toContain('extraction preparing HTTP POST -> https://example.invalid/v1/chat/completions');
+    expect(output).toContain('extraction request body serialized');
+    expect(output).toContain('extraction fetch invoked -> https://example.invalid/v1/chat/completions');
     expect(output).toContain('extraction HTTP response <- 200');
     expect(output).toContain('extraction JSON parsed');
     expect(output).toContain('extraction content decoded');
@@ -221,8 +225,11 @@ describe('demo providers', () => {
 
     const output = messages.join('\n');
     expect(output).toContain('will call /api/embeddings once per text (2 request(s))');
-    expect(output).toContain('embedding HTTP request 1/2 -> http://127.0.0.1:11434/api/embeddings');
-    expect(output).toContain('embedding HTTP request 2/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding preparing HTTP POST 1/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding request body serialized 1/2');
+    expect(output).toContain('embedding fetch invoked 1/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding preparing HTTP POST 2/2 -> http://127.0.0.1:11434/api/embeddings');
+    expect(output).toContain('embedding fetch invoked 2/2 -> http://127.0.0.1:11434/api/embeddings');
     expect(output).toContain('embedding vector decoded 2/2: 2 dimension(s)');
   });
 

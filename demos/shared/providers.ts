@@ -141,7 +141,19 @@ export function createAnthropicExtractionProvider(
       return withProviderRetry(retry, `${label} extraction`, async () => {
         const url = 'https://api.anthropic.com/v1/messages';
         const started = performance.now();
-        traceProviderTiming(retry, `${label} extraction HTTP request -> ${url}`);
+        traceProviderTiming(retry, `${label} extraction preparing HTTP POST -> ${url}`);
+        const body = JSON.stringify({
+          model,
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        traceProviderTiming(
+          retry,
+          `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
+            performance.now() - started
+          ).toFixed(1)} ms)`,
+        );
+        traceProviderTiming(retry, `${label} extraction fetch invoked -> ${url}`);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -149,11 +161,7 @@ export function createAnthropicExtractionProvider(
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
           },
-          body: JSON.stringify({
-            model,
-            max_tokens: 4096,
-            messages: [{ role: 'user', content: prompt }],
-          }),
+          body,
         });
         const receivedAt = performance.now();
         traceProviderTiming(
@@ -190,18 +198,26 @@ export function createOpenAICompatibleExtractionProvider(options: {
       return withProviderRetry(options.retry, `${label} extraction`, async () => {
         const url = `${trimSlash(options.baseUrl)}/chat/completions`;
         const started = performance.now();
-        traceProviderTiming(options.retry, `${label} extraction HTTP request -> ${url}`);
+        traceProviderTiming(options.retry, `${label} extraction preparing HTTP POST -> ${url}`);
+        const body = JSON.stringify({
+          model: options.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.2,
+        });
+        traceProviderTiming(
+          options.retry,
+          `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
+            performance.now() - started
+          ).toFixed(1)} ms)`,
+        );
+        traceProviderTiming(options.retry, `${label} extraction fetch invoked -> ${url}`);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${options.apiKey}`,
           },
-          body: JSON.stringify({
-            model: options.model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.2,
-          }),
+          body,
         });
         const receivedAt = performance.now();
         traceProviderTiming(
@@ -244,22 +260,30 @@ export function createOpenAICompatibleEmbeddingProvider(options: {
         const started = performance.now();
         traceProviderTiming(
           options.retry,
-          `${label} embedding HTTP request -> ${url} (${String(texts.length)} text(s), requested dimension ${String(
+          `${label} embedding preparing HTTP POST -> ${url} (${String(texts.length)} text(s), requested dimension ${String(
             options.dimension,
           )})`,
         );
-        const response = await fetch(`${trimSlash(options.baseUrl)}/embeddings`, {
+        const body = JSON.stringify({
+          model: options.model,
+          input: texts,
+          dimensions: options.dimension,
+        });
+        traceProviderTiming(
+          options.retry,
+          `${label} embedding request body serialized: ${String(body.length)} byte(s) (${(
+            performance.now() - started
+          ).toFixed(1)} ms)`,
+        );
+        traceProviderTiming(options.retry, `${label} embedding fetch invoked -> ${url}`);
+        const response = await fetch(url, {
           method: 'POST',
           ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${options.apiKey}`,
           },
-          body: JSON.stringify({
-            model: options.model,
-            input: texts,
-            dimensions: options.dimension,
-          }),
+          body,
         });
         const receivedAt = performance.now();
         traceProviderTiming(
@@ -325,7 +349,20 @@ export function createOllamaNativeEmbeddingProvider(options: {
             const started = performance.now();
             traceProviderTiming(
               options.retry,
-              `ollama-native:${options.model} embedding HTTP request ${String(index + 1)}/${String(
+              `ollama-native:${options.model} embedding preparing HTTP POST ${String(index + 1)}/${String(
+                texts.length,
+              )} -> ${url}`,
+            );
+            const body = JSON.stringify({ model: options.model, prompt: text });
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding request body serialized ${String(index + 1)}/${String(
+                texts.length,
+              )}: ${String(body.length)} byte(s) (${(performance.now() - started).toFixed(1)} ms)`,
+            );
+            traceProviderTiming(
+              options.retry,
+              `ollama-native:${options.model} embedding fetch invoked ${String(index + 1)}/${String(
                 texts.length,
               )} -> ${url}`,
             );
@@ -333,7 +370,7 @@ export function createOllamaNativeEmbeddingProvider(options: {
               method: 'POST',
               ...(embedOptions?.signal ? { signal: embedOptions.signal } : {}),
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: options.model, prompt: text }),
+              body,
             });
             const receivedAt = performance.now();
             traceProviderTiming(
