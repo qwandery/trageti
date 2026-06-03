@@ -1,6 +1,7 @@
 // Terminal output for the demo runners. Keep flow logging and query rendering
 // here so both demos explain trageti behavior consistently.
 
+import { clearLine, cursorTo } from 'node:readline';
 import type {
   Assertion,
   AssertionLink,
@@ -68,14 +69,21 @@ export function createDemoLogger(): DemoRunLogger {
 }
 
 export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEnv = process.env): LlmTraceOptions {
-  const arg = argv.find((value) => value === '--llm-trace' || value.startsWith('--llm-trace='));
-  const raw = arg?.includes('=') ? arg.split('=')[1] : arg ? 'summary' : env['DEMO_LLM_TRACE'];
+  const arg = argv.find(
+    (value) => value === '--llm-trace' || value === '--llm-trace-full' || value.startsWith('--llm-trace='),
+  );
+  const raw = arg === '--llm-trace-full' ? 'full' : arg?.includes('=') ? arg.split('=')[1] : arg ? 'summary' : env['DEMO_LLM_TRACE'];
   const normalized = raw?.toLowerCase();
   const rawVectors = env['DEMO_LLM_TRACE_RAW_VECTORS']?.toLowerCase();
   let statusLength = 0;
   const clearStatus = (): void => {
     if (statusLength === 0) return;
-    process.stdout.write(`\r${' '.repeat(statusLength)}\r`);
+    if (process.stdout.isTTY) {
+      cursorTo(process.stdout, 0);
+      clearLine(process.stdout, 0);
+    } else {
+      process.stdout.write(`\r${' '.repeat(statusLength)}\r`);
+    }
     statusLength = 0;
   };
   return {
@@ -98,12 +106,24 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
       process.stdout.write(sanitizeForTerminal(message));
     },
     status(message) {
-      const rendered = sanitizeForTerminal(`[LLM ${runPrefix()}] ${message}`);
+      const rendered = fitStatusLine(sanitizeForTerminal(`[LLM ${runPrefix()}] ${message}`));
       const padding = statusLength > rendered.length ? ' '.repeat(statusLength - rendered.length) : '';
-      process.stdout.write(`\r${rendered}${padding}`);
+      if (process.stdout.isTTY) {
+        cursorTo(process.stdout, 0);
+        clearLine(process.stdout, 0);
+        process.stdout.write(rendered);
+      } else {
+        process.stdout.write(`\r${rendered}${padding}`);
+      }
       statusLength = rendered.length;
     },
   };
+}
+
+function fitStatusLine(value: string): string {
+  const columns = process.stdout.columns ?? 100;
+  const max = Math.max(40, columns - 1);
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
 function runPrefix(): string {

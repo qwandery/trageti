@@ -818,10 +818,8 @@ async function readOpenAIChatCompletionStream(
     lastProgressAt = now;
     traceProviderStatus(
       retry,
-      `${label} extraction stream progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s), ` +
-        `${String(deltas)} text delta(s), ${String(content.length)} character(s) so far (${(now - receivedAt).toFixed(
-          1,
-        )} ms)`,
+      `${label} extraction stream: ${String(chunks)} chunks, ${formatBytes(totalBytes)}, ` +
+        `${String(deltas)} deltas, ${String(content.length)} chars, ${(now - receivedAt).toFixed(0)} ms`,
     );
   };
 
@@ -934,7 +932,7 @@ async function readResponseText(
       lastProgressAt = now;
       traceProviderStatus(
         retry,
-        `${label} response body progress: ${String(chunks)} chunk(s), ${String(totalBytes)} byte(s) so far`,
+        `${label} response body: ${String(chunks)} chunks, ${formatBytes(totalBytes)}`,
       );
     }
   }
@@ -1082,6 +1080,12 @@ function traceProviderStatus(retry: ProviderRetryOptions | undefined, message: s
     if (retry.status) retry.status(message);
     else retry.log?.(message);
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function providerTransportError(err: unknown): ProviderTransportError | null {

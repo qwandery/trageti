@@ -78,21 +78,32 @@ describe('demo timing prefixes', () => {
     }
   });
 
+  it('accepts --llm-trace-full as an alias for full trace mode', () => {
+    const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace-full'], {});
+
+    expect(trace.enabled).toBe(true);
+    expect(trace.includePayloads).toBe(true);
+  });
+
   it('updates LLM status in place and clears it before normal trace logs', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const originalColumns = process.stdout.columns;
     try {
+      Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 60 });
       const trace = createLlmTraceOptions(['node', 'demo', '--llm-trace'], {});
-      trace.status?.('stream progress: 1 chunk');
-      trace.status?.('stream progress: 2 chunks');
+      trace.status?.('stream progress: 1 chunk with a long status that should be trimmed before wrapping');
+      trace.status?.('stream progress: 2 chunks with a long status that should be trimmed before wrapping');
       trace.log('complete');
 
       const writes = write.mock.calls.map((call) => String(call[0]));
       expect(writes.filter((value) => value.startsWith('\r[LLM '))).toHaveLength(2);
+      expect(writes.filter((value) => value.startsWith('\r[LLM ')).every((value) => value.length <= 61)).toBe(true);
       expect(writes.some((value) => /^\r +\r$/.test(value))).toBe(true);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('[LLM '));
       expect(log).toHaveBeenCalledWith(expect.stringContaining('complete'));
     } finally {
+      Object.defineProperty(process.stdout, 'columns', { configurable: true, value: originalColumns });
       log.mockRestore();
       write.mockRestore();
     }

@@ -247,7 +247,7 @@ describe('demo providers', () => {
     expect(output).toContain('extraction request body serialized');
     expect(output).toContain('extraction fetch invoked -> https://example.invalid/v1/chat/completions');
     expect(output).toContain('extraction HTTP response <- 200');
-    expect(output).toContain('extraction stream progress');
+    expect(output).toContain('extraction stream:');
     expect(output).toContain('extraction stream complete');
     expect(output).not.toContain('extraction stream delta');
     expect(output).not.toContain('SECRET PROMPT');
