@@ -16,6 +16,7 @@ import type { SynthesisResult } from './synthesis.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
 const RULE = '-'.repeat(72);
+const OUTPUT_STARTED_AT = performance.now();
 
 interface RelevanceDisplayOptions {
   minResults: number;
@@ -55,13 +56,13 @@ export function createDemoLogger(): DemoRunLogger {
     step(message) {
       stepNumber += 1;
       console.log('');
-      console.log(`[${String(stepNumber)}] ${message}`);
+      console.log(`${runPrefix()} [${String(stepNumber)}] ${message}`);
     },
     detail(message) {
-      console.log(`    ${message}`);
+      console.log(`    ${runPrefix()} ${message}`);
     },
     success(message) {
-      console.log(`    OK ${message}`);
+      console.log(`    ${runPrefix()} OK ${message}`);
     },
   };
 }
@@ -77,7 +78,7 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
     includeRawVectors: rawVectors === '1' || rawVectors === 'true' || rawVectors === 'full',
     log(message) {
       console.log('');
-      console.log('[LLM]');
+      console.log(`[LLM ${runPrefix()}]`);
       console.log(
         message
           .split('\n')
@@ -86,6 +87,33 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
       );
     },
   };
+}
+
+function runPrefix(): string {
+  return `[${formatWallTime(new Date())} +${formatElapsed(performance.now() - OUTPUT_STARTED_AT)}]`;
+}
+
+function formatWallTime(value: Date): string {
+  const hours = value.getHours().toString().padStart(2, '0');
+  const minutes = value.getMinutes().toString().padStart(2, '0');
+  const seconds = value.getSeconds().toString().padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+function formatElapsed(ms: number): string {
+  const totalTenths = Math.max(0, Math.floor(ms / 100));
+  const tenths = totalTenths % 10;
+  const totalSeconds = Math.floor(totalTenths / 10);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const hours = Math.floor(totalMinutes / 60);
+  if (hours > 0) {
+    return `${String(hours)}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${String(
+      tenths,
+    )}`;
+  }
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${String(tenths)}`;
 }
 
 export function printProviderSummary(options: {
