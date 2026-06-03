@@ -6,6 +6,7 @@ import { TemporalStore, type Assertion, type Episode } from 'trageti';
 import type { PreparedIngestionUnit } from './artifacts.js';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
+import { buildExtractionPrompt } from './prompt.js';
 import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
@@ -231,6 +232,22 @@ export async function ingestPreparedUnits(options: {
       `Prepared unit -> ${unit.id}: ${String(unit.document.length)} document char(s), ` +
         `${String(Object.keys(unit.citationSources).length)} citation source(s), responseFormat=json`,
     );
+    const sourceRefs = Object.keys(unit.citationSources);
+    const promptSize = buildExtractionPrompt(
+      unit.document,
+      accumulated,
+      episode,
+      options.namespace,
+      sourceRefs.length > 0 ? unit.citationSources : undefined,
+    ).length;
+    options.logger?.detail(
+      `  Extracting ${unit.id}: ${episode.type} position ${String(episode.position)} via ${
+        options.providers.extractor.label
+      } (json, prompt ~${String(promptSize)} chars)`,
+    );
+    options.logger?.detail(`    Document: "${truncate(sanitizeForTerminal(unit.document), 120)}"`);
+    options.logger?.detail(`    Source refs: ${sourceRefs.length > 0 ? sourceRefs.join(', ') : 'episode document'}`);
+    const extractionStarted = performance.now();
     const ingestOptions = {
       store: options.store,
       namespace: options.namespace,
@@ -244,7 +261,23 @@ export async function ingestPreparedUnits(options: {
           options.sanitizeExtractionResult?.(result, { episode, existingAssertions: accumulated }) ?? result,
       }),
     };
-    const result = await ingest(ingestOptions);
+    let result: ExtractionResult;
+    try {
+      result = await ingest(ingestOptions);
+    } catch (err) {
+      throw extractionFailureError(err, {
+        unit,
+        episode,
+        providerLabel: options.providers.extractor.label,
+        sourceRefs,
+        elapsedMs: performance.now() - extractionStarted,
+      });
+    }
+    options.logger?.detail(
+      `    Extraction complete: ${formatCount(result.assertions.length, 'claim')}, ${formatLinkSummary(
+        result.links,
+      )} (${(performance.now() - extractionStarted).toFixed(1)} ms)`,
+    );
     await indexResult(options.store, result, {
       episode,
       providerLabel: options.providers.embedder.label,
@@ -268,6 +301,30 @@ export async function ingestPreparedUnits(options: {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 3) + '...';
+}
+
+function extractionFailureError(
+  err: unknown,
+  context: {
+    unit: PreparedIngestionUnit;
+    episode: Omit<Episode, 'createdAt'>;
+    providerLabel: string;
+    sourceRefs: readonly string[];
+    elapsedMs: number;
+  },
+): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Extraction failed for prepared unit "${context.unit.id}" / episode "${context.episode.id}" after ${context.elapsedMs.toFixed(
+      1,
+    )} ms.\n` +
+      `Provider: ${context.providerLabel}; responseFormat=json.\n` +
+      `Episode: ${context.episode.type} position ${String(context.episode.position)}.\n` +
+      `Document: "${truncate(sanitizeForTerminal(context.unit.document), 160)}"\n` +
+      `Source refs: ${context.sourceRefs.length > 0 ? context.sourceRefs.join(', ') : 'episode document'}\n` +
+      `Cause: ${message}`,
+    { cause: err },
+  );
 }
 
 function formatEpisode(episode: Omit<Episode, 'createdAt'>): string {

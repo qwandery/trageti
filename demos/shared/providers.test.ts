@@ -402,6 +402,23 @@ describe('demo providers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('retries temporary extraction HTTP 503 failures', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 503, statusText: 'Unavailable' }))
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('honors retry-after while logging retry waits', async () => {
     const messages: string[] = [];
     const fetchMock = vi
@@ -481,7 +498,7 @@ describe('demo providers', () => {
     expect(messages.join('\n')).not.toContain('waiting for prior live provider request');
   });
 
-  it('stops retrying after max attempts', async () => {
+  it('does not retry extraction HTTP 500 failures', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.resolve(new Response('', { status: 500, statusText: 'Broken' }))),
@@ -494,7 +511,7 @@ describe('demo providers', () => {
     });
 
     await expect(provider.extract('prompt')).rejects.toThrow('failed HTTP 500 Broken');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('retries fetch transport timeouts and reports the transport code', async () => {

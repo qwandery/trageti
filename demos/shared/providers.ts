@@ -53,6 +53,7 @@ export interface ProviderRetryOptions {
   baseDelayMs: number;
   maxDelayMs: number;
   rateLimitMs: number;
+  retryHttpStatuses?: readonly number[];
   traceTimings?: boolean;
   tracePayloads?: boolean;
   log?(message: string): void;
@@ -154,27 +155,28 @@ export function createAnthropicExtractionProvider(
   maxTokens = DEFAULT_EXTRACT_MAX_TOKENS,
 ): ExtractionProvider {
   const label = `anthropic:${model}`;
+  const extractionRetry = extractionRetryOptions(retry);
   return {
     name: 'anthropic',
     label,
     provenance: provenance({ kind: 'anthropic', model, maxTokens }),
     async extract(prompt) {
-      return withProviderRetry(retry, `${label} extraction`, async () => {
+      return withProviderRetry(extractionRetry, `${label} extraction`, async () => {
         const url = 'https://api.anthropic.com/v1/messages';
         const started = performance.now();
-        traceProviderTiming(retry, `${label} extraction preparing HTTP POST -> ${url}`);
+        traceProviderTiming(extractionRetry, `${label} extraction preparing HTTP POST -> ${url}`);
         const body = JSON.stringify({
           model,
           max_tokens: maxTokens,
           messages: [{ role: 'user', content: prompt }],
         });
         traceProviderTiming(
-          retry,
+          extractionRetry,
           `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
             performance.now() - started
           ).toFixed(1)} ms)`,
         );
-        traceProviderTiming(retry, `${label} extraction fetch invoked -> ${url}`);
+        traceProviderTiming(extractionRetry, `${label} extraction fetch invoked -> ${url}`);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -186,17 +188,20 @@ export function createAnthropicExtractionProvider(
         });
         const receivedAt = performance.now();
         traceProviderTiming(
-          retry,
+          extractionRetry,
           `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        const data = await readJsonResponse(response, 'Anthropic extraction', retry);
+        const data = await readJsonResponse(response, 'Anthropic extraction', extractionRetry);
         const parsedAt = performance.now();
-        traceProviderTiming(retry, `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`);
+        traceProviderTiming(
+          extractionRetry,
+          `${label} extraction JSON parsed (${(parsedAt - receivedAt).toFixed(1)} ms)`,
+        );
         const text = dataValue(data, ['content', 0, 'text']);
         if (typeof text !== 'string') throw new Error('Anthropic extraction response missing content[0].text');
-        traceProviderTiming(retry, `${label} extraction content decoded: ${String(text.length)} character(s)`);
+        traceProviderTiming(extractionRetry, `${label} extraction content decoded: ${String(text.length)} character(s)`);
         return text;
       });
     },
@@ -214,15 +219,16 @@ export function createOpenAICompatibleExtractionProvider(options: {
 }): ExtractionProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
   const maxTokens = options.maxTokens ?? DEFAULT_EXTRACT_MAX_TOKENS;
+  const extractionRetry = extractionRetryOptions(options.retry);
   return {
     name: 'openai-compatible',
     label,
     provenance: provenance({ kind: 'openai-compatible', model: options.model, baseUrl: options.baseUrl, maxTokens }),
     async extract(prompt, extractOptions) {
-      return withProviderRetry(options.retry, `${label} extraction`, async () => {
+      return withProviderRetry(extractionRetry, `${label} extraction`, async () => {
         const url = `${trimSlash(options.baseUrl)}/chat/completions`;
         const started = performance.now();
-        traceProviderTiming(options.retry, `${label} extraction preparing HTTP POST -> ${url}`);
+        traceProviderTiming(extractionRetry, `${label} extraction preparing HTTP POST -> ${url}`);
         const body = JSON.stringify({
           model: options.model,
           messages: [{ role: 'user', content: prompt }],
@@ -234,12 +240,12 @@ export function createOpenAICompatibleExtractionProvider(options: {
           stream: true,
         });
         traceProviderTiming(
-          options.retry,
+          extractionRetry,
           `${label} extraction request body serialized: ${String(body.length)} byte(s) (${(
             performance.now() - started
           ).toFixed(1)} ms)`,
         );
-        traceProviderTiming(options.retry, `${label} extraction fetch invoked -> ${url}`);
+        traceProviderTiming(extractionRetry, `${label} extraction fetch invoked -> ${url}`);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
@@ -250,12 +256,12 @@ export function createOpenAICompatibleExtractionProvider(options: {
         });
         const receivedAt = performance.now();
         traceProviderTiming(
-          options.retry,
+          extractionRetry,
           `${label} extraction HTTP response <- ${String(response.status)} ${response.statusText} (${(
             receivedAt - started
           ).toFixed(1)} ms)`,
         );
-        return await readOpenAIChatCompletionStream(response, label, options.retry, receivedAt);
+        return await readOpenAIChatCompletionStream(response, label, extractionRetry, receivedAt);
       });
     },
   };
@@ -978,6 +984,12 @@ function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): P
   return options;
 }
 
+function extractionRetryOptions(options: ProviderRetryOptions | undefined): ProviderRetryOptions | undefined {
+  const retryHttpStatuses = [408, 429, 502, 503, 504] as const;
+  if (options === undefined) return { ...retryOptionsFromEnv({}), retryHttpStatuses };
+  return { ...options, retryHttpStatuses };
+}
+
 async function withProviderRetry<T>(
   options: ProviderRetryOptions | undefined,
   label: string,
@@ -1006,7 +1018,7 @@ async function withProviderRetry<T>(
         continue;
       }
       if (err instanceof ProviderHttpError) {
-        if (!shouldRetryHttpStatus(err.status) || attempt >= retry.maxAttempts) throw err;
+        if (!shouldRetryHttpStatus(err.status, retry) || attempt >= retry.maxAttempts) throw err;
         const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
         retry.log?.(
           `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
@@ -1054,7 +1066,8 @@ async function waitForProviderRateLimit(
   }
 }
 
-function shouldRetryHttpStatus(status: number): boolean {
+function shouldRetryHttpStatus(status: number, retry: ProviderRetryOptions): boolean {
+  if (retry.retryHttpStatuses !== undefined) return retry.retryHttpStatuses.includes(status);
   return status === 408 || status === 429 || status >= 500;
 }
 

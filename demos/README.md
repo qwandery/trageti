@@ -119,11 +119,13 @@ endpoint once and count the returned vector length. Do not guess this value:
 SQLite vector tables are created with a fixed dimension, and every inserted
 embedding must match it.
 
-Live demo provider calls are serialized at one request per 5 seconds by default
-and retry `429`, `408`, and `5xx` HTTP responses with backoff. Rate-limit and
-retry waits are printed without prompts or credentials. Override the rate limit
-with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Override retry behavior
-with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
+Live demo provider calls are serialized at one request per 5 seconds by default.
+Extraction retries only temporary HTTP statuses: `408`, `429`, `502`, `503`,
+and `504`. A `500 Internal Server Error` is treated as a provider/model failure
+and fails fast instead of waiting through repeated backoff attempts. Rate-limit
+and retry waits are printed without prompts or credentials. Override the rate
+limit with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Override retry
+timing with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
 `DEMO_PROVIDER_MAX_DELAY_MS`.
 
 Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
@@ -311,8 +313,10 @@ source input. Reruns reuse completed summary work when the inputs match.
 ## Observability
 
 By default, the demos show the high-level ingestion, retrieval, graph,
-assembled-context answer, and synthesis flow. To show model-call boundaries and
-timings:
+assembled-context answer, and synthesis flow. During ingestion, normal output
+also shows the current prepared unit, short document snippet, selected source
+refs, response format, and approximate prompt size before each extraction
+request. To show deeper model-call boundaries and timings:
 
 ```sh
 DEMO_LLM_TRACE=summary npx tsx demos/alex-place/index.ts

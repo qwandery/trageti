@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import type { Assertion, AssertionCitation, AssertionLink, Episode, NewAssertionInput, TemporalStore } from 'trageti';
-import { demoDataVersion, ensureDemoMetadata, ingestEpisodes } from './runtime.js';
+import { demoDataVersion, ensureDemoMetadata, ingestEpisodes, ingestPreparedUnits } from './runtime.js';
 import { resolveDemoProviders, type ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
@@ -210,6 +210,53 @@ describe('ingestEpisodes resume checks', () => {
     expect(messages.join('\n')).toContain('Pending embedding retry start -> 1 assertion(s)');
     expect(messages.join('\n')).toContain('Pending embedding retry complete <- indexed 1, skipped 0');
   });
+
+  it('logs normal extraction request details without trace mode', async () => {
+    const details: string[] = [];
+    const store = new FreshIngestStore();
+
+    await ingestEpisodes({
+      store: store as unknown as TemporalStore,
+      namespace: 'test',
+      episodes: BASE_EPISODES,
+      providers: providersWithOneAssertion(),
+      logger: captureLogger(details),
+    });
+
+    const output = details.join('\n');
+    expect(output).toContain('Extracting ep-1: doc position 1 via fixture (json, prompt ~');
+    expect(output).toContain('Document: "hello world"');
+    expect(output).toContain('Source refs: episode document');
+    expect(output).toContain('Extraction complete: 1 claim, no links');
+  });
+
+  it('wraps extraction failures with safe prepared unit context', async () => {
+    const longSource = 'SECRET FULL SOURCE '.repeat(40);
+    const store = new FreshIngestStore();
+
+    try {
+      await ingestPreparedUnits({
+        store: store as unknown as TemporalStore,
+        namespace: 'test',
+        units: [
+          {
+            id: 'unit-1',
+            episode: BASE_EPISODES[0] ?? fail('missing episode'),
+            document: 'Short safe document text for the failing request.',
+            citationSources: { 'source.md': longSource },
+          },
+        ],
+        providers: providersWithFailingExtractor(),
+      });
+      throw new Error('expected ingestion to fail');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toMatch(
+        /Extraction failed for prepared unit "unit-1" \/ episode "ep-1"[\s\S]*Provider: failing-provider; responseFormat=json[\s\S]*Source refs: source\.md[\s\S]*Cause: provider failed HTTP 500/,
+      );
+      expect(message).not.toContain('SECRET FULL SOURCE');
+    }
+  });
 });
 
 function fixtureProviders(): ResolvedDemoProviders {
@@ -259,6 +306,25 @@ function providersWithOneAssertion(): ResolvedDemoProviders {
   });
 }
 
+function providersWithFailingExtractor(): ResolvedDemoProviders {
+  const providers = fixtureProviders();
+  return {
+    ...providers,
+    extractor: {
+      name: 'failing',
+      label: 'failing-provider',
+      provenance: { kind: 'openai-compatible', configHash: 'fail' },
+      extract() {
+        return Promise.reject(new Error('provider failed HTTP 500'));
+      },
+    },
+    provenance: {
+      ...providers.provenance,
+      extraction: { kind: 'openai-compatible', configHash: 'fail' },
+    },
+  };
+}
+
 function fakeTrace(enabled: boolean, messages: string[]) {
   return {
     enabled,
@@ -268,6 +334,24 @@ function fakeTrace(enabled: boolean, messages: string[]) {
       messages.push(message);
     },
   };
+}
+
+function captureLogger(details: string[]) {
+  return {
+    step(message: string) {
+      details.push(message);
+    },
+    detail(message: string) {
+      details.push(message);
+    },
+    success(message: string) {
+      details.push(message);
+    },
+  };
+}
+
+function fail(message: string): never {
+  throw new Error(message);
 }
 
 function makeAssertion(id: string): Assertion {
