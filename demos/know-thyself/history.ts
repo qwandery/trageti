@@ -14,6 +14,7 @@ import type {
 import { createFixtureExtractionProvider } from '../shared/providers.js';
 import type { ExtractionResult } from '../shared/ingest.js';
 import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js';
+import { isWarmupArg } from '../shared/cli.js';
 import { defaultKeyframes } from './data/keyframes.js';
 
 export const NAMESPACE = 'repository-history';
@@ -33,6 +34,7 @@ export interface KnowThyselfCliOptions {
   repoProvided: boolean;
   keyframesProvided: boolean;
   rateLimitSeconds: number | null;
+  warmup: boolean;
 }
 
 export interface DerivedHistoryData {
@@ -79,10 +81,15 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
   let keyframes: string[] | null = null;
   let keyframesProvided = false;
   let rateLimitSeconds: number | null = null;
+  let warmup = false;
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
+    if (isWarmupArg(arg)) {
+      warmup = true;
+      continue;
+    }
     if (arg === '--query') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('--query requires a non-empty value');
@@ -143,6 +150,7 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
     repoProvided,
     keyframesProvided,
     rateLimitSeconds,
+    warmup,
   };
 }
 

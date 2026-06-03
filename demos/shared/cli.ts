@@ -1,9 +1,11 @@
 import type { RetrievalQuery } from 'trageti';
-import type { DemoEmbeddingProvider } from './providers.js';
+import type { DemoEmbeddingProvider, ResolvedDemoProviders } from './providers.js';
+import type { DemoRunLogger } from './runtime.js';
 
 export interface DemoCliOptions {
   query: string | null;
   rateLimitSeconds: number | null;
+  warmup: boolean;
 }
 
 export interface CustomQueryOptions {
@@ -12,12 +14,21 @@ export interface CustomQueryOptions {
   temporalAnchor: number;
 }
 
+export function isWarmupArg(arg: string): boolean {
+  return arg === '--warmup';
+}
+
 export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
   let query: string | null = null;
   let rateLimitSeconds: number | null = null;
+  let warmup = false;
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
+    if (isWarmupArg(arg)) {
+      warmup = true;
+      continue;
+    }
     if (arg === '--query') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('--query requires a non-empty value');
@@ -40,7 +51,7 @@ export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
       rateLimitSeconds = normalizeLimitArg(arg.slice('--limit='.length));
     }
   }
-  return { query, rateLimitSeconds };
+  return { query, rateLimitSeconds, warmup };
 }
 
 export function envWithDemoRateLimit(env: NodeJS.ProcessEnv, rateLimitSeconds: number | null): NodeJS.ProcessEnv {
@@ -67,6 +78,29 @@ export function buildCustomRetrievalQuery(options: CustomQueryOptions): Retrieva
     maxDepth: 1,
     limit: 25,
   };
+}
+
+export async function warmupDemoProviders(options: {
+  providers: ResolvedDemoProviders;
+  logger: DemoRunLogger;
+}): Promise<void> {
+  const { providers, logger } = options;
+  logger.step('Warming live providers');
+  if (providers.extractor.provenance.kind === 'fixture') {
+    logger.detail('Extraction warmup skipped for fixture provider');
+  } else {
+    const started = performance.now();
+    await providers.extractor.extract('Warm up. Reply with: ok');
+    logger.success(`Extraction provider warmed (${(performance.now() - started).toFixed(1)} ms)`);
+  }
+
+  if (providers.embedder.provenance.kind === 'fixture') {
+    logger.detail('Embedding warmup skipped for fixture provider');
+  } else {
+    const started = performance.now();
+    await providers.embedder.provider.embed(['warmup']);
+    logger.success(`Embedding provider warmed (${(performance.now() - started).toFixed(1)} ms)`);
+  }
 }
 
 function normalizeQueryArg(value: string): string {

@@ -22,7 +22,7 @@ import {
   type ResolvedDemoProviders,
 } from '../shared/providers.js';
 import { generateAssembledAnswer } from '../shared/synthesis.js';
-import { buildCustomRetrievalQuery, envWithDemoRateLimit } from '../shared/cli.js';
+import { buildCustomRetrievalQuery, envWithDemoRateLimit, warmupDemoProviders } from '../shared/cli.js';
 import type { ExtractionResult } from '../shared/ingest.js';
 import { ensureDemoMetadata, expectedFixtureAssertionIds, ingestEpisodes } from '../shared/runtime.js';
 import {
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
   const providers = resolveProvidersAndDataMode(cli, queryTexts, trace);
   const initialLogger = createDemoLogger();
   printBanner(`know-thyself - mode: ${providers.modeLabel}`);
+  if (cli.warmup) await warmupDemoProviders({ providers, logger: initialLogger });
   initialLogger.step('Preparing repository history source data');
   initialLogger.detail(`Repository: ${resolveRepoPath(cli.repo)}`);
   initialLogger.detail(`Keyframe refs: ${cli.keyframes.map((ref) => ref.slice(0, 12)).join(', ')}`);

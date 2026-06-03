@@ -116,6 +116,11 @@ providers such as Ollama return headers promptly. Normal demo output prints a
 concise stream completion meter; `--llm-trace` additionally prints streamed text
 deltas for completion calls.
 
+Pass `--warmup` to either demo to send a tiny extraction request and a tiny
+embedding request before the main run. Fixture providers are skipped. This is
+useful with local providers such as Ollama because model loading happens before
+the first large source-summary or indexing request.
+
 ## OpenAI walkthrough
 
 Use OpenAI for both extraction and embeddings:

@@ -35,6 +35,7 @@ describe('parseKnowThyselfCliOptions', () => {
         ' ../repo ',
         '--keyframes=a,b,c',
         '--limit=30',
+        '--warmup',
         '--query',
         ' what changed? ',
       ]),
@@ -45,6 +46,7 @@ describe('parseKnowThyselfCliOptions', () => {
       repoProvided: true,
       keyframesProvided: true,
       rateLimitSeconds: 30,
+      warmup: true,
     });
   });
 
@@ -126,6 +128,7 @@ describe('deriveHistoryData', () => {
           repoProvided: true,
           keyframesProvided: true,
           rateLimitSeconds: null,
+          warmup: false,
         },
         providers,
       );

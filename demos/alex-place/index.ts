@@ -22,6 +22,7 @@ import {
   buildCustomRetrievalQuery,
   envWithDemoRateLimit,
   parseDemoCliOptions,
+  warmupDemoProviders,
 } from '../shared/cli.js';
 import {
   demoDataVersion,
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
     embeddingDimension: EMBEDDING_DIMENSION,
     rateLimitSeconds: cli.rateLimitSeconds,
   });
+  if (cli.warmup) await warmupDemoProviders({ providers, logger });
   ensureDemoMetadata({
     database,
     demoName: 'alex-place',
