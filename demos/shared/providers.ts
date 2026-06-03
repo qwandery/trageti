@@ -70,8 +70,9 @@ class ProviderHttpError extends Error {
     message: string,
     readonly status: number,
     readonly retryAfterMs: number | null,
+    readonly detail: string | null = null,
   ) {
-    super(message);
+    super(detail ? `${message}; ${detail}` : message);
   }
 }
 
@@ -776,10 +777,12 @@ async function readJsonResponse(
 ): Promise<unknown> {
   const text = await readResponseText(response, label, retry);
   if (!response.ok) {
+    const detail = providerHttpErrorDetail(response, text);
     throw new ProviderHttpError(
       `${label} failed HTTP ${String(response.status)} ${response.statusText}`,
       response.status,
       retryAfterMs(response.headers.get('retry-after')),
+      detail,
     );
   }
   try {
@@ -797,11 +800,13 @@ async function readOpenAIChatCompletionStream(
   receivedAt: number,
 ): Promise<string> {
   if (!response.ok) {
-    await readResponseText(response, `${label} extraction stream error`, retry);
+    const text = await readResponseText(response, `${label} extraction stream error`, retry);
+    const detail = providerHttpErrorDetail(response, text);
     throw new ProviderHttpError(
       `${label} extraction failed HTTP ${String(response.status)} ${response.statusText}`,
       response.status,
       retryAfterMs(response.headers.get('retry-after')),
+      detail,
     );
   }
   if (!response.body) throw new Error(`${label} extraction streaming response missing body`);
@@ -1078,6 +1083,60 @@ function retryAfterMs(value: string | null): number | null {
   const date = Date.parse(value);
   if (!Number.isFinite(date)) return null;
   return Math.max(0, date - Date.now());
+}
+
+function providerHttpErrorDetail(response: Response, text: string): string | null {
+  const parts = [
+    rateLimitHeaderDetail(response.headers),
+    providerErrorBodyDetail(text),
+  ].filter((part): part is string => part !== null && part.length > 0);
+  return parts.length === 0 ? null : parts.join('; ');
+}
+
+function rateLimitHeaderDetail(headers: Headers): string | null {
+  const names = [
+    'x-ratelimit-limit-requests',
+    'x-ratelimit-limit-tokens',
+    'x-ratelimit-remaining-requests',
+    'x-ratelimit-remaining-tokens',
+    'x-ratelimit-reset-requests',
+    'x-ratelimit-reset-tokens',
+    'retry-after',
+  ] as const;
+  const pairs = names
+    .map((name) => {
+      const value = headers.get(name);
+      return value ? `${name}=${value}` : null;
+    })
+    .filter((pair): pair is string => pair !== null);
+  return pairs.length === 0 ? null : `rate limit headers: ${pairs.join(', ')}`;
+}
+
+function providerErrorBodyDetail(text: string): string | null {
+  const body = text.trim();
+  if (body.length === 0) return null;
+  const parsed = parseProviderErrorBody(body);
+  if (parsed === null) return null;
+  const normalized = parsed.replace(/\s+/g, ' ').trim();
+  if (normalized.length === 0) return null;
+  return `response body: ${normalized.slice(0, 500)}`;
+}
+
+function parseProviderErrorBody(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    const message = dataValue(parsed, ['error', 'message']);
+    const type = dataValue(parsed, ['error', 'type']);
+    const code = dataValue(parsed, ['error', 'code']);
+    const pieces = [
+      typeof message === 'string' ? message : null,
+      typeof type === 'string' ? `type=${type}` : null,
+      typeof code === 'string' ? `code=${code}` : null,
+    ].filter((piece): piece is string => piece !== null && piece.length > 0);
+    return pieces.length === 0 ? null : pieces.join(' ');
+  } catch {
+    return null;
+  }
 }
 
 function backoffDelayMs(attempt: number, options: ProviderRetryOptions): number {

@@ -448,6 +448,66 @@ describe('demo providers', () => {
     expect(messages.join('\n')).toContain('response body complete');
   });
 
+  it('includes rate-limit headers and response error bodies in extraction HTTP failures', async () => {
+    const responseBody = {
+      error: {
+        message: 'Rate limit reached for gpt-4o-mini on tokens per min.',
+        type: 'tokens',
+        code: 'rate_limit_exceeded',
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(responseBody), {
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            'x-ratelimit-remaining-tokens': '0',
+            'x-ratelimit-reset-tokens': '6m0s',
+          },
+        }),
+      ),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).rejects.toThrow(
+      /x-ratelimit-remaining-tokens=0.*x-ratelimit-reset-tokens=6m0s.*Rate limit reached.*code=rate_limit_exceeded/,
+    );
+  });
+
+  it('includes rate-limit headers and response error bodies in embedding HTTP failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: 'Too many requests', type: 'requests' } }), {
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            'retry-after': '2',
+            'x-ratelimit-reset-requests': '2s',
+          },
+        }),
+      ),
+    );
+    const embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      dimension: 2,
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(embedder.provider.embed(['hello'])).rejects.toThrow(
+      /x-ratelimit-reset-requests=2s.*retry-after=2.*Too many requests.*type=requests/,
+    );
+  });
+
   it('rate-limits the first attempt of consecutive live provider requests', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
