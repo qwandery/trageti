@@ -69,16 +69,17 @@ equivalent to summary mode.
 
 ## What It Shows
 
-The demo ingests twenty temporal slices covering sourdough, ramen broth, knife
-skills, dinner feedback, Maillard browning, noodles, kimchi, Mrs. Park's advice,
-Jordan's feedback, and sparse Dad references. Episodes are summaries; citations
-are derived from source spans in `alex.md` and `data/references/*`, not from LLM
-supplied excerpts. It then runs:
+The demo ingests twenty-four temporal slices covering sourdough, gluten-free
+sourdough, ramen broth, knife skills, dinner feedback, Maillard browning,
+noodles, kimchi, Mrs. Park's advice, Jordan's feedback, health constraints, and
+sparse Dad references. Episodes are summaries; citations are derived from source
+spans in `alex.md` and `data/references/*`, not from LLM supplied excerpts. It
+then runs:
 
 1. A current sourdough snapshot query.
 2. A paired early-vs-current sourdough snapshot query.
-3. Sourdough, ramen, dinner-feedback, knife-skill, unresolved-question, and
-   Mrs. Park queries.
+3. Sourdough, gluten-free sourdough, ramen, dinner-feedback, knife-skill,
+   unresolved-question, and Mrs. Park queries.
 4. A semantic literature query with graph expansion enabled, so linked
    assertions appear when extraction stored typed links.
 5. A semantic Dad query followed by `getEntityHistory` for the entity ID

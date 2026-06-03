@@ -89,6 +89,8 @@ function sourceForEpisode(id: string, occurredAt: string): Record<string, string
     return { [`alex.md#${date}`]: markdownSectionByDate(citationSources['alex.md'] ?? '', date) };
   }
   if (id === 'ref-field') return { 'references/field-fermentation.md': citationSources['references/field-fermentation.md'] ?? '' };
+  if (id === 'ref-gf-sourdough')
+    return { 'references/gluten-free-sourdough.md': citationSources['references/gluten-free-sourdough.md'] ?? '' };
   if (id === 'ref-ito') return { 'references/ito-paitan.md': citationSources['references/ito-paitan.md'] ?? '' };
   if (id === 'ref-maillard') return { 'references/maillard-browning.md': citationSources['references/maillard-browning.md'] ?? '' };
   throw new Error(`No source mapping configured for Alex episode ${id}`);
@@ -139,7 +141,7 @@ async function retrieveAlexPlace(
     const query = buildCustomRetrievalQuery({
       namespace: NAMESPACE,
       queryText: cli.query,
-      temporalAnchor: 20,
+      temporalAnchor: 24,
     });
     const annotation = '"User query" (custom)';
     printQueryPlan(annotation, query, timeline);

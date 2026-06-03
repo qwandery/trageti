@@ -111,7 +111,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         confidence: 0.95,
         entityId: 'alex-sourdough',
         citations: [
-          citation('c-a-journal-1-0', 'journal-1', 'alex.md#2026-01-05', 'Mixed flour and water in a jar tonight.'),
+          citation('c-a-journal-1-0', 'journal-1', 'alex.md#2025-12-05', 'Mixed flour and water in a jar tonight.'),
         ],
       }),
       assertion({
@@ -123,7 +123,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         confidence: 0.35,
         entityId: 'alex-father',
         citations: [
-          citation('c-a-journal-1-1', 'journal-1', 'alex.md#2026-01-05', "Dad would've made fun of me for the jar."),
+          citation('c-a-journal-1-1', 'journal-1', 'alex.md#2025-12-05', "Dad would've made fun of me for the jar."),
         ],
       }),
     ],
@@ -144,7 +144,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-2-0',
             'journal-2',
-            'alex.md#2026-01-20',
+            'alex.md#2025-12-20',
             'Lined up my suspects: cold retard probably ran too long, the levain is very mature at this point, and the hydration was maybe too low for the crumb I was going for.',
           ),
         ],
@@ -191,7 +191,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-4-0',
             'journal-4',
-            'alex.md#2026-02-08',
+            'alex.md#2026-01-08',
             'I shortened the bulk, dropped the cold retard entirely, and used a younger levain. Acidity dropped down to where I wanted it.',
           ),
         ],
@@ -208,7 +208,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-4-1',
             'journal-4',
-            'alex.md#2026-02-08',
+            'alex.md#2026-01-08',
             'At least with this starter, I do not know yet if the technique transfers.',
           ),
         ],
@@ -248,7 +248,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-5-0',
             'journal-5',
-            'alex.md#2026-02-15',
+            'alex.md#2026-01-15',
             'Fat AND gelatin suspended through it, both, not just an emulsified fat slick on top.',
           ),
         ],
@@ -270,7 +270,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-6-0',
             'journal-6',
-            'alex.md#2026-02-23',
+            'alex.md#2026-01-23',
             'The grip makes sense, but the rocking motion felt wrong with my santoku, like I was fighting the blade instead of guiding it.',
           ),
         ],
@@ -293,7 +293,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-7-0',
             'journal-7',
-            'alex.md#2026-03-01',
+            'alex.md#2026-02-01',
             'The broth was thin and cloudy but not the right kind of cloudy. Jordan said it tasted like pork water.',
           ),
         ],
@@ -317,7 +317,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-8-0',
             'journal-8',
-            'alex.md#2026-03-06',
+            'alex.md#2026-02-06',
             "a santoku's flatter profile often works better with push cuts, chops, and shorter slicing motions than with a high rock.",
           ),
         ],
@@ -370,7 +370,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-10-0',
             'journal-10',
-            'alex.md#2026-03-18',
+            'alex.md#2026-02-18',
             'The whole wheat flour wrecked everything: dense, gummy, would not rise properly.',
           ),
         ],
@@ -393,8 +393,25 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-11-0',
             'journal-11',
-            'alex.md#2026-03-25',
+            'alex.md#2026-02-25',
             'Kansui is probably part of what I am missing, but it cannot be the whole thing. Flour, hydration, sheeting, resting.',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-11-1',
+        episodeId: 'journal-11',
+        position: 11,
+        type: 'fact',
+        content: 'Alex notes recurring stomach trouble that he hopes will not interfere with cooking.',
+        confidence: 0.7,
+        entityId: 'alex-health',
+        citations: [
+          citation(
+            'c-a-journal-11-1',
+            'journal-11',
+            'alex.md#2026-02-25',
+            'Stomach has been unreliable again this week.',
           ),
         ],
       }),
@@ -416,7 +433,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-12-0',
             'journal-12',
-            'alex.md#2026-04-02',
+            'alex.md#2026-03-02',
             'Rolling boil for eight hours. The broth is white and thick. It coats the back of a spoon.',
           ),
         ],
@@ -449,7 +466,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-13-0',
             'journal-13',
-            'alex.md#2026-04-09',
+            'alex.md#2026-03-09',
             'Eighty percent hydration works for this whole wheat flour. The bread finally rose and the crumb was not gummy.',
           ),
         ],
@@ -480,7 +497,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-14-0',
             'journal-14',
-            'alex.md#2026-04-16',
+            'alex.md#2026-03-16',
             'Sam said the bread was a little sour for him.',
           ),
         ],
@@ -497,7 +514,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-14-1',
             'journal-14',
-            'alex.md#2026-04-16',
+            'alex.md#2026-03-16',
             'Jordan said the salad dressing was the best thing on the table.',
           ),
         ],
@@ -514,8 +531,25 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-14-2',
             'journal-14',
-            'alex.md#2026-04-16',
+            'alex.md#2026-03-16',
             'Priya explained Maillard browning offhand while talking about the chicken skin, and I started taking mental notes.',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-14-3',
+        episodeId: 'journal-14',
+        position: 14,
+        type: 'fact',
+        content: 'Alex felt unwell after the first dinner party even though everyone else seemed fine.',
+        confidence: 0.72,
+        entityId: 'alex-health',
+        citations: [
+          citation(
+            'c-a-journal-14-3',
+            'journal-14',
+            'alex.md#2026-03-16',
+            'I felt a little off after dinner, but everyone else seemed fine',
           ),
         ],
       }),
@@ -567,7 +601,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-16-0',
             'journal-16',
-            'alex.md#2026-04-25',
+            'alex.md#2026-03-25',
             'The texture was rubbery and the flavor was slightly metallic.',
           ),
         ],
@@ -598,7 +632,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-17-0',
             'journal-17',
-            'alex.md#2026-05-05',
+            'alex.md#2026-04-05',
             'Later she said the recipe had too much sugar and not enough gochugaru.',
           ),
         ],
@@ -615,7 +649,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-17-1',
             'journal-17',
-            'alex.md#2026-05-05',
+            'alex.md#2026-04-05',
             'Mrs. Park said aged kimchi is the base, not a garnish.',
           ),
         ],
@@ -638,7 +672,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-18-0',
             'journal-18',
-            'alex.md#2026-05-20',
+            'alex.md#2026-04-20',
             'Used older kimchi, more gochugaru, and much less sugar.',
           ),
         ],
@@ -669,7 +703,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-19-0',
             'journal-19',
-            'alex.md#2026-05-27',
+            'alex.md#2026-04-27',
             'Mrs. Park watched me make the tare and said, gently, toast the miso first.',
           ),
         ],
@@ -689,7 +723,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         supersedesId: 'a-journal-14-0',
         entityId: 'sam-feedback',
         citations: [
-          citation('c-a-journal-20-0', 'journal-20', 'alex.md#2026-06-03', 'Sam said the sourdough was perfect.'),
+          citation('c-a-journal-20-0', 'journal-20', 'alex.md#2026-05-03', 'Sam said the sourdough was perfect.'),
         ],
       }),
       assertion({
@@ -701,7 +735,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         confidence: 0.9,
         entityId: 'alex-knife-skills',
         citations: [
-          citation('c-a-journal-20-1', 'journal-20', 'alex.md#2026-06-03', 'Priya noticed my knife work had improved.'),
+          citation('c-a-journal-20-1', 'journal-20', 'alex.md#2026-05-03', 'Priya noticed my knife work had improved.'),
         ],
       }),
       assertion({
@@ -716,7 +750,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
           citation(
             'c-a-journal-20-2',
             'journal-20',
-            'alex.md#2026-06-03',
+            'alex.md#2026-05-03',
             'Jordan made the salad dressing this time and it was better than mine.',
           ),
         ],
@@ -738,6 +772,238 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         linkType: 'deepens',
         validFrom: 20,
         sourceEpisodeId: 'journal-20',
+      }),
+    ],
+  },
+  'journal-21': {
+    assertions: [
+      assertion({
+        id: 'a-journal-21-0',
+        episodeId: 'journal-21',
+        position: 21,
+        type: 'recontextualization',
+        content:
+          "Alex's physician says Alex is gluten intolerant, with Celiac disease possible but not yet confirmed.",
+        confidence: 0.92,
+        entityId: 'alex-health',
+        citations: [
+          citation(
+            'c-a-journal-21-0',
+            'journal-21',
+            'alex.md#2026-05-10',
+            "I am gluten intolerant. Celiac's is possible but not confirmed yet",
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-21-1',
+        episodeId: 'journal-21',
+        position: 21,
+        type: 'recontextualization',
+        content:
+          "Alex's recent stomach trouble may have been related to gluten intolerance rather than stress or nerves.",
+        confidence: 0.82,
+        entityId: 'alex-health',
+        citations: [
+          citation(
+            'c-a-journal-21-1',
+            'journal-21',
+            'alex.md#2026-05-10',
+            'The stomach trouble I kept blaming on stress, bad sleep, or nerves after dinner may not have been random.',
+          ),
+        ],
+      }),
+    ],
+    links: [
+      link({
+        id: 'link-journal-21-0',
+        fromId: 'a-journal-21-1',
+        toId: 'a-journal-11-1',
+        linkType: 'contextualizes',
+        validFrom: 21,
+        sourceEpisodeId: 'journal-21',
+      }),
+      link({
+        id: 'link-journal-21-1',
+        fromId: 'a-journal-21-1',
+        toId: 'a-journal-14-3',
+        linkType: 'contextualizes',
+        validFrom: 21,
+        sourceEpisodeId: 'journal-21',
+      }),
+    ],
+  },
+  'journal-22': {
+    assertions: [
+      assertion({
+        id: 'a-journal-22-0',
+        episodeId: 'journal-22',
+        position: 22,
+        type: 'fact',
+        content: 'Mia is gluten intolerant and has avoided Alex dinner parties partly to avoid being a complication.',
+        confidence: 0.88,
+        entityId: 'mia-gluten-intolerance',
+        citations: [
+          citation(
+            'c-a-journal-22-0',
+            'journal-22',
+            'alex.md#2026-05-17',
+            'She has never made it to one of the dinners, partly because she is gluten intolerant too',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-22-1',
+        episodeId: 'journal-22',
+        position: 22,
+        type: 'fact',
+        content:
+          'Alex finds a gluten-free sourdough article focused on pseudocereals, chickpea flour, psyllium, gluten-free starter, structure, and flavor.',
+        confidence: 0.86,
+        entityId: 'gluten-free-sourdough',
+        citations: [
+          citation(
+            'c-a-journal-22-1',
+            'journal-22',
+            'alex.md#2026-05-17',
+            'pseudocereals, chickpea flour, psyllium, gluten-free starter, sourdough as structure and flavor instead of just nostalgia.',
+          ),
+        ],
+      }),
+    ],
+    links: [
+      link({
+        id: 'link-journal-22-0',
+        fromId: 'a-journal-22-1',
+        toId: 'a-journal-21-0',
+        linkType: 'contextualizes',
+        validFrom: 22,
+        sourceEpisodeId: 'journal-22',
+      }),
+    ],
+  },
+  'ref-gf-sourdough': {
+    assertions: [
+      assertion({
+        id: 'a-ref-gf-sourdough-0',
+        episodeId: 'ref-gf-sourdough',
+        position: 23,
+        type: 'fact',
+        content:
+          'Gluten-free sourdough bread needs a dedicated structure system using pseudocereal flours, chickpea flour, psyllium, and sourdough fermentation.',
+        confidence: 0.95,
+        entityId: 'gluten-free-sourdough',
+        citations: [
+          citation(
+            'c-a-ref-gf-sourdough-0',
+            'ref-gf-sourdough',
+            'references/gluten-free-sourdough.md',
+            'Use pseudocereal flours for flavor and nutrition, chickpea flour for protein and body, psyllium for structure, and sourdough fermentation for flavor and functionality.',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-ref-gf-sourdough-1',
+        episodeId: 'ref-gf-sourdough',
+        position: 23,
+        type: 'fact',
+        content:
+          'Amaranth sourdough performed especially well for gluten-free bread taste, color, appearance, and acceptability.',
+        confidence: 0.92,
+        entityId: 'gluten-free-sourdough',
+        citations: [
+          citation(
+            'c-a-ref-gf-sourdough-1',
+            'ref-gf-sourdough',
+            'references/gluten-free-sourdough.md',
+            '**Amaranth sourdough** performed especially well for taste, color, appearance, and overall acceptability.',
+          ),
+        ],
+      }),
+    ],
+    links: [
+      link({
+        id: 'link-ref-gf-sourdough-0',
+        fromId: 'a-ref-gf-sourdough-0',
+        toId: 'a-journal-22-1',
+        linkType: 'deepens',
+        validFrom: 23,
+        sourceEpisodeId: 'ref-gf-sourdough',
+      }),
+    ],
+  },
+  'journal-24': {
+    assertions: [
+      assertion({
+        id: 'a-journal-24-0',
+        episodeId: 'journal-24',
+        position: 24,
+        type: 'fact',
+        content:
+          'Alex served a gluten-free dinner featuring kimchi jjigae, rice, roasted chicken, and a buckwheat-amaranth sourdough experiment with chickpea flour and psyllium.',
+        confidence: 0.9,
+        entityId: 'gluten-free-dinner',
+        citations: [
+          citation(
+            'c-a-journal-24-0',
+            'journal-24',
+            'alex.md#2026-05-31',
+            'Gluten-free dinner tonight: kimchi jjigae, rice, roasted chicken, a buckwheat-amaranth sourdough experiment with chickpea flour and psyllium',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-24-1',
+        episodeId: 'journal-24',
+        position: 24,
+        type: 'fact',
+        content: 'Mia was able to eat Alex gluten-free bread without asking whether it was safe.',
+        confidence: 0.9,
+        entityId: 'mia-gluten-intolerance',
+        citations: [
+          citation(
+            'c-a-journal-24-1',
+            'journal-24',
+            'alex.md#2026-05-31',
+            'Mia ate bread without having to ask whether it was safe.',
+          ),
+        ],
+      }),
+      assertion({
+        id: 'a-journal-24-2',
+        episodeId: 'journal-24',
+        position: 24,
+        type: 'pattern',
+        content:
+          'Alex is satisfied with the gluten-free dinner but wants better techniques to convince gluten-free skeptics.',
+        confidence: 0.84,
+        entityId: 'gluten-free-sourdough',
+        citations: [
+          citation(
+            'c-a-journal-24-2',
+            'journal-24',
+            'alex.md#2026-05-31',
+            'There has to be a way to make the next loaf less like a compromise and more like itself.',
+          ),
+        ],
+      }),
+    ],
+    links: [
+      link({
+        id: 'link-journal-24-0',
+        fromId: 'a-ref-gf-sourdough-0',
+        toId: 'a-journal-24-0',
+        linkType: 'contextualizes',
+        validFrom: 24,
+        sourceEpisodeId: 'journal-24',
+      }),
+      link({
+        id: 'link-journal-24-1',
+        fromId: 'a-journal-24-2',
+        toId: 'a-ref-gf-sourdough-1',
+        linkType: 'deepens',
+        validFrom: 24,
+        sourceEpisodeId: 'journal-24',
       }),
     ],
   },

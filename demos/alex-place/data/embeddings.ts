@@ -8,12 +8,13 @@ import { fixtures } from './fixtures.js';
 export const EMBEDDING_DIMENSION = 768;
 
 export const QUERY_TEXTS: readonly string[] = [
-  'What did Alex know about making sourdough on January 20, 2026?',
+  'What did Alex know about making sourdough on December 20, 2025?',
   'What does Alex know about making sourdough today?',
   'How has my understanding of sourdough proofing evolved?',
   "How has Alex's ramen broth knowledge changed?",
   'What did Alex learn from dinner feedback?',
   'What does Alex know about knife skills and safe cutting?',
+  'What has Alex learned about gluten-free sourdough?',
   'What questions or contradictions are still unresolved?',
   'What has Mrs. Park taught Alex?',
   'What does the literature say about sourdough acidity and fermentation schedule?',

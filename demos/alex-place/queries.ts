@@ -14,7 +14,7 @@ export const literatureSemanticQuery: RetrieveCase = {
   query: {
     namespace: NAMESPACE,
     queryText: 'What does the literature say about sourdough acidity and fermentation schedule?',
-    temporalAnchor: 20,
+    temporalAnchor: 24,
     retrievalStrategy: 'hybrid',
     mode: 'snapshot',
     expandLinks: true,
@@ -28,7 +28,7 @@ export const dadSemanticQuery: RetrieveCase = {
   query: {
     namespace: NAMESPACE,
     queryText: 'What would Dad think?',
-    temporalAnchor: 20,
+    temporalAnchor: 24,
     retrievalStrategy: 'hybrid',
     mode: 'snapshot',
     limit: 25,
@@ -37,10 +37,10 @@ export const dadSemanticQuery: RetrieveCase = {
 
 export const retrieveQueries: readonly RetrieveCase[] = [
   {
-    annotation: '"What did Alex know about making sourdough on January 20, 2026?" (early snapshot)',
+    annotation: '"What did Alex know about making sourdough on December 20, 2025?" (early snapshot)',
     query: {
       namespace: NAMESPACE,
-      queryText: 'What did Alex know about making sourdough on January 20, 2026?',
+      queryText: 'What did Alex know about making sourdough on December 20, 2025?',
       temporalAnchor: 2,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
@@ -52,7 +52,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What does Alex know about making sourdough today?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
       limit: 25,
@@ -63,7 +63,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'How has my understanding of sourdough proofing evolved?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'trajectory',
       limit: 25,
@@ -74,7 +74,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: "How has Alex's ramen broth knowledge changed?",
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'trajectory',
       expandLinks: true,
@@ -87,7 +87,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What did Alex learn from dinner feedback?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
       expandLinks: true,
@@ -100,9 +100,22 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What does Alex know about knife skills and safe cutting?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
+      limit: 25,
+    },
+  },
+  {
+    annotation: '"What has Alex learned about gluten-free sourdough?" (current snapshot)',
+    query: {
+      namespace: NAMESPACE,
+      queryText: 'What has Alex learned about gluten-free sourdough?',
+      temporalAnchor: 24,
+      retrievalStrategy: 'hybrid',
+      mode: 'snapshot',
+      expandLinks: true,
+      maxDepth: 1,
       limit: 25,
     },
   },
@@ -111,7 +124,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What questions or contradictions are still unresolved?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
       expandLinks: true,
@@ -124,7 +137,7 @@ export const retrieveQueries: readonly RetrieveCase[] = [
     query: {
       namespace: NAMESPACE,
       queryText: 'What has Mrs. Park taught Alex?',
-      temporalAnchor: 20,
+      temporalAnchor: 24,
       retrievalStrategy: 'hybrid',
       mode: 'snapshot',
       expandLinks: true,
