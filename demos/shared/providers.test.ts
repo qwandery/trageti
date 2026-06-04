@@ -293,6 +293,86 @@ describe('demo providers', () => {
     expect(requestBody).toMatchObject({ max_tokens: 321, response_format: { type: 'json_object' }, stream: true });
   });
 
+  it('uses non-streaming OpenAI-compatible requests by default for JSON extraction', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+            status: 200,
+          }),
+        );
+      }),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(requestBody).toMatchObject({ stream: false, response_format: { type: 'json_object' } });
+  });
+
+  it('logs raw non-streaming extraction response bodies in full trace mode', async () => {
+    const messages: string[] = [];
+    const body = { choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+        tracePayloads: true,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(messages.join('\n')).toContain('raw response body');
+    expect(messages.join('\n')).toContain(JSON.stringify(body));
+  });
+
+  it('can opt JSON extraction back into OpenAI-compatible streaming', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-test',
+        DEMO_EXTRACT_MODEL: 'm',
+        DEMO_EXTRACT_STREAM_JSON: 'true',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(requestBody).toMatchObject({ stream: true });
+  });
+
   it('can disable OpenAI-compatible extraction response_format for incompatible servers', async () => {
     let requestBody: unknown;
     vi.stubGlobal(
@@ -471,6 +551,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 1,
         baseDelayMs: 1,
@@ -511,6 +592,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 1,
         baseDelayMs: 1,
@@ -540,6 +622,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 1,
         baseDelayMs: 1,
@@ -566,6 +649,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 1,
         baseDelayMs: 1,
@@ -594,6 +678,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 2,
         baseDelayMs: 1,
@@ -623,6 +708,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 1,
         contentlessMaxAttempts: 1,
@@ -665,6 +751,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
@@ -707,6 +794,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
     });
 
@@ -735,7 +823,6 @@ describe('demo providers', () => {
   it('decodes non-streaming fallback content arrays', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'only reasoning' } }] }]))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -1069,6 +1156,7 @@ describe('demo providers', () => {
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
       model: 'm',
+      streamJson: true,
       retry: {
         maxAttempts: 6,
         contentlessMaxAttempts: 1,

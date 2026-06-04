@@ -132,11 +132,13 @@ successful streams use a smaller retry cap, `DEMO_PROVIDER_CONTENTLESS_MAX_ATTEM
 which defaults to 2, before trying the non-streaming fallback.
 
 Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=8192`.
-OpenAI-compatible extraction requests use streaming chat completions and request
-JSON object responses so local providers such as Ollama return headers promptly
-and stay on the expected extraction schema. If a compatible server rejects JSON
-mode, set `DEMO_EXTRACT_RESPONSE_FORMAT=off`. If a gateway supports strict
-structured outputs and a model does not reliably follow JSON object mode, set
+OpenAI-compatible JSON extraction requests use non-streaming chat completions by
+default because some gateways stream invalid partial JSON, hidden reasoning
+artifacts, or whitespace loops. Set `DEMO_EXTRACT_STREAM_JSON=true` only when you
+need to debug raw streamed extraction frames or a compatible provider requires
+streaming. If a compatible server rejects JSON mode, set
+`DEMO_EXTRACT_RESPONSE_FORMAT=off`. If a gateway supports strict structured
+outputs and a model does not reliably follow JSON object mode, set
 `DEMO_EXTRACT_RESPONSE_FORMAT=json_schema` to send the extraction JSON schema in
 `response_format`. `DEMO_EXTRACT_RESPONSE_FORMAT` also accepts a raw JSON object
 for provider-specific response formats, for example `{"type":"json_object"}`.

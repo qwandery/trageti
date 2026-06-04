@@ -243,6 +243,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
   label?: string;
   responseFormat?: OpenAICompatibleResponseFormat | null;
   extraBody?: Record<string, unknown>;
+  streamJson?: boolean;
   retry?: ProviderRetryOptions;
 }): ExtractionProvider {
   const label = options.label ?? `openai-compatible:${options.model}`;
@@ -262,6 +263,18 @@ export function createOpenAICompatibleExtractionProvider(options: {
         ...options.extraBody,
         ...openAICompatibleExtractionFormatBody(responseFormat),
       };
+      if (extractOptions?.responseFormat === 'json' && options.streamJson !== true) {
+        return await withProviderRetry(extractionRetry, `${label} extraction`, async () =>
+          fetchOpenAIChatCompletionNonStream({
+            url: `${trimSlash(options.baseUrl)}/chat/completions`,
+            apiKey: options.apiKey,
+            label,
+            requestBase,
+            retry: extractionRetry,
+            skipRateLimit: true,
+          }),
+        );
+      }
       try {
         return await withProviderRetry(extractionRetry, `${label} extraction`, async () => {
           const url = `${trimSlash(options.baseUrl)}/chat/completions`;
@@ -717,6 +730,7 @@ function resolveExtractionProvider(
       maxTokens: extractMaxTokensFromEnv(env),
       label: preset.label,
       responseFormat: openAICompatibleExtractionFormat(env),
+      streamJson: truthyEnv(env['DEMO_EXTRACT_STREAM_JSON']),
       ...(extraBody ? { extraBody } : {}),
       ...(retry ? { retry } : {}),
     });
@@ -947,6 +961,9 @@ function openAICompatPreset(
 
 async function readJsonResponse(response: Response, label: string, retry?: ProviderRetryOptions): Promise<unknown> {
   const text = await readResponseText(response, label, retry);
+  if (retry?.tracePayloads === true) {
+    retry.log?.(`${label} raw response body:\n${text}`);
+  }
   if (!response.ok) {
     const detail = providerHttpErrorDetail(response, text);
     throw new ProviderHttpError(
@@ -970,14 +987,17 @@ async function fetchOpenAIChatCompletionNonStream(options: {
   label: string;
   requestBase: Record<string, unknown>;
   retry: ProviderRetryOptions | undefined;
-  streamError: ProviderContentlessStreamError;
+  streamError?: ProviderContentlessStreamError;
+  skipRateLimit?: boolean;
 }): Promise<string> {
-  await waitForProviderRateLimit(
-    options.retry?.rateLimitMs ?? retryOptionsFromEnv({}).rateLimitMs,
-    `${options.label} extraction fallback`,
-    (message) => options.retry?.log?.(message),
-    options.retry?.traceTimings === true,
-  );
+  if (options.skipRateLimit !== true) {
+    await waitForProviderRateLimit(
+      options.retry?.rateLimitMs ?? retryOptionsFromEnv({}).rateLimitMs,
+      `${options.label} extraction fallback`,
+      (message) => options.retry?.log?.(message),
+      options.retry?.traceTimings === true,
+    );
+  }
   const started = performance.now();
   traceProviderTiming(options.retry, `${options.label} extraction fallback preparing HTTP POST -> ${options.url}`);
   const body = JSON.stringify({
@@ -1012,14 +1032,14 @@ async function fetchOpenAIChatCompletionNonStream(options: {
   try {
     data = await readJsonResponse(response, `${options.label} extraction fallback`, options.retry);
   } catch (err) {
-    throw openAINonStreamFallbackError(err, options.streamError);
+    if (options.streamError) throw openAINonStreamFallbackError(err, options.streamError);
+    throw err;
   }
   const content = openAIChatCompletionContent(data);
   if (content === null || content.length === 0) {
-    throw openAINonStreamFallbackError(
-      new Error(`${options.label} extraction fallback response missing choices[0].message.content`),
-      options.streamError,
-    );
+    const err = new Error(`${options.label} extraction fallback response missing choices[0].message.content`);
+    if (options.streamError) throw openAINonStreamFallbackError(err, options.streamError);
+    throw err;
   }
   traceProviderTiming(
     options.retry,
@@ -1546,6 +1566,12 @@ function positiveInt(value: string | undefined, fallback: number, label: string)
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer`);
   return parsed;
+}
+
+function truthyEnv(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 function extractMaxTokensFromEnv(env: NodeJS.ProcessEnv): number {
