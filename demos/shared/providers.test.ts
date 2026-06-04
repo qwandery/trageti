@@ -612,7 +612,7 @@ describe('demo providers', () => {
   it('treats whitespace-only extraction streams as contentless and falls back early', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(openAIStreamResponse([' '.repeat(256), '\n'.repeat(256)]))
+      .mockResolvedValueOnce(openAIStreamResponse([' '.repeat(32), '\n'.repeat(32)]))
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
           status: 200,

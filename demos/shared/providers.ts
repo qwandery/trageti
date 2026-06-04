@@ -66,7 +66,7 @@ export interface ProviderRetryOptions {
 const DEFAULT_EXTRACT_MAX_TOKENS = 8192;
 const STREAM_PROGRESS_CHUNK_INTERVAL = 50;
 const STREAM_PROGRESS_MIN_INTERVAL_MS = 1000;
-const WHITESPACE_ONLY_STREAM_LIMIT = 512;
+const WHITESPACE_ONLY_STREAM_LIMIT = 64;
 
 class ProviderHttpError extends Error {
   constructor(
