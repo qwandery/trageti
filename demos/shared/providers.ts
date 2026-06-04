@@ -66,6 +66,7 @@ export interface ProviderRetryOptions {
 const DEFAULT_EXTRACT_MAX_TOKENS = 8192;
 const STREAM_PROGRESS_CHUNK_INTERVAL = 50;
 const STREAM_PROGRESS_MIN_INTERVAL_MS = 1000;
+const WHITESPACE_ONLY_STREAM_LIMIT = 512;
 
 class ProviderHttpError extends Error {
   constructor(
@@ -1051,6 +1052,7 @@ async function readOpenAIChatCompletionStream(
   let chunks = 0;
   let frames = 0;
   let deltas = 0;
+  let nonWhitespaceSeen = false;
   let lastProgressAt = receivedAt;
 
   const traceProgress = (): void => {
@@ -1075,6 +1077,21 @@ async function readOpenAIChatCompletionStream(
   const appendDelta = (delta: string): void => {
     deltas += 1;
     content += delta;
+    if (/\S/u.test(delta)) {
+      nonWhitespaceSeen = true;
+      return;
+    }
+    if (!nonWhitespaceSeen && content.length >= WHITESPACE_ONLY_STREAM_LIMIT) {
+      throw new ProviderContentlessStreamError({
+        status: response.status,
+        statusText: response.statusText,
+        chunks,
+        totalBytes,
+        frames,
+        deltas,
+        contentLength: content.length,
+      });
+    }
   };
 
   const handleSseData = (data: string): void => {
@@ -1113,7 +1130,7 @@ async function readOpenAIChatCompletionStream(
         `${String(deltas)} text delta(s), ${String(content.length)} character(s)`,
     );
   }
-  if (content.length === 0) {
+  if (content.trim().length === 0) {
     throw new ProviderContentlessStreamError({
       status: response.status,
       statusText: response.statusText,

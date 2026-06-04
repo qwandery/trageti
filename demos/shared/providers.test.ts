@@ -609,6 +609,47 @@ describe('demo providers', () => {
     expect(messages.join('\n')).toContain('after contentless stream');
   });
 
+  it('treats whitespace-only extraction streams as contentless and falls back early', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(openAIStreamResponse([' '.repeat(256), '\n'.repeat(256)]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 1,
+        contentlessMaxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({ stream: false });
+  });
+
+  it('rejects short whitespace-only extraction streams as contentless', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse([' ', '\n']))));
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'text' })).rejects.toThrow('contentless stream');
+  });
+
   it('falls back to non-streaming JSON extraction after contentless stream attempts', async () => {
     const fetchMock = vi
       .fn()
