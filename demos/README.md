@@ -131,7 +131,7 @@ time out after 60 seconds by default. Override retry timing with
 successful streams use a smaller retry cap, `DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS`
 which defaults to 2, before trying the non-streaming fallback.
 
-Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
+Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=8192`.
 OpenAI-compatible extraction requests use streaming chat completions and request
 JSON object responses so local providers such as Ollama return headers promptly
 and stay on the expected extraction schema. If a compatible server rejects JSON

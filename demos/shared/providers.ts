@@ -63,7 +63,7 @@ export interface ProviderRetryOptions {
   status?(message: string): void;
 }
 
-const DEFAULT_EXTRACT_MAX_TOKENS = 1200;
+const DEFAULT_EXTRACT_MAX_TOKENS = 8192;
 const STREAM_PROGRESS_CHUNK_INTERVAL = 50;
 const STREAM_PROGRESS_MIN_INTERVAL_MS = 1000;
 
