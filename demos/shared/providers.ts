@@ -295,7 +295,9 @@ export function createOpenAICompatibleExtractionProvider(options: {
               receivedAt - started
             ).toFixed(1)} ms)`,
           );
-          return await readOpenAIChatCompletionStream(response, label, extractionRetry, receivedAt);
+          return await readOpenAIChatCompletionStream(response, label, extractionRetry, receivedAt, {
+            stopWhenJsonComplete: extractOptions?.responseFormat === 'json',
+          });
         });
       } catch (err) {
         if (!(err instanceof ProviderContentlessStreamError) || extractOptions?.responseFormat !== 'json') throw err;
@@ -1031,6 +1033,7 @@ async function readOpenAIChatCompletionStream(
   label: string,
   retry: ProviderRetryOptions | undefined,
   receivedAt: number,
+  options: { stopWhenJsonComplete?: boolean } = {},
 ): Promise<string> {
   if (!response.ok) {
     const text = await readResponseText(response, `${label} extraction stream error`, retry);
@@ -1113,6 +1116,17 @@ async function readOpenAIChatCompletionStream(
     buffer += decoder.decode(value, { stream: true });
     const parsed = consumeSseBuffer(buffer, handleSseData);
     buffer = parsed.remaining;
+    const completedJson = options.stopWhenJsonComplete === true ? completeExtractionJson(content) : null;
+    if (completedJson !== null) {
+      traceProviderTiming(
+        retry,
+        `${label} extraction stream stopped after complete JSON object: ${String(chunks)} chunk(s), ` +
+          `${formatBytes(totalBytes)}, ${String(frames)} SSE frame(s), ${String(deltas)} text delta(s), ` +
+          `${String(completedJson.length)} character(s)`,
+      );
+      await reader.cancel();
+      return completedJson;
+    }
     traceProgress();
   }
   buffer += decoder.decode();
@@ -1158,6 +1172,50 @@ function consumeSseBuffer(buffer: string, onData: (data: string) => void): { rem
     if (data) onData(data);
   }
   return { remaining };
+}
+
+function completeExtractionJson(content: string): string | null {
+  const end = firstJsonObjectEnd(content);
+  if (end === null) return null;
+  const start = content.indexOf('{');
+  if (start < 0) return null;
+  const slice = content.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(slice) as { assertions?: unknown; links?: unknown };
+    return Array.isArray(parsed.assertions) && Array.isArray(parsed.links) ? slice : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstJsonObjectEnd(content: string): number | null {
+  const start = content.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < content.length; i++) {
+    const char = content[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return null;
 }
 
 function openAIStreamDelta(data: string): string | null {

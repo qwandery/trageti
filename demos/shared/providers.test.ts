@@ -676,6 +676,62 @@ describe('demo providers', () => {
     expect(JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string)).toMatchObject({ stream: false });
   });
 
+  it('stops JSON extraction streams after the first complete extraction object', async () => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      choices: [{ delta: { content: '{"assertions":[],"links":[]}' } }],
+                    })}\n\n`,
+                  ),
+                );
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 200 },
+          ),
+        ),
+      ),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(cancelled).toBe(true);
+  });
+
+  it('does not stop text extraction streams at JSON-looking content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}', ' still text']))),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'text' })).resolves.toBe(
+      '{"assertions":[],"links":[]} still text',
+    );
+  });
+
   it('decodes non-streaming fallback content arrays', async () => {
     const fetchMock = vi
       .fn()
