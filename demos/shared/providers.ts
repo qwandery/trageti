@@ -50,8 +50,10 @@ export interface LlmTraceOptions {
 
 export interface ProviderRetryOptions {
   maxAttempts: number;
+  contentlessMaxAttempts?: number;
   baseDelayMs: number;
   maxDelayMs: number;
+  timeoutMs?: number;
   rateLimitMs: number;
   retryHttpStatuses?: readonly number[];
   traceTimings?: boolean;
@@ -275,6 +277,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
             ).toFixed(1)} ms)`,
           );
           traceProviderTiming(extractionRetry, `${label} extraction fetch invoked -> ${url}`);
+          const signal = abortSignal(extractionRetry);
           const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -282,6 +285,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
               Authorization: `Bearer ${options.apiKey}`,
             },
             body,
+            ...(signal ? { signal } : {}),
           });
           const receivedAt = performance.now();
           traceProviderTiming(
@@ -984,6 +988,7 @@ async function fetchOpenAIChatCompletionNonStream(options: {
     ).toFixed(1)} ms)`,
   );
   traceProviderTiming(options.retry, `${options.label} extraction fallback fetch invoked -> ${options.url}`);
+  const signal = abortSignal(options.retry);
   const response = await fetch(options.url, {
     method: 'POST',
     headers: {
@@ -991,6 +996,7 @@ async function fetchOpenAIChatCompletionNonStream(options: {
       Authorization: `Bearer ${options.apiKey}`,
     },
     body,
+    ...(signal ? { signal } : {}),
   });
   const receivedAt = performance.now();
   traceProviderTiming(
@@ -1212,8 +1218,14 @@ async function readResponseText(response: Response, label: string, retry?: Provi
 function retryOptionsFromEnv(env: NodeJS.ProcessEnv, trace?: LlmTraceOptions): ProviderRetryOptions {
   const options: ProviderRetryOptions = {
     maxAttempts: positiveInt(env['DEMO_PROVIDER_MAX_ATTEMPTS'], 6, 'DEMO_PROVIDER_MAX_ATTEMPTS'),
+    contentlessMaxAttempts: positiveInt(
+      env['DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS'],
+      2,
+      'DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS',
+    ),
     baseDelayMs: positiveInt(env['DEMO_PROVIDER_BASE_DELAY_MS'], 1000, 'DEMO_PROVIDER_BASE_DELAY_MS'),
     maxDelayMs: positiveInt(env['DEMO_PROVIDER_MAX_DELAY_MS'], 30000, 'DEMO_PROVIDER_MAX_DELAY_MS'),
+    timeoutMs: positiveInt(env['DEMO_PROVIDER_TIMEOUT_MS'], 60000, 'DEMO_PROVIDER_TIMEOUT_MS'),
     rateLimitMs: nonNegativeMs(env['DEMO_RATE_LIMIT']),
     traceTimings: trace?.enabled === true,
     tracePayloads: trace?.includePayloads === true,
@@ -1284,12 +1296,11 @@ async function withProviderRetry<T>(
         continue;
       }
       if (err instanceof ProviderContentlessStreamError) {
-        if (attempt >= retry.maxAttempts) throw err;
+        const contentlessMaxAttempts = Math.min(retry.maxAttempts, retry.contentlessMaxAttempts ?? retry.maxAttempts);
+        if (attempt >= contentlessMaxAttempts) throw err;
         const delay = backoffDelayMs(attempt, retry);
         retry.log?.(
-          `${label} retry ${String(attempt + 1)}/${String(
-            retry.maxAttempts,
-          )} after contentless stream; waiting ${String(delay)} ms`,
+          `${label} retry ${String(attempt + 1)}/${String(contentlessMaxAttempts)} after contentless stream; waiting ${String(delay)} ms`,
         );
         await sleep(delay);
         continue;
@@ -1418,6 +1429,12 @@ function traceProviderStatus(retry: ProviderRetryOptions | undefined, message: s
   }
 }
 
+function abortSignal(retry: ProviderRetryOptions | undefined): AbortSignal | undefined {
+  const timeoutMs = retry?.timeoutMs;
+  if (timeoutMs === undefined || timeoutMs <= 0) return undefined;
+  return AbortSignal.timeout(timeoutMs);
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -1426,6 +1443,9 @@ function formatBytes(bytes: number): string {
 
 function providerTransportError(err: unknown): ProviderTransportError | null {
   if (!(err instanceof Error)) return null;
+  if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+    return new ProviderTransportError('PROVIDER_TIMEOUT', err.message || 'provider request timed out', err);
+  }
   if (err.name !== 'TypeError' || !/fetch failed/i.test(err.message)) return null;
   const cause = (err as { cause?: unknown }).cause;
   const code = transportCauseCode(cause);

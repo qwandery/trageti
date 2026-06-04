@@ -909,6 +909,85 @@ describe('demo providers', () => {
     expect(messages.join('\n')).toContain('after transport UND_ERR_HEADERS_TIMEOUT');
   });
 
+  it('passes configured timeout signals to OpenAI-compatible extraction fetches', async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      }),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, timeoutMs: 1234, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('retries abort timeouts as provider transport failures', async () => {
+    const messages: string[] = [];
+    const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 2,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        timeoutMs: 1,
+        rateLimitMs: 0,
+        log: (message) => messages.push(message),
+      },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(messages.join('\n')).toContain('after transport PROVIDER_TIMEOUT');
+  });
+
+  it('uses a dedicated contentless stream retry cap before JSON fallback', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(openAIStreamDataResponse([{ choices: [{ delta: { reasoning: 'first' } }] }]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: {
+        maxAttempts: 6,
+        contentlessMaxAttempts: 1,
+        baseDelayMs: 1,
+        maxDelayMs: 1,
+        rateLimitMs: 0,
+      },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toMatchObject({ stream: true });
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({ stream: false });
+  });
+
   it('sanitizes fetch transport timeout failures after retry exhaustion', async () => {
     const timeout = new TypeError('fetch failed', {
       cause: Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' }),

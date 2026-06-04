@@ -124,9 +124,12 @@ Extraction retries only temporary HTTP statuses: `408`, `429`, `502`, `503`,
 and `504`. A `500 Internal Server Error` is treated as a provider/model failure
 and fails fast instead of waiting through repeated backoff attempts. Rate-limit
 and retry waits are printed without prompts or credentials. Override the rate
-limit with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Override retry
-timing with `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`, and
-`DEMO_PROVIDER_MAX_DELAY_MS`.
+limit with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Provider requests
+time out after 60 seconds by default. Override retry timing with
+`DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`,
+`DEMO_PROVIDER_MAX_DELAY_MS`, and `DEMO_PROVIDER_TIMEOUT_MS`. Contentless
+successful streams use a smaller retry cap, `DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS`
+which defaults to 2, before trying the non-streaming fallback.
 
 Live extraction output is capped by default with `DEMO_EXTRACT_MAX_TOKENS=1200`.
 OpenAI-compatible extraction requests use streaming chat completions and request
@@ -138,7 +141,9 @@ structured outputs and a model does not reliably follow JSON object mode, set
 `response_format`. `DEMO_EXTRACT_RESPONSE_FORMAT` also accepts a raw JSON object
 for provider-specific response formats, for example `{"type":"json_object"}`.
 Set `DEMO_EXTRACT_EXTRA_BODY_JSON` to merge provider-specific extraction request
-fields such as `{"reasoning":{"exclude":true}}`. Set
+fields such as `{"reasoning":{"exclude":true}}`; this is especially useful for
+OpenRouter reasoning models that can otherwise spend the whole completion budget
+on non-visible reasoning tokens. Set
 `DEMO_EMBED_EXTRA_BODY_JSON` to merge provider-specific embedding request fields
 such as `{"response_format":{"type":"float"}}`. Normal demo output prints a
 concise stream completion meter; `--llm-trace` shows in-place stream progress,
