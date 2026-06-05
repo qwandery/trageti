@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { EmbeddingProvider, EmbedOptions } from 'trageti';
 import { RawVectorProvider } from 'trageti';
 import { parseExtraction } from './parse.js';
@@ -18,7 +19,18 @@ export interface ExtractionProvider {
   name: string;
   label: string;
   provenance: ProviderProvenance;
-  extract(prompt: string, options?: { episodeId?: string; responseFormat?: 'json' | 'text' }): Promise<string>;
+  extract(prompt: string, options?: ExtractionProviderOptions): Promise<string>;
+}
+
+export interface ExtractionProviderOptions {
+  episodeId?: string;
+  responseFormat?: 'json' | 'text';
+  images?: Record<string, ExtractionImageInput>;
+}
+
+export interface ExtractionImageInput {
+  path: string;
+  mimeType: string;
 }
 
 export interface DemoEmbeddingProvider {
@@ -125,6 +137,11 @@ export interface ResolveLiveProvidersOptions {
   trace?: LlmTraceOptions;
 }
 
+export interface ResolveVisionProviderOptions {
+  env?: NodeJS.ProcessEnv;
+  trace?: LlmTraceOptions;
+}
+
 export function createFixtureExtractionProvider(fixtures: Record<string, string>): ExtractionProvider {
   return {
     name: 'fixture',
@@ -184,7 +201,7 @@ export function createAnthropicExtractionProvider(
     name: 'anthropic',
     label,
     provenance: provenance({ kind: 'anthropic', model, maxTokens }),
-    async extract(prompt) {
+    async extract(prompt, extractOptions) {
       return withProviderRetry(extractionRetry, `${label} extraction`, async () => {
         const url = 'https://api.anthropic.com/v1/messages';
         const started = performance.now();
@@ -192,7 +209,7 @@ export function createAnthropicExtractionProvider(
         const body = JSON.stringify({
           model,
           max_tokens: maxTokens,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: anthropicMessageContent(prompt, extractOptions?.images) }],
         });
         traceProviderTiming(
           extractionRetry,
@@ -257,7 +274,7 @@ export function createOpenAICompatibleExtractionProvider(options: {
       const responseFormat = extractOptions?.responseFormat === 'text' ? null : options.responseFormat;
       const requestBase = {
         model: options.model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: openAIMessageContent(prompt, extractOptions?.images) }],
         temperature: 0.2,
         max_tokens: maxTokens,
         ...options.extraBody,
@@ -575,6 +592,39 @@ export function resolveLiveExtractionProvider(
   return trace?.enabled ? traceExtractionProvider(extractor, trace) : extractor;
 }
 
+export function resolveVisionProvider(options: ResolveVisionProviderOptions = {}): ExtractionProvider {
+  const env = options.env ?? process.env;
+  const retry = retryOptionsFromEnv(env, options.trace);
+  const provider = env['DEMO_VISION_PROVIDER'] ?? inferVisionProvider(env);
+  let resolved: ExtractionProvider;
+  if (provider === 'fixture') {
+    resolved = createFixtureExtractionProvider({});
+  } else if (provider === 'anthropic') {
+    resolved = createAnthropicExtractionProvider(
+      required(env['DEMO_VISION_API_KEY'] ?? env['ANTHROPIC_API_KEY'], 'DEMO_VISION_API_KEY or ANTHROPIC_API_KEY'),
+      env['DEMO_VISION_MODEL'] ?? 'claude-sonnet-4-20250514',
+      retry,
+      visionMaxTokensFromEnv(env),
+    );
+  } else if (provider === 'openai-compatible') {
+    const preset = openAICompatPreset(env, 'vision');
+    const extraBody = openAICompatibleVisionExtraBody(env);
+    resolved = createOpenAICompatibleExtractionProvider({
+      baseUrl: preset.baseUrl,
+      apiKey: preset.apiKey,
+      model: env['DEMO_VISION_MODEL'] ?? preset.defaultModel,
+      maxTokens: visionMaxTokensFromEnv(env),
+      label: `${preset.label}:vision`,
+      responseFormat: null,
+      ...(extraBody ? { extraBody } : {}),
+      ...(retry ? { retry } : {}),
+    });
+  } else {
+    throw new Error(`Unsupported DEMO_VISION_PROVIDER "${provider}". Use fixture, anthropic, or openai-compatible.`);
+  }
+  return options.trace?.enabled ? traceExtractionProvider(resolved, options.trace) : resolved;
+}
+
 export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOptions): DemoEmbeddingProvider {
   const env = options.env ?? process.env;
   const provider = env['DEMO_EMBED_PROVIDER'] ?? inferEmbeddingProvider(env, true);
@@ -685,6 +735,15 @@ function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean)
   return 'fixture';
 }
 
+function inferVisionProvider(env: NodeJS.ProcessEnv): string {
+  if (env['DEMO_VISION_PROVIDER']) return env['DEMO_VISION_PROVIDER'];
+  if (env['ANTHROPIC_API_KEY']) return 'anthropic';
+  if (env['OPENROUTER_API_KEY'] || env['OPENAI_API_KEY'] || env['OLLAMA_HOST'] || env['DEMO_VISION_BASE_URL']) {
+    return 'openai-compatible';
+  }
+  return 'fixture';
+}
+
 function resolveDemoEmbeddingDimension(options: ResolveDemoProvidersOptions): number {
   const fromEnv = embeddingDimensionFromEnv(options.env ?? process.env);
   const dimension = fromEnv ?? options.embeddingDimension ?? inferEmbeddingDimensionFromVectors(options);
@@ -757,6 +816,43 @@ function openAICompatibleExtractionFormatBody(responseFormat: OpenAICompatibleRe
   return { response_format: responseFormat ?? { type: 'json_object' } };
 }
 
+function openAIMessageContent(prompt: string, images?: Record<string, ExtractionImageInput>): string | unknown[] {
+  const entries = Object.entries(images ?? {});
+  if (entries.length === 0) return prompt;
+  return [
+    { type: 'text', text: prompt },
+    ...entries.map(([sourceRef, image]) => ({
+      type: 'image_url',
+      image_url: {
+        url: imageDataUrl(image),
+        detail: 'high',
+      },
+      source_ref: sourceRef,
+    })),
+  ];
+}
+
+function anthropicMessageContent(prompt: string, images?: Record<string, ExtractionImageInput>): string | unknown[] {
+  const entries = Object.entries(images ?? {});
+  if (entries.length === 0) return prompt;
+  return [
+    { type: 'text', text: prompt },
+    ...entries.map(([sourceRef, image]) => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: image.mimeType,
+        data: readFileSync(image.path).toString('base64'),
+      },
+      source_ref: sourceRef,
+    })),
+  ];
+}
+
+function imageDataUrl(image: ExtractionImageInput): string {
+  return `data:${image.mimeType};base64,${readFileSync(image.path).toString('base64')}`;
+}
+
 function openAICompatibleExtractionExtraBody(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
   const raw = env['DEMO_EXTRACT_EXTRA_BODY_JSON']?.trim();
   if (!raw) return undefined;
@@ -771,6 +867,12 @@ function openAICompatibleEmbeddingExtraBody(env: NodeJS.ProcessEnv): Record<stri
   const raw = env['DEMO_EMBED_EXTRA_BODY_JSON']?.trim();
   if (!raw) return undefined;
   return parseJsonObjectEnv(raw, 'DEMO_EMBED_EXTRA_BODY_JSON');
+}
+
+function openAICompatibleVisionExtraBody(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
+  const raw = env['DEMO_VISION_EXTRA_BODY_JSON']?.trim();
+  if (!raw) return undefined;
+  return parseJsonObjectEnv(raw, 'DEMO_VISION_EXTRA_BODY_JSON');
 }
 
 function parseJsonObjectEnv(raw: string, name: string): Record<string, unknown> {
@@ -801,7 +903,7 @@ function extractionJsonSchema(): Record<string, unknown> {
   const citation = {
     type: 'object',
     additionalProperties: false,
-    required: ['id', 'episodeId', 'sourceRef', 'excerpt', 'excerptStart', 'excerptEnd'],
+    required: ['id', 'episodeId', 'sourceRef', 'excerpt'],
     properties: {
       id: { type: 'string' },
       episodeId: { type: 'string' },
@@ -911,20 +1013,34 @@ function resolveEmbeddingProvider(
 
 function openAICompatPreset(
   env: NodeJS.ProcessEnv,
-  purpose: 'extract' | 'embed',
+  purpose: 'extract' | 'embed' | 'vision',
 ): {
   baseUrl: string;
   apiKey: string;
   defaultModel: string;
   label: string;
 } {
-  const explicitBase = env[purpose === 'extract' ? 'DEMO_EXTRACT_BASE_URL' : 'DEMO_EMBED_BASE_URL'];
-  const explicitKey = env[purpose === 'extract' ? 'DEMO_EXTRACT_API_KEY' : 'DEMO_EMBED_API_KEY'];
+  const explicitBase =
+    env[
+      purpose === 'extract'
+        ? 'DEMO_EXTRACT_BASE_URL'
+        : purpose === 'embed'
+          ? 'DEMO_EMBED_BASE_URL'
+          : 'DEMO_VISION_BASE_URL'
+    ];
+  const explicitKey =
+    env[
+      purpose === 'extract'
+        ? 'DEMO_EXTRACT_API_KEY'
+        : purpose === 'embed'
+          ? 'DEMO_EMBED_API_KEY'
+          : 'DEMO_VISION_API_KEY'
+    ];
   if (explicitBase) {
     return {
       baseUrl: explicitBase,
       apiKey: explicitKey ?? env['OPENAI_API_KEY'] ?? 'sk-no-key',
-      defaultModel: purpose === 'extract' ? 'gpt-4o-mini' : 'text-embedding-3-small',
+      defaultModel: purpose === 'embed' ? 'text-embedding-3-small' : 'gpt-4o-mini',
       label: 'openai-compatible',
     };
   }
@@ -932,7 +1048,7 @@ function openAICompatPreset(
     return {
       baseUrl: 'https://openrouter.ai/api/v1',
       apiKey: explicitKey ?? env['OPENROUTER_API_KEY'],
-      defaultModel: purpose === 'extract' ? 'anthropic/claude-sonnet-4' : 'openai/text-embedding-3-small',
+      defaultModel: purpose === 'embed' ? 'openai/text-embedding-3-small' : 'anthropic/claude-sonnet-4',
       label: 'openrouter',
     };
   }
@@ -940,7 +1056,7 @@ function openAICompatPreset(
     return {
       baseUrl: `${trimSlash(env['OLLAMA_HOST'])}/v1`,
       apiKey: explicitKey ?? 'ollama',
-      defaultModel: purpose === 'extract' ? 'llama3.1' : 'nomic-embed-text',
+      defaultModel: purpose === 'embed' ? 'nomic-embed-text' : 'llama3.1',
       label: 'ollama-openai-compatible',
     };
   }
@@ -948,14 +1064,16 @@ function openAICompatPreset(
     return {
       baseUrl: 'https://api.openai.com/v1',
       apiKey: explicitKey ?? env['OPENAI_API_KEY'],
-      defaultModel: purpose === 'extract' ? 'gpt-4o-mini' : 'text-embedding-3-small',
+      defaultModel: purpose === 'embed' ? 'text-embedding-3-small' : 'gpt-4o-mini',
       label: 'openai',
     };
   }
   throw new Error(
     purpose === 'extract'
       ? 'Missing extraction config. Set DEMO_EXTRACT_BASE_URL + DEMO_EXTRACT_MODEL, or ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or OLLAMA_HOST.'
-      : 'Missing embedding config. Set DEMO_EMBED_BASE_URL + DEMO_EMBED_MODEL, OPENAI_API_KEY, OPENROUTER_API_KEY with DEMO_EMBED_PROVIDER=openai-compatible, or OLLAMA_HOST with DEMO_EMBED_PROVIDER=ollama-native.',
+      : purpose === 'embed'
+        ? 'Missing embedding config. Set DEMO_EMBED_BASE_URL + DEMO_EMBED_MODEL, OPENAI_API_KEY, OPENROUTER_API_KEY with DEMO_EMBED_PROVIDER=openai-compatible, or OLLAMA_HOST with DEMO_EMBED_PROVIDER=ollama-native.'
+        : 'Missing vision config. Set DEMO_VISION_BASE_URL + DEMO_VISION_MODEL, or ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or OLLAMA_HOST.',
   );
 }
 
@@ -1271,10 +1389,9 @@ function openAIContentText(content: unknown): string | null {
 
 function openAINonStreamFallbackError(err: unknown, streamError: ProviderContentlessStreamError): Error {
   const message = err instanceof Error ? err.message : String(err);
-  return new Error(
-    `${streamError.message}; non-streaming fallback also produced no usable content (${message})`,
-    { cause: err },
-  );
+  return new Error(`${streamError.message}; non-streaming fallback also produced no usable content (${message})`, {
+    cause: err,
+  });
 }
 
 async function readResponseText(response: Response, label: string, retry?: ProviderRetryOptions): Promise<string> {
@@ -1576,6 +1693,10 @@ function truthyEnv(value: string | undefined): boolean {
 
 function extractMaxTokensFromEnv(env: NodeJS.ProcessEnv): number {
   return positiveInt(env['DEMO_EXTRACT_MAX_TOKENS'], DEFAULT_EXTRACT_MAX_TOKENS, 'DEMO_EXTRACT_MAX_TOKENS');
+}
+
+function visionMaxTokensFromEnv(env: NodeJS.ProcessEnv): number {
+  return positiveInt(env['DEMO_VISION_MAX_TOKENS'], DEFAULT_EXTRACT_MAX_TOKENS, 'DEMO_VISION_MAX_TOKENS');
 }
 
 function nonNegativeMs(rateLimitSeconds: string | undefined): number {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#f6f7f9"/>
+  <rect x="0" y="0" width="960" height="34" fill="#20242a"/>
+  <text x="18" y="23" font-family="Arial, sans-serif" font-size="15" fill="#fff">Qwandery Workstation</text>
+  <rect x="28" y="64" width="904" height="420" rx="8" fill="#fff" stroke="#c8ced8"/>
+  <rect x="28" y="64" width="904" height="38" rx="8" fill="#e8edf5"/>
+  <text x="48" y="89" font-family="Arial, sans-serif" font-size="16" fill="#222">VS Code - trageti demos/big-brother/scenario.ts</text>
+  <text x="54" y="142" font-family="Consolas, monospace" font-size="18" fill="#27313d">function prepareBigBrother() {'{'} captureScreenshots(); describeImages(); {'}'}</text>
+  <text x="54" y="184" font-family="Consolas, monospace" font-size="18" fill="#27313d">TODO: document multimodal ingestion option and retrieval queries.</text>
+  <rect x="660" y="128" width="220" height="150" rx="6" fill="#f9fafc" stroke="#d9dee7"/>
+  <text x="682" y="162" font-family="Arial, sans-serif" font-size="16" fill="#27313d">Terminal</text>
+  <text x="682" y="198" font-family="Consolas, monospace" font-size="14" fill="#4c5766">npm run typecheck</text>
+</svg>

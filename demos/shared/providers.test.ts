@@ -5,6 +5,7 @@ import { buildExtractionPrompt } from './prompt.js';
 import {
   createOpenAICompatibleExtractionProvider,
   createOpenAICompatibleEmbeddingProvider,
+  createAnthropicExtractionProvider,
   createFixtureExtractionProvider,
   createOllamaNativeEmbeddingProvider,
   resolveDemoProviders,
@@ -540,6 +541,65 @@ describe('demo providers', () => {
     expect(requestBody).not.toHaveProperty('response_format');
   });
 
+  it('sends OpenAI-compatible image content parts when images are supplied', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['image description']));
+      }),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await provider.extract('describe', {
+      responseFormat: 'text',
+      images: { 'screen.png': { path: 'demos/big-brother/data/synthetic-screen-1.svg', mimeType: 'image/svg+xml' } },
+    });
+
+    const content = dataValue(requestBody, ['messages', 0, 'content']);
+    expect(Array.isArray(content)).toBe(true);
+    expect(dataValue(content, [0, 'text'])).toBe('describe');
+    expect(String(dataValue(content, [1, 'image_url', 'url']))).toContain('data:image/svg+xml;base64,');
+  });
+
+  it('sends Anthropic image content blocks when images are supplied', async () => {
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(
+          new Response(JSON.stringify({ content: [{ text: 'image description' }] }), { status: 200 }),
+        );
+      }),
+    );
+    const provider = createAnthropicExtractionProvider('sk-test', 'm', {
+      maxAttempts: 1,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      rateLimitMs: 0,
+    });
+
+    await provider.extract('describe', {
+      responseFormat: 'text',
+      images: { 'screen.png': { path: 'demos/big-brother/data/synthetic-screen-1.svg', mimeType: 'image/svg+xml' } },
+    });
+
+    const content = dataValue(requestBody, ['messages', 0, 'content']);
+    expect(Array.isArray(content)).toBe(true);
+    expect(dataValue(content, [0, 'text'])).toBe('describe');
+    expect(dataValue(content, [1, 'source', 'media_type'])).toBe('image/svg+xml');
+    expect(typeof dataValue(content, [1, 'source', 'data'])).toBe('string');
+  });
+
   it('appends full-trace extraction stream frames without per-token log entries', async () => {
     const messages: string[] = [];
     const appended: string[] = [];
@@ -725,7 +785,10 @@ describe('demo providers', () => {
   });
 
   it('rejects short whitespace-only extraction streams as contentless', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(openAIStreamResponse([' ', '\n']))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(openAIStreamResponse([' ', '\n']))),
+    );
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
       apiKey: 'sk-test',
@@ -821,16 +884,14 @@ describe('demo providers', () => {
   });
 
   it('decodes non-streaming fallback content arrays', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            choices: [{ message: { content: [{ type: 'text', text: '{"assertions":[],' }, { text: '"links":[]}' }] } }],
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: [{ type: 'text', text: '{"assertions":[],' }, { text: '"links":[]}' }] } }],
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
     const provider = createOpenAICompatibleExtractionProvider({
       baseUrl: 'https://example.invalid/v1',
@@ -1692,6 +1753,20 @@ function makeEpisode(): Omit<Episode, 'createdAt'> {
     type: 'test',
     content: 'doc',
   };
+}
+
+function dataValue(value: unknown, path: Array<string | number>): unknown {
+  let current = value;
+  for (const part of path) {
+    if (typeof part === 'number') {
+      if (!Array.isArray(current)) return undefined;
+      current = current[part];
+    } else {
+      if (current === null || typeof current !== 'object') return undefined;
+      current = (current as Record<string, unknown>)[part];
+    }
+  }
+  return current;
 }
 
 class FakeStore {

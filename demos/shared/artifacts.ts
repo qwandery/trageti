@@ -9,6 +9,7 @@ export interface PreparedIngestionUnit {
   episode: Omit<Episode, 'createdAt'>;
   document: string;
   citationSources: Record<string, string>;
+  imageSources?: Record<string, PreparedImageSource>;
   metadata?: Record<string, unknown>;
 }
 
@@ -20,6 +21,11 @@ export interface PreparedDemoArtifact {
   dataVersion: string;
   units: PreparedIngestionUnit[];
   metadata?: Record<string, unknown>;
+}
+
+export interface PreparedImageSource {
+  path: string;
+  mimeType: string;
 }
 
 export function preparedArtifactPath(scenario: string): string {
@@ -64,6 +70,9 @@ function validatePreparedUnit(unit: unknown, path: string): void {
   }
   if (row.citationSources === null || typeof row.citationSources !== 'object') {
     throw new Error(`${path} unit ${row.id} is missing citationSources`);
+  }
+  if (row.imageSources !== undefined && (row.imageSources === null || typeof row.imageSources !== 'object')) {
+    throw new Error(`${path} unit ${row.id} has invalid imageSources`);
   }
 }
 

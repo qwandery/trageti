@@ -12,6 +12,7 @@ export function buildExtractionPrompt(
   episode?: Omit<Episode, 'createdAt'>,
   namespace?: string,
   citationSources?: Record<string, string>,
+  imageSources?: Record<string, { path: string; mimeType: string }>,
 ): string {
   const existing =
     existingAssertions.length === 0
@@ -45,6 +46,14 @@ example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
         .map(([sourceRef, text]) => `--- sourceRef: ${sourceRef} ---\n${truncateSource(text)}`)
         .join('\n\n')}\n`
     : '';
+  const imageText =
+    imageSources && Object.keys(imageSources).length > 0
+      ? `\nRegistered image citation sources. You may cite these sourceRef values without excerptStart/excerptEnd offsets:\n${Object.entries(
+          imageSources,
+        )
+          .map(([sourceRef, image]) => `- sourceRef=${sourceRef}; path=${image.path}; mimeType=${image.mimeType}`)
+          .join('\n')}\n`
+      : '';
   return `You are extracting structured temporal assertions from a document.
 
 Existing assertions (for supersession or link decisions):
@@ -54,6 +63,7 @@ ${episodeContext}
 Document:
 ${document}
 ${sourceText}
+${imageText}
 
 Output a single JSON object shaped like this example in the final visible assistant message. Do not put the JSON only in hidden reasoning, analysis, tool calls, or provider-specific reasoning fields. Replace the example values with claims from the current document:
 {
@@ -100,6 +110,7 @@ Citation rules:
 - Do not supply citation.excerpt text. Always set "excerpt": null.
 - Supply sourceRef, excerptStart, and excerptEnd so the demo runner can derive the stored citation excerpt from registered source text.
 - When registered citation spans are listed above, choose a span and copy its sourceRef, excerptStart, and excerptEnd exactly.
+- For registered image citation sources only, use the image sourceRef and omit excerptStart/excerptEnd; set excerpt to null.
 - If no external source document is provided, offsets refer to the Document text above.
 - If sourceRef names an external source document, offsets refer to that external source document, not this episode summary.
 - If the offsets do not resolve to source text, ingestion will fail.

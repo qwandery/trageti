@@ -1,0 +1,107 @@
+import { describe, expect, it } from 'vitest';
+import { validatePreparedArtifact } from '../shared/artifacts.js';
+import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js';
+import {
+  bigBrotherMetadata,
+  parseBigBrotherCliOptions,
+  prepareBigBrotherArtifact,
+  resolveBigBrotherProviders,
+} from './big-brother.js';
+
+const trace = {
+  enabled: false,
+  includePayloads: false,
+  includeRawVectors: false,
+  log() {
+    return undefined;
+  },
+};
+
+describe('big-brother demo', () => {
+  it('parses capture and multimodal options', () => {
+    expect(
+      parseBigBrotherCliOptions([
+        'node',
+        'index.ts',
+        '--capture',
+        '--captures',
+        '3',
+        '--duration-minutes=0.25',
+        '--multimodal',
+        '--query',
+        'What next?',
+      ]),
+    ).toMatchObject({
+      capture: true,
+      captures: 3,
+      durationMinutes: 0.25,
+      multimodal: true,
+      query: 'What next?',
+    });
+  });
+
+  it('creates an offline synthetic prepared artifact', async () => {
+    const artifact = await prepareBigBrotherArtifact({
+      cli: parseBigBrotherCliOptions(['node', 'index.ts']),
+      env: {},
+      trace,
+    });
+
+    expect(validatePreparedArtifact(artifact)).toBe(artifact);
+    expect(artifact.scenario).toBe('big-brother');
+    expect(artifact.units).toHaveLength(2);
+    expect(bigBrotherMetadata(artifact).fixtureData).toBeDefined();
+  });
+
+  it('resolves synthetic fixture providers with query vectors', async () => {
+    const artifact = await prepareBigBrotherArtifact({
+      cli: parseBigBrotherCliOptions(['node', 'index.ts', '--query', 'What should I do next?']),
+      env: {},
+      trace,
+    });
+    const providers = resolveBigBrotherProviders({
+      cli: parseBigBrotherCliOptions(['node', 'index.ts', '--query', 'What should I do next?']),
+      artifact,
+      env: {},
+      trace,
+    });
+
+    expect(providers.extractor.provenance.kind).toBe('fixture');
+    await expect(providers.embedder.provider.embed(['What should I do next?'])).resolves.toHaveLength(1);
+  });
+
+  it('allows image citations to omit text offsets', () => {
+    const result = resolveCitationExcerpts(
+      {
+        assertions: [
+          {
+            id: 'a-screen-1-0',
+            namespace: 'screen-activity',
+            type: 'fact',
+            content: 'The screen shows a code editor.',
+            validFrom: 1,
+            confidence: 0.8,
+            sourceEpisodeId: 'screen-1',
+            citations: [
+              {
+                id: 'c-a-screen-1-0-0',
+                episodeId: 'screen-1',
+                sourceRef: 'demos/.local/big-brother/screen.png',
+                excerpt: null,
+              },
+            ],
+          },
+        ],
+        links: [],
+      },
+      'metadata',
+      {},
+      { 'demos/.local/big-brother/screen.png': { path: 'demos/.local/big-brother/screen.png', mimeType: 'image/png' } },
+    );
+
+    expect(result.assertions[0]?.citations[0]?.excerptStart).toBeUndefined();
+    expect(() => {
+      validateExtractionResult(result, []);
+    }).not.toThrow();
+  });
+});

@@ -11,13 +11,15 @@ workflows.
 | -------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `alex-place`   | A cooking journal plus fictional food-science references   | Ingestion, hybrid retrieval, supersession, graph expansion, entity history, query answers, final narrative synthesis                           |
 | `know-thyself` | Git-derived keyframe history for this repo or another repo | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots, query answers, final narrative synthesis |
+| `big-brother`  | Desktop screenshots or synthetic screen fixtures           | Multimodal preparation, image-derived ingestion, activity retrieval, goal inference, query answers, final narrative synthesis                  |
 
-Both demos share provider handling from `demos/shared/`. Extraction and
+The demos share provider handling from `demos/shared/`. Extraction, vision, and
 embedding are configured independently:
 
 | Capability | Providers                                       |
 | ---------- | ----------------------------------------------- |
 | Extraction | `fixture`, `anthropic`, `openai-compatible`     |
+| Vision     | `fixture`, `anthropic`, `openai-compatible`     |
 | Embedding  | `fixture`, `openai-compatible`, `ollama-native` |
 
 The demos distinguish source documents from episodes. Source documents are the
@@ -39,6 +41,7 @@ Run the shared demo CLI from the repository root:
 ```sh
 npm run trageti-demo -- alex-place run
 npm run trageti-demo -- know-thyself run
+npm run trageti-demo -- big-brother run
 ```
 
 Each scenario has four phases:
@@ -64,6 +67,7 @@ npm run trageti-demo -- alex-place run --query "From whom has Alex learned speci
 npm run trageti-demo -- know-thyself run --query "What changed about persistence?"
 npm run trageti-demo -- know-thyself run --repo ../some-repo --keyframes abc123,def456,789abcd
 npm run trageti-demo -- know-thyself run --limit 60
+npm run trageti-demo -- big-brother run --query "What should I work on next?"
 ```
 
 Custom-query mode runs ingestion, then prints one retrieval result and one
@@ -75,10 +79,11 @@ custom query.
 
 ## Offline mode
 
-With no provider environment variables, both demos run offline. Alex uses
+With no provider environment variables, the demos run offline. Alex uses
 committed extraction fixtures and committed raw vectors. Know Thyself derives
 its default repo/keyframe source docs, extraction fixtures, and hash vectors at
-runtime. Offline mode is deterministic, requires no API keys, and is suitable
+runtime. Big Brother uses committed synthetic screen fixtures, deterministic
+extraction fixtures, and hash vectors. Offline mode is deterministic, requires no API keys, and is suitable
 for smoke tests and quick orientation. It still writes a real SQLite database
 and exercises the normal `TemporalStore`, schema, ingestion, indexing, and
 retrieval paths. It is not intended to demonstrate real semantic embedding
@@ -98,10 +103,13 @@ data version, extraction provider, embedding provider, embedding dimension, and
 fixture/live mode. Know Thyself uses run-specific DB files under
 `demos/.local/know-thyself/<run-hash>.db`, so different repo/keyframe/provider
 inputs do not collide.
+Big Brother writes screenshots and run-specific DB files under
+`demos/.local/big-brother/`.
 
 ```sh
 rm -f demos/.local/alex-place.db
 rm -rf demos/.local/know-thyself
+rm -rf demos/.local/big-brother
 ```
 
 ## Provider configuration
@@ -109,6 +117,23 @@ rm -rf demos/.local/know-thyself
 Copy `.env.example` to `.env` and configure extraction and embedding separately.
 Extraction produces structured assertions and links from source text. Embedding
 turns assertion/query text into fixed-length vectors for semantic retrieval.
+Vision produces detailed text descriptions from screenshots for Big Brother's
+default prepare flow.
+
+Big Brother asks before live desktop capture unless `--capture` is supplied:
+
+```sh
+npm run trageti-demo -- big-brother run --capture
+npm run trageti-demo -- big-brother run --capture --captures 10 --duration-minutes 5
+npm run trageti-demo -- big-brother run --capture --multimodal
+```
+
+By default, Big Brother captures screenshots during `prepare`, describes each
+image with `DEMO_VISION_*`, and ingests those descriptions. With `--multimodal`,
+`prepare` only captures the images and `ingest` sends the image files directly
+to the extraction model; configure `DEMO_EXTRACT_PROVIDER` with a model that
+accepts image inputs. Operating systems may require screen-recording permission
+for the terminal or shell running the demo.
 
 `DEMO_EMBED_DIMENSION` must match the embedding model response size requested
 from the provider. For OpenAI `text-embedding-3-small`, `768` is valid when the

@@ -233,12 +233,14 @@ export async function ingestPreparedUnits(options: {
         `${String(Object.keys(unit.citationSources).length)} citation source(s), responseFormat=json`,
     );
     const sourceRefs = Object.keys(unit.citationSources);
+    const imageRefs = Object.keys(unit.imageSources ?? {});
     const promptSize = buildExtractionPrompt(
       unit.document,
       accumulated,
       episode,
       options.namespace,
       sourceRefs.length > 0 ? unit.citationSources : undefined,
+      unit.imageSources,
     ).length;
     options.logger?.detail(
       `  Extracting ${unit.id}: ${episode.type} position ${String(episode.position)} via ${
@@ -247,6 +249,7 @@ export async function ingestPreparedUnits(options: {
     );
     options.logger?.detail(`    Document: "${truncate(sanitizeForTerminal(unit.document), 120)}"`);
     options.logger?.detail(`    Source refs: ${sourceRefs.length > 0 ? sourceRefs.join(', ') : 'episode document'}`);
+    if (imageRefs.length > 0) options.logger?.detail(`    Image refs: ${imageRefs.join(', ')}`);
     const extractionStarted = performance.now();
     const ingestOptions = {
       store: options.store,
@@ -256,6 +259,9 @@ export async function ingestPreparedUnits(options: {
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
       ...(Object.keys(unit.citationSources).length > 0 ? { citationSources: unit.citationSources } : {}),
+      ...(unit.imageSources !== undefined && Object.keys(unit.imageSources).length > 0
+        ? { imageSources: unit.imageSources }
+        : {}),
       ...(options.sanitizeExtractionResult !== undefined && {
         sanitizeExtractionResult: (result: ExtractionResult) =>
           options.sanitizeExtractionResult?.(result, { episode, existingAssertions: accumulated }) ?? result,

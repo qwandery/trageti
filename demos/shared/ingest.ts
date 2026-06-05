@@ -5,13 +5,14 @@
 import type { TemporalStore, Episode, Assertion, AssertionLink, NewAssertionInput } from 'trageti';
 import { buildExtractionPrompt } from './prompt.js';
 import { parseExtraction } from './parse.js';
-import type { ExtractionProvider } from './providers.js';
+import type { ExtractionProvider, ExtractionImageInput } from './providers.js';
 
 export interface IngestOptions {
   store: TemporalStore;
   episode: Omit<Episode, 'createdAt'>;
   document: string;
   citationSources?: Record<string, string>;
+  imageSources?: Record<string, ExtractionImageInput>;
   existingAssertions?: Assertion[];
   extractor: ExtractionProvider;
   namespace: string;
@@ -26,13 +27,28 @@ export interface ExtractionResult {
 }
 
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
-  const { store, episode, document, citationSources, existingAssertions, extractor, promptOverride, namespace } =
-    options;
+  const {
+    store,
+    episode,
+    document,
+    citationSources,
+    imageSources,
+    existingAssertions,
+    extractor,
+    promptOverride,
+    namespace,
+  } = options;
   const prompt =
-    promptOverride ?? buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources);
-  const raw = await extractor.extract(prompt, { episodeId: episode.id, responseFormat: 'json' });
+    promptOverride ??
+    buildExtractionPrompt(document, existingAssertions ?? [], episode, namespace, citationSources, imageSources);
+  const extractOptions = {
+    episodeId: episode.id,
+    responseFormat: 'json' as const,
+    ...(imageSources !== undefined ? { images: imageSources } : {}),
+  };
+  const raw = await extractor.extract(prompt, extractOptions);
   const result = parseExtractionForEpisode(raw, episode.id);
-  const resolved = resolveCitationExcerpts(result, document, citationSources);
+  const resolved = resolveCitationExcerpts(result, document, citationSources, imageSources);
   const cited = options.sanitizeExtractionResult?.(resolved) ?? resolved;
   validateExtractionResult(cited, existingAssertions ?? []);
 
@@ -65,6 +81,7 @@ export function resolveCitationExcerpts(
   result: ExtractionResult,
   document: string,
   citationSources?: Record<string, string>,
+  imageSources?: Record<string, ExtractionImageInput>,
 ): ExtractionResult {
   return {
     assertions: result.assertions.map((a) => ({
@@ -76,6 +93,15 @@ export function resolveCitationExcerpts(
                 `Extraction result failed citation validation:\n` +
                   `- citation "${c.id}" supplied excerpt text directly; provide excerptStart/excerptEnd and set excerpt to null`,
               );
+            }
+            if (isImageCitation(c.sourceRef, imageSources)) {
+              const imageCitation = {
+                ...c,
+                excerpt: c.excerpt ?? null,
+              };
+              if (c.excerptStart !== undefined) imageCitation.excerptStart = c.excerptStart;
+              if (c.excerptEnd !== undefined) imageCitation.excerptEnd = c.excerptEnd;
+              return imageCitation;
             }
             const source = resolveCitationSource(c.sourceRef, document, citationSources);
             const start = parseOffset(c.excerptStart);
@@ -104,6 +130,10 @@ export function resolveCitationExcerpts(
     })),
     links: result.links,
   };
+}
+
+function isImageCitation(sourceRef: string, imageSources?: Record<string, ExtractionImageInput>): boolean {
+  return imageSources !== undefined && Object.prototype.hasOwnProperty.call(imageSources, sourceRef);
 }
 
 function resolveCitationSource(
