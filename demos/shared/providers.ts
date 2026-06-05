@@ -738,7 +738,13 @@ function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean)
 function inferVisionProvider(env: NodeJS.ProcessEnv): string {
   if (env['DEMO_VISION_PROVIDER']) return env['DEMO_VISION_PROVIDER'];
   if (env['ANTHROPIC_API_KEY']) return 'anthropic';
-  if (env['OPENROUTER_API_KEY'] || env['OPENAI_API_KEY'] || env['OLLAMA_HOST'] || env['DEMO_VISION_BASE_URL']) {
+  if (
+    env['OPENROUTER_API_KEY'] ||
+    env['OPENAI_API_KEY'] ||
+    env['OLLAMA_HOST'] ||
+    env['DEMO_VISION_BASE_URL'] ||
+    env['DEMO_EXTRACT_BASE_URL']
+  ) {
     return 'openai-compatible';
   }
   return 'fixture';
@@ -870,9 +876,11 @@ function openAICompatibleEmbeddingExtraBody(env: NodeJS.ProcessEnv): Record<stri
 }
 
 function openAICompatibleVisionExtraBody(env: NodeJS.ProcessEnv): Record<string, unknown> | undefined {
-  const raw = env['DEMO_VISION_EXTRA_BODY_JSON']?.trim();
+  const name =
+    env['DEMO_VISION_EXTRA_BODY_JSON'] === undefined ? 'DEMO_EXTRACT_EXTRA_BODY_JSON' : 'DEMO_VISION_EXTRA_BODY_JSON';
+  const raw = env['DEMO_VISION_EXTRA_BODY_JSON']?.trim() ?? env['DEMO_EXTRACT_EXTRA_BODY_JSON']?.trim();
   if (!raw) return undefined;
-  return parseJsonObjectEnv(raw, 'DEMO_VISION_EXTRA_BODY_JSON');
+  return parseJsonObjectEnv(raw, name);
 }
 
 function parseJsonObjectEnv(raw: string, name: string): Record<string, unknown> {
@@ -1027,7 +1035,7 @@ function openAICompatPreset(
         : purpose === 'embed'
           ? 'DEMO_EMBED_BASE_URL'
           : 'DEMO_VISION_BASE_URL'
-    ];
+    ] ?? (purpose === 'vision' ? env['DEMO_EXTRACT_BASE_URL'] : undefined);
   const explicitKey =
     env[
       purpose === 'extract'
@@ -1035,7 +1043,7 @@ function openAICompatPreset(
         : purpose === 'embed'
           ? 'DEMO_EMBED_API_KEY'
           : 'DEMO_VISION_API_KEY'
-    ];
+    ] ?? (purpose === 'vision' ? env['DEMO_EXTRACT_API_KEY'] : undefined);
   if (explicitBase) {
     return {
       baseUrl: explicitBase,

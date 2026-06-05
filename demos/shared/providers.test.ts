@@ -11,6 +11,7 @@ import {
   resolveDemoProviders,
   resolveLiveExtractionProvider,
   resolveLiveEmbeddingProvider,
+  resolveVisionProvider,
   type ExtractionProvider,
 } from './providers.js';
 
@@ -137,6 +138,105 @@ describe('demo providers', () => {
     });
 
     expect(providers.extractor.provenance.maxTokens).toBe(333);
+  });
+
+  it('honors explicit OpenAI-compatible vision base URL', () => {
+    const provider = resolveVisionProvider({
+      env: {
+        DEMO_VISION_PROVIDER: 'openai-compatible',
+        DEMO_VISION_BASE_URL: 'https://vision.example.invalid/v1',
+        DEMO_EXTRACT_BASE_URL: 'https://extract.example.invalid/v1',
+        OPENAI_API_KEY: 'sk-test',
+      },
+    });
+
+    expect(provider.provenance.baseUrl).toBe('https://vision.example.invalid/v1');
+  });
+
+  it('inherits OpenAI-compatible extraction endpoint and API key for vision when vision values are absent', async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestUrl = url;
+        requestInit = init;
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['vision text']));
+      }),
+    );
+    const provider = resolveVisionProvider({
+      env: {
+        DEMO_VISION_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://extract.example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-extract',
+        DEMO_EXTRACT_MODEL: 'extract-model',
+        DEMO_EXTRACT_EXTRA_BODY_JSON: '{"seed":123}',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await expect(provider.extract('describe', { responseFormat: 'text' })).resolves.toBe('vision text');
+
+    expect(String(requestUrl)).toBe('https://extract.example.invalid/v1/chat/completions');
+    expect((requestInit?.headers as Record<string, string> | undefined)?.['Authorization']).toBe('Bearer sk-extract');
+    expect(requestBody).toMatchObject({ model: 'gpt-4o-mini', seed: 123 });
+  });
+
+  it('lets OpenAI-compatible vision settings override inherited extraction settings', async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    let requestBody: unknown;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestUrl = url;
+        requestInit = init;
+        requestBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(openAIStreamResponse(['vision text']));
+      }),
+    );
+    const provider = resolveVisionProvider({
+      env: {
+        DEMO_VISION_PROVIDER: 'openai-compatible',
+        DEMO_VISION_BASE_URL: 'https://vision.example.invalid/v1',
+        DEMO_VISION_API_KEY: 'sk-vision',
+        DEMO_VISION_MODEL: 'vision-model',
+        DEMO_VISION_EXTRA_BODY_JSON: '{"seed":456}',
+        DEMO_EXTRACT_BASE_URL: 'https://extract.example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-extract',
+        DEMO_EXTRACT_EXTRA_BODY_JSON: '{"seed":123}',
+        DEMO_PROVIDER_MAX_ATTEMPTS: '1',
+        DEMO_RATE_LIMIT: '0',
+      },
+    });
+
+    await expect(provider.extract('describe', { responseFormat: 'text' })).resolves.toBe('vision text');
+
+    expect(String(requestUrl)).toBe('https://vision.example.invalid/v1/chat/completions');
+    expect((requestInit?.headers as Record<string, string> | undefined)?.['Authorization']).toBe('Bearer sk-vision');
+    expect(requestBody).toMatchObject({ model: 'vision-model', seed: 456 });
+  });
+
+  it('keeps explicit OpenAI-compatible extraction resolution unchanged', () => {
+    const provider = resolveLiveExtractionProvider({
+      env: {
+        DEMO_EXTRACT_PROVIDER: 'openai-compatible',
+        DEMO_EXTRACT_BASE_URL: 'https://extract.example.invalid/v1',
+        DEMO_EXTRACT_API_KEY: 'sk-extract',
+        DEMO_EXTRACT_MODEL: 'extract-model',
+      },
+    });
+
+    expect(provider.provenance).toMatchObject({
+      kind: 'openai-compatible',
+      baseUrl: 'https://extract.example.invalid/v1',
+      model: 'extract-model',
+    });
   });
 
   it('passes embedding AbortSignal through to fetch', async () => {
