@@ -62,8 +62,18 @@ describe('parseKnowThyselfCliOptions', () => {
 describe('deriveHistoryData', () => {
   it('derives keyframes, episodes, and citation sources from git', async () => {
     const repo = createRepo();
-    const first = commit(repo, 'initial architecture', { 'README.md': '# Demo\n\nInitial architecture\n' });
-    const second = commit(repo, 'add persistence', { 'src/store.ts': 'export const persistence = true;\n' });
+    const first = commit(
+      repo,
+      'initial architecture',
+      { 'README.md': '# Demo\n\nInitial architecture\n' },
+      '2026-04-29T11:51:49-06:00',
+    );
+    const second = commit(
+      repo,
+      'add persistence',
+      { 'src/store.ts': 'export const persistence = true;\n' },
+      '2026-05-19T17:36:01-06:00',
+    );
 
     const data = await deriveHistoryData({
       repoPath: repo,
@@ -74,9 +84,12 @@ describe('deriveHistoryData', () => {
 
     expect(data.keyframes.map((k) => k.position)).toEqual([1, 2]);
     expect(data.keyframes.map((k) => k.label)).toEqual(['initial architecture', 'add persistence']);
+    expect(data.keyframes.map((k) => k.date)).toEqual(['2026-04-29T11:51:49-06:00', '2026-05-19T17:36:01-06:00']);
     expect(data.episodes.map((e) => e.id)).toEqual(['kf-1', 'kf-2']);
+    expect(data.episodes.map((e) => e.occurredAt)).toEqual(data.keyframes.map((k) => k.date));
     expect(Object.keys(data.citationSources)).toEqual(['sources/kf-1.md', 'sources/kf-1..kf-2.md']);
     expect(data.citationSources['sources/kf-1..kf-2.md']).toContain('## git diff --stat');
+    expect(data.citationSources['sources/kf-1..kf-2.md']).toContain('Date: 2026-05-19T17:36:01-06:00');
   });
 
   it('summarizes selected repository content one file at a time', async () => {
@@ -372,17 +385,21 @@ function createRepo(): string {
   return repo;
 }
 
-function commit(repo: string, message: string, files: Record<string, string>): string {
+function commit(repo: string, message: string, files: Record<string, string>, date?: string): string {
   for (const [path, content] of Object.entries(files)) {
     const full = join(repo, path);
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, content, { flag: 'w' });
   }
   git(repo, ['add', '.']);
-  git(repo, ['commit', '-m', message]);
+  git(
+    repo,
+    ['commit', '-m', message],
+    date === undefined ? undefined : { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  );
   return git(repo, ['rev-parse', 'HEAD']).trim();
 }
 
-function git(repo: string, args: readonly string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+function git(repo: string, args: readonly string[], env?: NodeJS.ProcessEnv): string {
+  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
 }

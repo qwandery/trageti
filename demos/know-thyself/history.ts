@@ -245,10 +245,12 @@ export function createCachedLiveSummarizer(options: {
           return cached.summary;
         }
       }
-      const summary = (await options.extractor.extract(prompt, {
-        responseFormat: 'text',
-        ...(context?.sourceRef ? { episodeId: context.sourceRef } : {}),
-      })).trim();
+      const summary = (
+        await options.extractor.extract(prompt, {
+          responseFormat: 'text',
+          ...(context?.sourceRef ? { episodeId: context.sourceRef } : {}),
+        })
+      ).trim();
       if (context) context.cacheHit = false;
       writeFileSync(path, JSON.stringify({ summary }, null, 2));
       return summary;
@@ -299,7 +301,7 @@ export async function deriveHistoryData(options: {
       id: `kf-${String(current.position)}`,
       namespace: NAMESPACE,
       position: current.position,
-      occurredAt: `${current.date}T00:00:00Z`,
+      occurredAt: current.date,
       type: 'keyframe',
       content: `${current.label}. Source document: ${sourceKey}. ${built.summary}`,
     });
@@ -400,10 +402,7 @@ export function createFixtureProviders(options: {
   };
 }
 
-export function resolveProvidersAndDataMode(
-  cli: KnowThyselfCliOptions,
-  trace: LlmTraceOptions,
-): ResolvedDemoProviders {
+export function resolveProvidersAndDataMode(cli: KnowThyselfCliOptions, trace: LlmTraceOptions): ResolvedDemoProviders {
   const env = envWithDemoRateLimit(process.env, cli.rateLimitSeconds);
   if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
     return createPendingFixtureProviders();
@@ -470,11 +469,11 @@ function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   if (explicitEmbed && explicitEmbed !== 'fixture') return true;
   return Boolean(
     env['ANTHROPIC_API_KEY'] ??
-      env['OPENAI_API_KEY'] ??
-      env['OPENROUTER_API_KEY'] ??
-      env['OLLAMA_HOST'] ??
-      env['DEMO_EXTRACT_BASE_URL'] ??
-      env['DEMO_EMBED_BASE_URL'],
+    env['OPENAI_API_KEY'] ??
+    env['OPENROUTER_API_KEY'] ??
+    env['OLLAMA_HOST'] ??
+    env['DEMO_EXTRACT_BASE_URL'] ??
+    env['DEMO_EMBED_BASE_URL'],
   );
 }
 
@@ -551,7 +550,7 @@ function verifyGitRepo(repoPath: string): void {
 function resolveKeyframe(repoPath: string, ref: string, position: number): Keyframe {
   const hash = git(repoPath, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
   const label = git(repoPath, ['log', hash, '-1', '--format=%s']).trim() || hash.slice(0, 12);
-  const date = git(repoPath, ['log', hash, '-1', '--format=%cs']).trim() || '1970-01-01';
+  const date = git(repoPath, ['log', hash, '-1', '--format=%cI']).trim() || '1970-01-01T00:00:00Z';
   return { hash, position, label, date };
 }
 
