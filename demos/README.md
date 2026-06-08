@@ -144,13 +144,15 @@ endpoint once and count the returned vector length. Do not guess this value:
 SQLite vector tables are created with a fixed dimension, and every inserted
 embedding must match it.
 
-Live demo provider calls are serialized at one request per 5 seconds by default.
-Extraction retries only temporary HTTP statuses: `408`, `429`, `502`, `503`,
-and `504`. A `500 Internal Server Error` is treated as a provider/model failure
-and fails fast instead of waiting through repeated backoff attempts. Rate-limit
-and retry waits are printed without prompts or credentials. Override the rate
-limit with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`. Provider requests
-time out after 60 seconds by default. Override retry timing with
+Live demo provider calls are serialized in-process at one request per 5 seconds
+by default, measured from completion of one live provider request to the start of
+the next. Separate demo commands launched in different terminals do not share
+this limiter. Extraction retries only temporary HTTP statuses: `408`, `429`,
+`502`, `503`, and `504`. A `500 Internal Server Error` is treated as a
+provider/model failure and fails fast instead of waiting through repeated backoff
+attempts. Rate-limit and retry waits are printed without prompts or credentials.
+Override the rate limit with `--limit <seconds>` or `DEMO_RATE_LIMIT=<seconds>`.
+Provider requests time out after 60 seconds by default. Override retry timing with
 `DEMO_PROVIDER_MAX_ATTEMPTS`, `DEMO_PROVIDER_BASE_DELAY_MS`,
 `DEMO_PROVIDER_MAX_DELAY_MS`, and `DEMO_PROVIDER_TIMEOUT_MS`. Contentless
 successful streams use a smaller retry cap, `DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS`

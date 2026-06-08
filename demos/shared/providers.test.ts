@@ -8,6 +8,7 @@ import {
   createAnthropicExtractionProvider,
   createFixtureExtractionProvider,
   createOllamaNativeEmbeddingProvider,
+  resetDemoProviderRateLimitForTests,
   resolveDemoProviders,
   resolveLiveExtractionProvider,
   resolveLiveEmbeddingProvider,
@@ -47,6 +48,7 @@ describe('demo providers', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    resetDemoProviderRateLimitForTests();
   });
 
   it('fixture extraction is keyed by episode id', async () => {
@@ -181,7 +183,7 @@ describe('demo providers', () => {
 
     await expect(provider.extract('describe', { responseFormat: 'text' })).resolves.toBe('vision text');
 
-    expect(String(requestUrl)).toBe('https://extract.example.invalid/v1/chat/completions');
+    expect(requestUrlString(requestUrl)).toBe('https://extract.example.invalid/v1/chat/completions');
     expect((requestInit?.headers as Record<string, string> | undefined)?.['Authorization']).toBe('Bearer sk-extract');
     expect(requestBody).toMatchObject({ model: 'gpt-4o-mini', seed: 123 });
   });
@@ -217,7 +219,7 @@ describe('demo providers', () => {
 
     await expect(provider.extract('describe', { responseFormat: 'text' })).resolves.toBe('vision text');
 
-    expect(String(requestUrl)).toBe('https://vision.example.invalid/v1/chat/completions');
+    expect(requestUrlString(requestUrl)).toBe('https://vision.example.invalid/v1/chat/completions');
     expect((requestInit?.headers as Record<string, string> | undefined)?.['Authorization']).toBe('Bearer sk-vision');
     expect(requestBody).toMatchObject({ model: 'vision-model', seed: 456 });
   });
@@ -1158,7 +1160,7 @@ describe('demo providers', () => {
     );
   });
 
-  it('rate-limits the first attempt of consecutive live provider requests', async () => {
+  it('rate-limits consecutive live provider requests after completion', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
     const fetchMock = vi.fn(() => Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}'])));
@@ -1172,14 +1174,109 @@ describe('demo providers', () => {
 
     await provider.extract('first');
     const second = provider.extract('second');
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(4999);
+    await vi.advanceTimersByTimeAsync(4000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(1000);
     await second;
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits from completion rather than request start before the next live provider request', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 10_000);
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(() => {
+              resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+            }, 2000);
+          }),
+      )
+      .mockResolvedValueOnce(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 5000 },
+    });
+
+    const first = provider.extract('first');
+    await vi.advanceTimersByTimeAsync(0);
+    const second = provider.extract('second');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    await first;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    await second;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits at least the configured rate limit before retrying HTTP 429 without retry headers', async () => {
+    const startedAt: number[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        startedAt.push(performance.now());
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { message: 'Too many requests' } }), { status: 429 }),
+        );
+      })
+      .mockImplementationOnce(() => {
+        startedAt.push(performance.now());
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 50 },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((startedAt[1] ?? 0) - (startedAt[0] ?? 0)).toBeGreaterThanOrEqual(45);
+  });
+
+  it('uses rate-limit reset headers before retrying HTTP 429', async () => {
+    const startedAt: number[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        startedAt.push(performance.now());
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { message: 'Too many requests' } }), {
+            status: 429,
+            headers: { 'x-ratelimit-reset-requests': '80ms' },
+          }),
+        );
+      })
+      .mockImplementationOnce(() => {
+        startedAt.push(performance.now());
+        return Promise.resolve(openAIStreamResponse(['{"assertions":[],"links":[]}']));
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 50 },
+    });
+
+    await expect(provider.extract('prompt')).resolves.toContain('"assertions"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((startedAt[1] ?? 0) - (startedAt[0] ?? 0)).toBeGreaterThanOrEqual(75);
   });
 
   it('does not log a prior-request wait before the first rate-limited request', async () => {
@@ -1842,6 +1939,12 @@ function openAIStreamDataResponse(data: unknown[]): Response {
     }),
     { status: 200 },
   );
+}
+
+function requestUrlString(value: string | URL | Request | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (value instanceof URL) return value.href;
+  return value?.url;
 }
 
 function makeEpisode(): Omit<Episode, 'createdAt'> {

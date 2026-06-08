@@ -85,6 +85,7 @@ class ProviderHttpError extends Error {
     message: string,
     readonly status: number,
     readonly retryAfterMs: number | null,
+    readonly rateLimitResetMs: number | null,
     readonly detail: string | null = null,
   ) {
     super(detail ? `${message}; ${detail}` : message);
@@ -1096,6 +1097,7 @@ async function readJsonResponse(response: Response, label: string, retry?: Provi
       `${label} failed HTTP ${String(response.status)} ${response.statusText}`,
       response.status,
       retryAfterMs(response.headers.get('retry-after')),
+      rateLimitResetMs(response.headers),
       detail,
     );
   }
@@ -1117,11 +1119,12 @@ async function fetchOpenAIChatCompletionNonStream(options: {
   skipRateLimit?: boolean;
 }): Promise<string> {
   if (options.skipRateLimit !== true) {
-    await waitForProviderRateLimit(
+    return await withProviderRateLimit(
       options.retry?.rateLimitMs ?? retryOptionsFromEnv({}).rateLimitMs,
       `${options.label} extraction fallback`,
       (message) => options.retry?.log?.(message),
       options.retry?.traceTimings === true,
+      () => fetchOpenAIChatCompletionNonStream({ ...options, skipRateLimit: true }),
     );
   }
   const started = performance.now();
@@ -1188,6 +1191,7 @@ async function readOpenAIChatCompletionStream(
       `${label} extraction failed HTTP ${String(response.status)} ${response.statusText}`,
       response.status,
       retryAfterMs(response.headers.get('retry-after')),
+      rateLimitResetMs(response.headers),
       detail,
     );
   }
@@ -1488,13 +1492,13 @@ async function withProviderRetry<T>(
 
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt++) {
     try {
-      await waitForProviderRateLimit(
+      return await withProviderRateLimit(
         retry.rateLimitMs,
         label,
         (message) => retry.log?.(message),
         retry.traceTimings === true,
+        operation,
       );
-      return await operation();
     } catch (err) {
       const transportError = providerTransportError(err);
       if (transportError) {
@@ -1508,7 +1512,8 @@ async function withProviderRetry<T>(
       }
       if (err instanceof ProviderHttpError) {
         if (!shouldRetryHttpStatus(err.status, retry) || attempt >= retry.maxAttempts) throw err;
-        const delay = err.retryAfterMs ?? backoffDelayMs(attempt, retry);
+        const delay = retryDelayMs(err, attempt, retry);
+        if (err.status === 429) postponeProviderRateLimit(delay);
         retry.log?.(
           `${label} retry ${String(attempt + 1)}/${String(retry.maxAttempts)} after HTTP ${String(err.status)}; waiting ${String(delay)} ms`,
         );
@@ -1531,15 +1536,21 @@ async function withProviderRetry<T>(
   throw new Error(`Internal error: exhausted retry loop for ${label}`);
 }
 
-let lastLiveProviderCallAt = 0;
+let nextLiveProviderRequestAt = 0;
 let providerRateLimitQueue = Promise.resolve();
 
-async function waitForProviderRateLimit(
+export function resetDemoProviderRateLimitForTests(): void {
+  nextLiveProviderRequestAt = 0;
+  providerRateLimitQueue = Promise.resolve();
+}
+
+async function withProviderRateLimit<T>(
   rateLimitMs: number,
   label: string,
   log: ((message: string) => void) | undefined,
   traceTimings: boolean,
-): Promise<void> {
+  operation: () => Promise<T>,
+): Promise<T> {
   const previous = providerRateLimitQueue;
   let release!: () => void;
   providerRateLimitQueue = new Promise<void>((resolve) => {
@@ -1552,17 +1563,21 @@ async function waitForProviderRateLimit(
     if (traceTimings && queuedMs >= 1) {
       log?.(`${label} rate limit: queue wait complete (${queuedMs.toFixed(1)} ms)`);
     }
-    const rawElapsedMs = Date.now() - lastLiveProviderCallAt;
-    const elapsedMs = rawElapsedMs < 0 ? rateLimitMs : rawElapsedMs;
-    const waitMs = Math.max(0, rateLimitMs - elapsedMs);
+    const rawWaitMs = nextLiveProviderRequestAt - performance.now();
+    const waitMs = rawWaitMs < 0 ? 0 : rawWaitMs;
     if (waitMs > 0) {
       log?.(`${label} rate limit: waiting ${String(waitMs)} ms before next live provider request`);
       await sleep(waitMs);
     }
-    lastLiveProviderCallAt = Date.now();
+    return await operation();
   } finally {
+    nextLiveProviderRequestAt = Math.max(nextLiveProviderRequestAt, performance.now() + rateLimitMs);
     release();
   }
+}
+
+function postponeProviderRateLimit(delayMs: number): void {
+  nextLiveProviderRequestAt = Math.max(nextLiveProviderRequestAt, performance.now() + delayMs);
 }
 
 function shouldRetryHttpStatus(status: number, retry: ProviderRetryOptions): boolean {
@@ -1577,6 +1592,54 @@ function retryAfterMs(value: string | null): number | null {
   const date = Date.parse(value);
   if (!Number.isFinite(date)) return null;
   return Math.max(0, date - Date.now());
+}
+
+function retryDelayMs(err: ProviderHttpError, attempt: number, retry: ProviderRetryOptions): number {
+  if (err.status !== 429) return err.retryAfterMs ?? backoffDelayMs(attempt, retry);
+  const providerDelayMs = err.retryAfterMs ?? err.rateLimitResetMs;
+  if (providerDelayMs !== null) return Math.max(providerDelayMs, retry.rateLimitMs);
+  return Math.max(backoffDelayMs(attempt, retry), retry.rateLimitMs);
+}
+
+function rateLimitResetMs(headers: Headers): number | null {
+  const requestReset = rateLimitResetHeaderMs(headers.get('x-ratelimit-reset-requests'));
+  const tokenReset = rateLimitResetHeaderMs(headers.get('x-ratelimit-reset-tokens'));
+  const values = [requestReset, tokenReset].filter((value): value is number => value !== null);
+  return values.length === 0 ? null : Math.max(...values);
+}
+
+function rateLimitResetHeaderMs(value: string | null): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const durationMs = rateLimitDurationMs(trimmed);
+  if (durationMs !== null) return durationMs;
+  const date = Date.parse(trimmed);
+  if (!Number.isFinite(date)) return null;
+  return Math.max(0, date - Date.now());
+}
+
+function rateLimitDurationMs(value: string): number | null {
+  const pattern = /(\d+(?:\.\d+)?)(ms|s|m|h)/giu;
+  let totalMs = 0;
+  let matched = false;
+  for (const match of value.matchAll(pattern)) {
+    const amount = Number(match[1]);
+    const unit = match[2]?.toLowerCase();
+    if (!Number.isFinite(amount) || unit === undefined) return null;
+    matched = true;
+    totalMs +=
+      unit === 'ms'
+        ? amount
+        : unit === 's'
+          ? amount * 1000
+          : unit === 'm'
+            ? amount * 60_000
+            : amount * 3_600_000;
+  }
+  return matched ? Math.round(totalMs) : null;
 }
 
 function providerHttpErrorDetail(response: Response, text: string): string | null {
