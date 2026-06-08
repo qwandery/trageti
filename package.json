@@ -1,6 +1,6 @@
 {
   "name": "trageti",
-  "version": "0.3.0",
+  "version": "0.3.0-beta.0",
   "description": "Temporally-aware retrieval-augmented generation over SQLite — episodic assertions with explicit validity windows and hybrid vector + keyword retrieval. Supports vectorless namespaces (BM25-only) and pluggable embedding providers.",
   "type": "module",
   "license": "MIT",
@@ -9,6 +9,9 @@
     "node": ">=18.0.0"
   },
   "sideEffects": false,
+  "publishConfig": {
+    "tag": "beta"
+  },
   "exports": {
     ".": {
       "import": {
