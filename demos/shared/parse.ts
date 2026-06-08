@@ -18,7 +18,9 @@ export function parseExtraction(raw: string): ExtractionResult {
   const start = stripped.indexOf('{');
   const end = stripped.lastIndexOf('}');
   if (start < 0 || end < 0 || end <= start) {
-    throw new Error(`parseExtraction: no JSON object in response (${String(trimmed.length)} chars): ${preview(trimmed)}`);
+    throw new Error(
+      `parseExtraction: no JSON object in response (${String(trimmed.length)} chars): ${preview(trimmed)}`,
+    );
   }
   const slice = stripped.slice(start, end + 1);
   let obj: unknown;

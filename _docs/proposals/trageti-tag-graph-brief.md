@@ -377,4 +377,4 @@ Zhang, C. et al. (2025). TeaRAG: A Token-Efficient Agentic Retrieval-Augmented G
 
 ---
 
-*This document is a theoretical technical brief and does not describe a production implementation. API specifications, storage schemas, and benchmark evaluations are deferred to subsequent work.*
+_This document is a theoretical technical brief and does not describe a production implementation. API specifications, storage schemas, and benchmark evaluations are deferred to subsequent work._

@@ -1,5 +1,9 @@
 import type { TemporalStore } from 'trageti';
-import { PREPARED_ARTIFACT_VERSION, type PreparedDemoArtifact, type PreparedIngestionUnit } from '../shared/artifacts.js';
+import {
+  PREPARED_ARTIFACT_VERSION,
+  type PreparedDemoArtifact,
+  type PreparedIngestionUnit,
+} from '../shared/artifacts.js';
 import { buildCustomRetrievalQuery, warmupDemoProviders } from '../shared/cli.js';
 import type { DemoScenario, DemoScenarioContext } from '../shared/demo-runner.js';
 import {

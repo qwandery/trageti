@@ -6,12 +6,7 @@ import {
   writePreparedArtifact,
   type PreparedDemoArtifact,
 } from './artifacts.js';
-import {
-  createDemoLogger,
-  createLlmTraceOptions,
-  printBanner,
-  printResolvedProviderSummary,
-} from './output.js';
+import { createDemoLogger, createLlmTraceOptions, printBanner, printResolvedProviderSummary } from './output.js';
 import type { ResolvedDemoProviders } from './providers.js';
 import { ingestPreparedUnits, prepareDemoStore, type DemoRunLogger } from './runtime.js';
 import { warmupDemoProviders } from './cli.js';
@@ -27,12 +22,20 @@ export interface DemoScenario {
   prepare(context: DemoScenarioContext): Promise<PreparedDemoArtifact>;
   resolveProviders(context: DemoScenarioContext, artifact: PreparedDemoArtifact): ResolvedDemoProviders;
   databasePath(context: DemoScenarioContext, artifact: PreparedDemoArtifact, providers: ResolvedDemoProviders): string;
-  expectedFixtureAssertionIds?(artifact: PreparedDemoArtifact, providers: ResolvedDemoProviders): readonly string[] | undefined;
+  expectedFixtureAssertionIds?(
+    artifact: PreparedDemoArtifact,
+    providers: ResolvedDemoProviders,
+  ): readonly string[] | undefined;
   sanitizeExtractionResult?(
     result: ExtractionResult,
     context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
   ): ExtractionResult;
-  retrieve(context: DemoScenarioContext, artifact: PreparedDemoArtifact, providers: ResolvedDemoProviders, store: TemporalStore): Promise<void>;
+  retrieve(
+    context: DemoScenarioContext,
+    artifact: PreparedDemoArtifact,
+    providers: ResolvedDemoProviders,
+    store: TemporalStore,
+  ): Promise<void>;
 }
 
 export interface DemoScenarioContext {
@@ -149,7 +152,9 @@ async function retrievePhase(scenario: DemoScenario, context: DemoScenarioContex
   const providers = scenario.resolveProviders(context, artifact);
   const database = scenario.databasePath(context, artifact, providers);
   if (!existsSync(database)) {
-    throw new Error(`Demo DB does not exist at ${database}. Run "${scenario.name} ingest" or "${scenario.name} run" first.`);
+    throw new Error(
+      `Demo DB does not exist at ${database}. Run "${scenario.name} ingest" or "${scenario.name} run" first.`,
+    );
   }
   printResolvedProviderSummary({
     providers,

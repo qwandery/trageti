@@ -782,8 +782,7 @@ const byEpisode: Record<string, { assertions: AssertionFixture[]; links: LinkFix
         episodeId: 'journal-21',
         position: 21,
         type: 'recontextualization',
-        content:
-          "Alex's physician says Alex is gluten intolerant, with Celiac disease possible but not yet confirmed.",
+        content: "Alex's physician says Alex is gluten intolerant, with Celiac disease possible but not yet confirmed.",
         confidence: 0.92,
         entityId: 'alex-health',
         citations: [

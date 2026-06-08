@@ -50,7 +50,9 @@ export async function generateAssembledAnswer(options: GenerateAssembledAnswerOp
   const live = shouldUseLiveExtractor(options.extractor, options.live);
   if (live) {
     return {
-      text: await options.extractor.extract(answerPrompt(options.annotation, options.query, ctx), { responseFormat: 'text' }),
+      text: await options.extractor.extract(answerPrompt(options.annotation, options.query, ctx), {
+        responseFormat: 'text',
+      }),
       mode: 'live',
       context: contextMeta(ctx),
     };

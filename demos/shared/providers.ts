@@ -1631,13 +1631,7 @@ function rateLimitDurationMs(value: string): number | null {
     if (!Number.isFinite(amount) || unit === undefined) return null;
     matched = true;
     totalMs +=
-      unit === 'ms'
-        ? amount
-        : unit === 's'
-          ? amount * 1000
-          : unit === 'm'
-            ? amount * 60_000
-            : amount * 3_600_000;
+      unit === 'ms' ? amount : unit === 's' ? amount * 1000 : unit === 'm' ? amount * 60_000 : amount * 3_600_000;
   }
   return matched ? Math.round(totalMs) : null;
 }

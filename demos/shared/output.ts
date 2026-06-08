@@ -72,7 +72,14 @@ export function createLlmTraceOptions(argv = process.argv, env: NodeJS.ProcessEn
   const arg = argv.find(
     (value) => value === '--llm-trace' || value === '--llm-trace-full' || value.startsWith('--llm-trace='),
   );
-  const raw = arg === '--llm-trace-full' ? 'full' : arg?.includes('=') ? arg.split('=')[1] : arg ? 'summary' : env['DEMO_LLM_TRACE'];
+  const raw =
+    arg === '--llm-trace-full'
+      ? 'full'
+      : arg?.includes('=')
+        ? arg.split('=')[1]
+        : arg
+          ? 'summary'
+          : env['DEMO_LLM_TRACE'];
   const normalized = raw?.toLowerCase();
   const rawVectors = env['DEMO_LLM_TRACE_RAW_VECTORS']?.toLowerCase();
   let statusLength = 0;

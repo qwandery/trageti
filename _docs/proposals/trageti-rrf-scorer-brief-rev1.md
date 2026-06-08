@@ -1,4 +1,5 @@
 # Reciprocal Rank Fusion (RRF) Scorer for trageti
+
 ## Implementation Brief
 
 ---
@@ -19,6 +20,7 @@ RRF_score(d) = Σ  1 / (k + rank_r(d))
 ```
 
 Where:
+
 - `k` is a constant, conventionally 60 (from the original paper)
 - `rank_r(d)` is the 1-based rank position of document `d` in ranker `r`
 - If `d` does not appear in a ranker's results, it contributes 0 from that ranker
@@ -74,19 +76,19 @@ The new contract:
 
 ```typescript
 interface IRetrievalScorer {
-  scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[]
+  scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[];
 }
 ```
 
 One method. One contract. The library always calls `scoreBatch()`. No optional methods, no runtime checks, no throwing from stub implementations.
 
-Scorers that *can* score individually (like `LinearScorer`) may expose a public `score()` method on the class for consumer convenience — but it is not part of the interface and the library never calls it.
+Scorers that _can_ score individually (like `LinearScorer`) may expose a public `score()` method on the class for consumer convenience — but it is not part of the interface and the library never calls it.
 
 ```typescript
 // LinearScorer exposes individual scoring as a class convenience, not an interface obligation
 class LinearScorer implements IRetrievalScorer {
   scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[] {
-    return candidates.map(c => this.score(c, context))
+    return candidates.map((c) => this.score(c, context));
   }
 
   // Public convenience — not part of IRetrievalScorer
@@ -128,47 +130,45 @@ const store = await TemporalStore.create({
 
 ```typescript
 class RRFScorer implements IRetrievalScorer {
-  private k: number
-  private includeRecency: boolean
+  private k: number;
+  private includeRecency: boolean;
 
   constructor(options?: { k?: number; includeRecency?: boolean }) {
-    this.k = options?.k ?? 60
-    this.includeRecency = options?.includeRecency ?? true
+    this.k = options?.k ?? 60;
+    this.includeRecency = options?.includeRecency ?? true;
   }
 
   scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[] {
-    const n = candidates.length
+    const n = candidates.length;
 
     // Rank by semantic distance (ascending — lower = better)
-    const semanticRanks = rankBy(candidates, c => c.semanticDistance, 'asc')
+    const semanticRanks = rankBy(candidates, (c) => c.semanticDistance, 'asc');
 
     // Rank by BM25 (for FTS5 raw scores: more negative = better, so ascending)
     const bm25Ranks = rankBy(
       candidates,
-      c => c.bm25Score,
-      'asc',      // -5.2 < -3.1, so ascending puts best BM25 first
-      true         // skip candidates with null bm25Score
-    )
+      (c) => c.bm25Score,
+      'asc', // -5.2 < -3.1, so ascending puts best BM25 first
+      true, // skip candidates with null bm25Score
+    );
 
     // Optionally rank by recency (higher position = more recent = better)
-    const recencyRanks = this.includeRecency
-      ? rankBy(candidates, c => c.position, 'desc')
-      : null
+    const recencyRanks = this.includeRecency ? rankBy(candidates, (c) => c.position, 'desc') : null;
 
     // Compute RRF score per candidate
     return candidates.map((_, i) => {
-      let score = 0
+      let score = 0;
       if (semanticRanks[i] !== null) {
-        score += 1 / (this.k + semanticRanks[i])
+        score += 1 / (this.k + semanticRanks[i]);
       }
       if (bm25Ranks[i] !== null) {
-        score += 1 / (this.k + bm25Ranks[i])
+        score += 1 / (this.k + bm25Ranks[i]);
       }
       if (recencyRanks && recencyRanks[i] !== null) {
-        score += 1 / (this.k + recencyRanks[i])
+        score += 1 / (this.k + recencyRanks[i]);
       }
-      return score
-    })
+      return score;
+    });
   }
 }
 
@@ -177,16 +177,16 @@ function rankBy(
   candidates: ScoredCandidate[],
   getValue: (c: ScoredCandidate) => number | null,
   direction: 'asc' | 'desc',
-  skipNull: boolean = false
+  skipNull: boolean = false,
 ): (number | null)[] {
-  const indexed = candidates.map((c, i) => ({ i, v: getValue(c) }))
-  const valid = indexed.filter(x => x.v !== null)
-  valid.sort((a, b) =>
-    direction === 'asc' ? (a.v! - b.v!) : (b.v! - a.v!)
-  )
-  const ranks: (number | null)[] = new Array(candidates.length).fill(null)
-  valid.forEach((x, rank) => { ranks[x.i] = rank + 1 })  // 1-based
-  return ranks
+  const indexed = candidates.map((c, i) => ({ i, v: getValue(c) }));
+  const valid = indexed.filter((x) => x.v !== null);
+  valid.sort((a, b) => (direction === 'asc' ? a.v! - b.v! : b.v! - a.v!));
+  const ranks: (number | null)[] = new Array(candidates.length).fill(null);
+  valid.forEach((x, rank) => {
+    ranks[x.i] = rank + 1;
+  }); // 1-based
+  return ranks;
 }
 ```
 
@@ -213,15 +213,18 @@ const store = await TemporalStore.create({
 
 **Original paper:**
 Cormack, G. V., Clarke, C. L. A., & Büttcher, S. (2009). "Reciprocal Rank Fusion outperforms Condorcet and Individual Rank Learning Methods." SIGIR '09, pp. 758–759.
+
 - PDF: https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf
 - ACM: https://dl.acm.org/doi/10.1145/1571941.1572114
 
 **Production implementations:**
+
 - Elasticsearch RRF retriever: https://www.elastic.co/guide/en/elasticsearch/reference/current/rrf.html
 - OpenSearch hybrid search: https://opensearch.org/docs/latest/search-plugins/hybrid-search/
 - Weaviate hybrid search: https://weaviate.io/developers/weaviate/search/hybrid
 - Qdrant hybrid queries: https://qdrant.tech/documentation/concepts/hybrid-queries/
 
 **Explanatory articles:**
+
 - "Reciprocal Rank Fusion: the one-line algorithm behind hybrid search" — https://blog.serghei.pl/posts/reciprocal-rank-fusion-explained/
 - "Why Vector Search Alone Isn't Enough: Hybrid Retrieval for RAG" (InfoQ) — https://www.infoq.com/articles/hybrid-retrieval-rag/

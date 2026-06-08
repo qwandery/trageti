@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { TemporalStore, RetrievedAssertion } from 'trageti';
-import { PREPARED_ARTIFACT_VERSION, type PreparedDemoArtifact, type PreparedIngestionUnit } from '../shared/artifacts.js';
+import {
+  PREPARED_ARTIFACT_VERSION,
+  type PreparedDemoArtifact,
+  type PreparedIngestionUnit,
+} from '../shared/artifacts.js';
 import {
   assertCustomQuerySupported,
   buildCustomRetrievalQuery,
@@ -88,11 +92,13 @@ function sourceForEpisode(id: string, occurredAt: string): Record<string, string
     const date = occurredAt.slice(0, 10);
     return { [`alex.md#${date}`]: markdownSectionByDate(citationSources['alex.md'] ?? '', date) };
   }
-  if (id === 'ref-field') return { 'references/field-fermentation.md': citationSources['references/field-fermentation.md'] ?? '' };
+  if (id === 'ref-field')
+    return { 'references/field-fermentation.md': citationSources['references/field-fermentation.md'] ?? '' };
   if (id === 'ref-gf-sourdough')
     return { 'references/gluten-free-sourdough.md': citationSources['references/gluten-free-sourdough.md'] ?? '' };
   if (id === 'ref-ito') return { 'references/ito-paitan.md': citationSources['references/ito-paitan.md'] ?? '' };
-  if (id === 'ref-maillard') return { 'references/maillard-browning.md': citationSources['references/maillard-browning.md'] ?? '' };
+  if (id === 'ref-maillard')
+    return { 'references/maillard-browning.md': citationSources['references/maillard-browning.md'] ?? '' };
   throw new Error(`No source mapping configured for Alex episode ${id}`);
 }
 

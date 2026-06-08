@@ -6,14 +6,14 @@ This paper tested gluten-free sourdough breads made with pseudocereals, chickpea
 
 Use a blend of:
 
-* **Corn starch** for lightness
-* **Buckwheat flour** for flavor and nutrition
-* **Amaranth flour** for flavor, color, and sensory appeal
-* **Chickpea flour** for protein and body
-* **Psyllium** to mimic some of gluten’s structure
-* **Gluten-free sourdough starter** instead of commercial yeast
-* **A small amount of olive oil, sugar, and salt**
-* Optional: **moringa leaf powder** for nutrition, but use carefully because it affects flavor and color
+- **Corn starch** for lightness
+- **Buckwheat flour** for flavor and nutrition
+- **Amaranth flour** for flavor, color, and sensory appeal
+- **Chickpea flour** for protein and body
+- **Psyllium** to mimic some of gluten’s structure
+- **Gluten-free sourdough starter** instead of commercial yeast
+- **A small amount of olive oil, sugar, and salt**
+- Optional: **moringa leaf powder** for nutrition, but use carefully because it affects flavor and color
 
 ## Starter Method
 
@@ -54,9 +54,9 @@ Sourdough fermentation can improve flavor, acidity, nutritional quality, and min
 
 ### 4. Choose the starter flour based on your goal.
 
-* **Amaranth sourdough** performed especially well for taste, color, appearance, and overall acceptability.
-* **Quinoa sourdough** performed well nutritionally, especially when combined with moringa.
-* **Brown rice sourdough** may be useful nutritionally, especially for mineral bioaccessibility, but was less successful when paired with moringa from a sensory standpoint.
+- **Amaranth sourdough** performed especially well for taste, color, appearance, and overall acceptability.
+- **Quinoa sourdough** performed well nutritionally, especially when combined with moringa.
+- **Brown rice sourdough** may be useful nutritionally, especially for mineral bioaccessibility, but was less successful when paired with moringa from a sensory standpoint.
 
 ### 5. Be cautious with moringa.
 
@@ -76,17 +76,17 @@ Then optionally test a very small amount of moringa if the goal is nutritional e
 
 ## Simplified Chef’s Formula Inspired by the Study
 
-* 100 g corn starch
-* 62 g buckwheat flour
-* 42 g chickpea flour
-* 22 g amaranth flour
-* 50 g gluten-free sourdough starter
-* 5 g psyllium
-* 5 g salt
-* 4 g sugar
-* 10 mL olive oil
-* 225 mL water
-* Optional: small amount of moringa leaf powder, up to about 6% of flour weight
+- 100 g corn starch
+- 62 g buckwheat flour
+- 42 g chickpea flour
+- 22 g amaranth flour
+- 50 g gluten-free sourdough starter
+- 5 g psyllium
+- 5 g salt
+- 4 g sugar
+- 10 mL olive oil
+- 225 mL water
+- Optional: small amount of moringa leaf powder, up to about 6% of flour weight
 
 ## Bottom Line
 
@@ -96,4 +96,4 @@ The best gluten-free sourdough bread is not just "wheat bread without gluten." I
 
 ## Citation
 
-Adapted from: Peñalver, R.; Ros, G.; Nieto, G. "Development of Functional Gluten-Free Sourdough Bread with Pseudocereals and Enriched with *Moringa oleifera*." *Foods* 2023, 12(21), 3920. https://doi.org/10.3390/foods12213920. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/.
+Adapted from: Peñalver, R.; Ros, G.; Nieto, G. "Development of Functional Gluten-Free Sourdough Bread with Pseudocereals and Enriched with _Moringa oleifera_." _Foods_ 2023, 12(21), 3920. https://doi.org/10.3390/foods12213920. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/.
