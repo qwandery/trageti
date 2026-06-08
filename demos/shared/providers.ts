@@ -1161,6 +1161,14 @@ async function fetchOpenAIChatCompletionNonStream(options: {
   try {
     data = await readJsonResponse(response, `${options.label} extraction fallback`, options.retry);
   } catch (err) {
+    if (err instanceof ProviderHttpError && err.status === 400 && hasResponseFormat(options.requestBase)) {
+      options.retry?.log?.(`${options.label} extraction fallback retrying without response_format after HTTP 400`);
+      return await fetchOpenAIChatCompletionNonStream({
+        ...options,
+        requestBase: withoutResponseFormat(options.requestBase),
+        skipRateLimit: true,
+      });
+    }
     if (options.streamError) throw openAINonStreamFallbackError(err, options.streamError);
     throw err;
   }
@@ -1404,6 +1412,15 @@ function openAINonStreamFallbackError(err: unknown, streamError: ProviderContent
   return new Error(`${streamError.message}; non-streaming fallback also produced no usable content (${message})`, {
     cause: err,
   });
+}
+
+function hasResponseFormat(requestBase: Record<string, unknown>): boolean {
+  return Object.prototype.hasOwnProperty.call(requestBase, 'response_format');
+}
+
+function withoutResponseFormat(requestBase: Record<string, unknown>): Record<string, unknown> {
+  const { response_format: _responseFormat, ...rest } = requestBase;
+  return rest;
 }
 
 async function readResponseText(response: Response, label: string, retry?: ProviderRetryOptions): Promise<string> {

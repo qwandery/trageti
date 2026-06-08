@@ -422,6 +422,40 @@ describe('demo providers', () => {
     expect(requestBody).toMatchObject({ stream: false, response_format: { type: 'json_object' } });
   });
 
+  it('retries JSON extraction without response_format when OpenAI-compatible servers reject it', async () => {
+    const requestBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') throw new Error('expected string request body');
+        requestBodies.push(JSON.parse(init.body) as unknown);
+        if (requestBodies.length === 1) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: { message: 'Provider returned error' } }), { status: 400 }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] }), {
+            status: 200,
+          }),
+        );
+      }),
+    );
+    const provider = createOpenAICompatibleExtractionProvider({
+      baseUrl: 'https://example.invalid/v1',
+      apiKey: 'sk-test',
+      model: 'm',
+      retry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, rateLimitMs: 0 },
+    });
+
+    await expect(provider.extract('prompt', { responseFormat: 'json' })).resolves.toBe('{"assertions":[],"links":[]}');
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0]).toMatchObject({ stream: false, response_format: { type: 'json_object' } });
+    expect(requestBodies[1]).toMatchObject({ stream: false });
+    expect(requestBodies[1]).not.toHaveProperty('response_format');
+  });
+
   it('logs raw non-streaming extraction response bodies in full trace mode', async () => {
     const messages: string[] = [];
     const body = { choices: [{ message: { content: '{"assertions":[],"links":[]}' } }] };
