@@ -15,7 +15,7 @@ Temporally-aware retrieval-augmented generation over SQLite.
 - **Schema extensions** — add custom columns or tables while keeping migration safety
 - **Pluggable everything** — swap out the scorer, formatter, graph adapter, validator, logger, metrics, or middleware
 
-![Infographic explaining why temporally-aware RAG needs Trageti](_docs/20260602-Infographic-Why-Would-I-Need-Trageti.png)
+![Infographic explaining why temporally-aware RAG needs Trageti](_docs/20260602-Infographic-Why-Would-I-Need-Trageti_watermark.jpg)
 
 ## Installation
 
