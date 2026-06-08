@@ -1525,6 +1525,46 @@ describe('demo providers', () => {
     expect(prompt).not.toContain('null |');
   });
 
+  it('does not include fake prior assertion ids in first-episode link examples', () => {
+    const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', {
+      src: 'source paragraph text',
+    });
+
+    expect(prompt).toContain('"links": []');
+    expect(prompt).not.toContain('a-prior-claim-id');
+    expect(prompt).toContain('If there is no real target assertion, emit an empty links array.');
+  });
+
+  it('uses real prior assertion ids in link examples when prior assertions exist', () => {
+    const prompt = buildExtractionPrompt(
+      'episode summary',
+      [
+        {
+          id: 'a-real-prior',
+          namespace: 'correct',
+          type: 'fact',
+          content: 'prior claim',
+          validFrom: 1,
+          validUntil: null,
+          confidence: 0.9,
+          sourceEpisodeId: 'prior-ep',
+          supersedesId: null,
+          entityId: null,
+          entityType: null,
+          extensions: {},
+          createdAt: '2026-01-01T00:00:00Z',
+          citations: [],
+        },
+      ],
+      makeEpisode(),
+      'correct',
+      { src: 'source paragraph text' },
+    );
+
+    expect(prompt).toContain('"toId": "a-real-prior"');
+    expect(prompt).not.toContain('a-prior-claim-id');
+  });
+
   it('requires extraction JSON in final visible assistant content', () => {
     const prompt = buildExtractionPrompt('episode summary', [], makeEpisode(), 'correct', {
       src: 'source paragraph text',

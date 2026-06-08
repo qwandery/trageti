@@ -39,6 +39,13 @@ example: a-${episode.id}-0, c-a-${episode.id}-0-0, link-${episode.id}-0.
   const namespaceValue = namespace ?? episode?.namespace ?? '<same as episode>';
   const validFromValue = episode ? String(episode.position) : '<episode.position>';
   const sourceEpisodeValue = episode?.id ?? '<episode.id>';
+  const linkExample = renderLinkExample(existingAssertions.at(-1), {
+    idPattern,
+    linkPattern,
+    namespaceValue,
+    validFromValue,
+    sourceEpisodeValue,
+  });
   const sourceText = citationSources
     ? `\nRegistered citation spans. Copy sourceRef, excerptStart, and excerptEnd exactly from one of these spans; do not calculate offsets yourself:\n${renderCitationSpans(citationSources)}\n\nRegistered citation source documents:\n${Object.entries(
         citationSources,
@@ -91,18 +98,7 @@ Output a single JSON object shaped like this example in the final visible assist
       ]
     }
   ],
-  "links": [
-    {
-      "id": "${linkPattern.replace('<index>', '0')}",
-      "namespace": "${namespaceValue}",
-      "fromId": "${idPattern.replace('<index>', '0')}",
-      "toId": "a-prior-claim-id",
-      "linkType": "related",
-      "validFrom": ${validFromValue},
-      "validUntil": null,
-      "sourceEpisodeId": "${sourceEpisodeValue}"
-    }
-  ]
+  "links": ${linkExample}
 }
 
 Citation rules:
@@ -122,7 +118,33 @@ Rules:
 - Allowed link types: deepens, qualifies, contradicts, contextualizes, measures, related.
 - Default to accumulation (typed link) over replacement (supersedesId).
 - Only set supersedesId when the new assertion clearly invalidates an existing one.
+- Links may only reference new assertion IDs emitted in this JSON object or exact IDs listed under Existing assertions. If there is no real target assertion, emit an empty links array.
 - Emit JSON only in the final answer content - no prose, no markdown fences.`;
+}
+
+function renderLinkExample(
+  prior: Assertion | undefined,
+  values: {
+    idPattern: string;
+    linkPattern: string;
+    namespaceValue: string;
+    validFromValue: string;
+    sourceEpisodeValue: string;
+  },
+): string {
+  if (!prior) return '[]';
+  return `[
+    {
+      "id": "${values.linkPattern.replace('<index>', '0')}",
+      "namespace": "${values.namespaceValue}",
+      "fromId": "${values.idPattern.replace('<index>', '0')}",
+      "toId": "${prior.id}",
+      "linkType": "related",
+      "validFrom": ${values.validFromValue},
+      "validUntil": null,
+      "sourceEpisodeId": "${values.sourceEpisodeValue}"
+    }
+  ]`;
 }
 
 function renderCitationSpans(citationSources: Record<string, string>): string {

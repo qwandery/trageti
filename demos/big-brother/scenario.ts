@@ -1,7 +1,8 @@
-import type { TemporalStore } from 'trageti';
+import type { Assertion, TemporalStore } from 'trageti';
 import { PREPARED_ARTIFACT_VERSION, type PreparedDemoArtifact } from '../shared/artifacts.js';
 import { buildCustomRetrievalQuery, warmupDemoProviders } from '../shared/cli.js';
 import type { DemoScenario, DemoScenarioContext } from '../shared/demo-runner.js';
+import type { ExtractionResult } from '../shared/ingest.js';
 import {
   createDemoTimeline,
   printAssembledAnswer,
@@ -73,10 +74,24 @@ export const bigBrotherScenario: DemoScenario = {
       ? expectedFixtureAssertionIds(metadata.fixtureData.fixtures)
       : undefined;
   },
+  sanitizeExtractionResult(result, context) {
+    return dropUnknownEndpointLinks(result, context.existingAssertions);
+  },
   async retrieve(context, artifact, providers, store) {
     await retrieveBigBrother(context, artifact, providers, store);
   },
 };
+
+export function dropUnknownEndpointLinks(
+  result: ExtractionResult,
+  existingAssertions: readonly Assertion[],
+): ExtractionResult {
+  const knownIds = new Set([...existingAssertions.map((assertion) => assertion.id), ...result.assertions.map((a) => a.id)]);
+  return {
+    assertions: result.assertions,
+    links: result.links.filter((link) => knownIds.has(link.fromId) && knownIds.has(link.toId)),
+  };
+}
 
 async function retrieveBigBrother(
   context: DemoScenarioContext,

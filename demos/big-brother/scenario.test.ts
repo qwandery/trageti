@@ -7,6 +7,7 @@ import {
   prepareBigBrotherArtifact,
   resolveBigBrotherProviders,
 } from './big-brother.js';
+import { dropUnknownEndpointLinks } from './scenario.js';
 
 const trace = {
   enabled: false,
@@ -106,6 +107,50 @@ describe('big-brother demo', () => {
     );
 
     expect(result.assertions[0]?.citations[0]?.excerptStart).toBeUndefined();
+    expect(() => {
+      validateExtractionResult(result, []);
+    }).not.toThrow();
+  });
+
+  it('drops hallucinated links to unknown assertion ids before validation', () => {
+    const result = dropUnknownEndpointLinks(
+      {
+        assertions: [
+          {
+            id: 'a-screen-01-0',
+            namespace: 'screen-activity',
+            type: 'fact',
+            content: 'The screen shows terminal work.',
+            validFrom: 1,
+            confidence: 0.8,
+            sourceEpisodeId: 'screen-01',
+            citations: [
+              {
+                id: 'c-a-screen-01-0-0',
+                episodeId: 'screen-01',
+                sourceRef: 'episode document',
+                excerpt: 'The screen shows terminal work.',
+              },
+            ],
+          },
+        ],
+        links: [
+          {
+            id: 'link-screen-01-0',
+            namespace: 'screen-activity',
+            fromId: 'a-screen-01-0',
+            toId: 'a-prior-claim-id',
+            linkType: 'related',
+            validFrom: 1,
+            validUntil: null,
+            sourceEpisodeId: 'screen-01',
+          },
+        ],
+      },
+      [],
+    );
+
+    expect(result.links).toEqual([]);
     expect(() => {
       validateExtractionResult(result, []);
     }).not.toThrow();
