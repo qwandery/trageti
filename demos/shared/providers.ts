@@ -532,9 +532,6 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
   const hasAnyLiveHint = Boolean(
     explicitExtract ??
     explicitEmbed ??
-    env['ANTHROPIC_API_KEY'] ??
-    env['OPENAI_API_KEY'] ??
-    env['OPENROUTER_API_KEY'] ??
     env['OLLAMA_HOST'] ??
     env['DEMO_EXTRACT_BASE_URL'] ??
     env['DEMO_EMBED_BASE_URL'],
@@ -602,7 +599,7 @@ export function resolveVisionProvider(options: ResolveVisionProviderOptions = {}
     resolved = createFixtureExtractionProvider({});
   } else if (provider === 'anthropic') {
     resolved = createAnthropicExtractionProvider(
-      required(env['DEMO_VISION_API_KEY'] ?? env['ANTHROPIC_API_KEY'], 'DEMO_VISION_API_KEY or ANTHROPIC_API_KEY'),
+      required(env['DEMO_VISION_API_KEY'], 'DEMO_VISION_API_KEY'),
       env['DEMO_VISION_MODEL'] ?? 'claude-sonnet-4-20250514',
       retry,
       visionMaxTokensFromEnv(env),
@@ -716,8 +713,7 @@ export function traceEmbeddingProvider(embedder: DemoEmbeddingProvider, trace: L
 
 function inferExtractionProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean): string {
   if (!hasAnyLiveHint) return 'fixture';
-  if (env['ANTHROPIC_API_KEY']) return 'anthropic';
-  if (env['OPENROUTER_API_KEY'] || env['OPENAI_API_KEY'] || env['OLLAMA_HOST'] || env['DEMO_EXTRACT_BASE_URL']) {
+  if (env['OLLAMA_HOST'] || env['DEMO_EXTRACT_BASE_URL']) {
     return 'openai-compatible';
   }
   return 'fixture';
@@ -731,17 +727,14 @@ function isLiveExtractionOptions(
 
 function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean): string {
   if (!hasAnyLiveHint) return 'fixture';
-  if (env['DEMO_EMBED_BASE_URL'] || env['OPENAI_API_KEY']) return 'openai-compatible';
+  if (env['DEMO_EMBED_BASE_URL']) return 'openai-compatible';
   if (env['OLLAMA_HOST']) return 'ollama-native';
   return 'fixture';
 }
 
 function inferVisionProvider(env: NodeJS.ProcessEnv): string {
   if (env['DEMO_VISION_PROVIDER']) return env['DEMO_VISION_PROVIDER'];
-  if (env['ANTHROPIC_API_KEY']) return 'anthropic';
   if (
-    env['OPENROUTER_API_KEY'] ||
-    env['OPENAI_API_KEY'] ||
     env['OLLAMA_HOST'] ||
     env['DEMO_VISION_BASE_URL'] ||
     env['DEMO_EXTRACT_BASE_URL']
@@ -775,10 +768,7 @@ function resolveExtractionProvider(
 ): ExtractionProvider {
   if (provider === 'fixture') return createFixtureExtractionProvider({});
   if (provider === 'anthropic') {
-    const apiKey = required(
-      env['DEMO_EXTRACT_API_KEY'] ?? env['ANTHROPIC_API_KEY'],
-      'DEMO_EXTRACT_API_KEY or ANTHROPIC_API_KEY',
-    );
+    const apiKey = required(env['DEMO_EXTRACT_API_KEY'], 'DEMO_EXTRACT_API_KEY');
     return createAnthropicExtractionProvider(
       apiKey,
       env['DEMO_EXTRACT_MODEL'] ?? 'claude-sonnet-4-20250514',
@@ -1048,17 +1038,9 @@ function openAICompatPreset(
   if (explicitBase) {
     return {
       baseUrl: explicitBase,
-      apiKey: explicitKey ?? env['OPENAI_API_KEY'] ?? 'sk-no-key',
+      apiKey: explicitKey ?? 'sk-no-key',
       defaultModel: purpose === 'embed' ? 'text-embedding-3-small' : 'gpt-4o-mini',
       label: 'openai-compatible',
-    };
-  }
-  if (env['OPENROUTER_API_KEY']) {
-    return {
-      baseUrl: 'https://openrouter.ai/api/v1',
-      apiKey: explicitKey ?? env['OPENROUTER_API_KEY'],
-      defaultModel: purpose === 'embed' ? 'openai/text-embedding-3-small' : 'anthropic/claude-sonnet-4',
-      label: 'openrouter',
     };
   }
   if (env['OLLAMA_HOST']) {
@@ -1069,20 +1051,12 @@ function openAICompatPreset(
       label: 'ollama-openai-compatible',
     };
   }
-  if (env['OPENAI_API_KEY']) {
-    return {
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: explicitKey ?? env['OPENAI_API_KEY'],
-      defaultModel: purpose === 'embed' ? 'text-embedding-3-small' : 'gpt-4o-mini',
-      label: 'openai',
-    };
-  }
   throw new Error(
     purpose === 'extract'
-      ? 'Missing extraction config. Set DEMO_EXTRACT_BASE_URL + DEMO_EXTRACT_MODEL, or ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or OLLAMA_HOST.'
+      ? 'Missing extraction config. Set DEMO_EXTRACT_BASE_URL + DEMO_EXTRACT_MODEL, or OLLAMA_HOST.'
       : purpose === 'embed'
-        ? 'Missing embedding config. Set DEMO_EMBED_BASE_URL + DEMO_EMBED_MODEL, OPENAI_API_KEY, OPENROUTER_API_KEY with DEMO_EMBED_PROVIDER=openai-compatible, or OLLAMA_HOST with DEMO_EMBED_PROVIDER=ollama-native.'
-        : 'Missing vision config. Set DEMO_VISION_BASE_URL + DEMO_VISION_MODEL, or ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or OLLAMA_HOST.',
+        ? 'Missing embedding config. Set DEMO_EMBED_BASE_URL + DEMO_EMBED_MODEL, or OLLAMA_HOST with DEMO_EMBED_PROVIDER=ollama-native.'
+        : 'Missing vision config. Set DEMO_VISION_BASE_URL + DEMO_VISION_MODEL, or OLLAMA_HOST.',
   );
 }
 

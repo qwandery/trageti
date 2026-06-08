@@ -56,11 +56,12 @@ configuration. Extraction and embedding are separate capabilities:
 | `DEMO_EMBED_DIMENSION`                          | Embedding dimension; inferred from fixture vectors unless overridden    |
 | `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5`                 |
 
-Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
-demo does not infer that any named service supports both extraction and
-embedding. Configure both capabilities for live runs. Live provider calls are
-serialized through the shared rate limiter and retry retryable HTTP failures.
+Configure explicit `DEMO_*` provider settings for live runs. `OLLAMA_HOST` can
+still supply the local Ollama base URL, but remote provider credentials should
+use the purpose-specific demo API key variables. The demo does not infer that
+any named service supports both extraction and embedding. Configure both
+capabilities for live runs. Live provider calls are serialized through the
+shared rate limiter and retry retryable HTTP failures.
 
 To inspect model boundaries while running the demo, set
 `DEMO_LLM_TRACE=summary`. To print full prompts, raw streamed response frames,

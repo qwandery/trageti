@@ -9,7 +9,7 @@ import { generateNarrativeSynthesis } from '../shared/synthesis.js';
 import { NAMESPACE } from './data/episodes.js';
 
 const PRE_WRITTEN =
-  '(pre-written synthesis - set ANTHROPIC_API_KEY or OPENAI_API_KEY for live synthesis)\n' +
+  '(pre-written synthesis - configure DEMO_EXTRACT_PROVIDER for live synthesis)\n' +
   'Alex is partway through a self-directed culinary apprenticeship. The sourdough arc has ' +
   'moved from an over-soured loaf toward better acidity control, then hit a whole-wheat ' +
   'setback and a gluten-free turn after a physician identified gluten intolerance. The ' +

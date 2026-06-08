@@ -80,7 +80,7 @@ describe('demo providers', () => {
       embeddingDimension: 2,
       env: {
         DEMO_EXTRACT_PROVIDER: 'anthropic',
-        ANTHROPIC_API_KEY: 'test-key',
+        DEMO_EXTRACT_API_KEY: 'test-key',
         DEMO_EMBED_PROVIDER: 'ollama-native',
         OLLAMA_HOST: 'http://localhost:11434',
       },
@@ -148,7 +148,7 @@ describe('demo providers', () => {
         DEMO_VISION_PROVIDER: 'openai-compatible',
         DEMO_VISION_BASE_URL: 'https://vision.example.invalid/v1',
         DEMO_EXTRACT_BASE_URL: 'https://extract.example.invalid/v1',
-        OPENAI_API_KEY: 'sk-test',
+        DEMO_VISION_API_KEY: 'sk-test',
       },
     });
 
@@ -1893,23 +1893,15 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
     embeddingDimension: 4,
   };
 
-  it('throws when ANTHROPIC_API_KEY is set without an embedding provider', () => {
-    expect(() => resolveDemoProviders({ ...minOptions, env: { ANTHROPIC_API_KEY: 'sk-ant-test' } })).toThrow(
-      'Live extraction requires a live embedding provider',
-    );
-  });
-
-  it('throws when OPENROUTER_API_KEY is set without an embedding provider', () => {
-    expect(() => resolveDemoProviders({ ...minOptions, env: { OPENROUTER_API_KEY: 'sk-or-test' } })).toThrow(
-      'Live extraction requires a live embedding provider',
-    );
-  });
-
   it('throws when DEMO_EXTRACT_PROVIDER=anthropic and DEMO_EMBED_PROVIDER=fixture', () => {
     expect(() =>
       resolveDemoProviders({
         ...minOptions,
-        env: { DEMO_EXTRACT_PROVIDER: 'anthropic', DEMO_EMBED_PROVIDER: 'fixture', ANTHROPIC_API_KEY: 'sk-ant-test' },
+        env: {
+          DEMO_EXTRACT_PROVIDER: 'anthropic',
+          DEMO_EXTRACT_API_KEY: 'sk-ant-test',
+          DEMO_EMBED_PROVIDER: 'fixture',
+        },
       }),
     ).toThrow('Live extraction requires a live embedding provider');
   });
@@ -1922,7 +1914,7 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
           DEMO_EXTRACT_PROVIDER: 'openai-compatible',
           DEMO_EMBED_PROVIDER: 'fixture',
           DEMO_EXTRACT_BASE_URL: 'http://localhost:8080/v1',
-          OPENAI_API_KEY: 'sk-test',
+          DEMO_EXTRACT_API_KEY: 'sk-test',
         },
       }),
     ).toThrow('Live extraction requires a live embedding provider');
@@ -1937,7 +1929,7 @@ describe('resolveDemoProviders — live-extract + fixture-embed guard', () => {
           DEMO_EMBED_PROVIDER: 'openai-compatible',
           DEMO_EMBED_BASE_URL: 'http://localhost:8080/v1',
           DEMO_EMBED_MODEL: 'text-embedding-3-small',
-          OPENAI_API_KEY: 'sk-test',
+          DEMO_EMBED_API_KEY: 'sk-test',
         },
       }),
     ).not.toThrow();

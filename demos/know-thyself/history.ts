@@ -468,9 +468,6 @@ function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   if (explicitExtract && explicitExtract !== 'fixture') return true;
   if (explicitEmbed && explicitEmbed !== 'fixture') return true;
   return Boolean(
-    env['ANTHROPIC_API_KEY'] ??
-    env['OPENAI_API_KEY'] ??
-    env['OPENROUTER_API_KEY'] ??
     env['OLLAMA_HOST'] ??
     env['DEMO_EXTRACT_BASE_URL'] ??
     env['DEMO_EMBED_BASE_URL'],

@@ -74,13 +74,14 @@ configuration. Extraction and embedding are separate capabilities:
 | `DEMO_PROVIDER_MAX_ATTEMPTS`                                 | Retry attempts for live HTTP provider calls                             |
 | `DEMO_PROVIDER_BASE_DELAY_MS` / `DEMO_PROVIDER_MAX_DELAY_MS` | Retry backoff bounds                                                    |
 
-Convenience env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `OLLAMA_HOST`) are mapped into explicit providers, but the
-demo does not infer that any named service supports both extraction and
-embedding. Configure both capabilities for live custom repo/keyframe runs.
-Live provider calls are serialized through the shared rate limiter and retry
-`429`, `408`, and `5xx` responses with backoff. Waits are printed without
-exposing prompts or credentials.
+Configure explicit `DEMO_*` provider settings for live custom repo/keyframe
+runs. `OLLAMA_HOST` can still supply the local Ollama base URL, but remote
+provider credentials should use the purpose-specific demo API key variables.
+The demo does not infer that any named service supports both extraction and
+embedding. Configure both capabilities for live custom repo/keyframe runs. Live
+provider calls are serialized through the shared rate limiter and retry `429`,
+`408`, and `5xx` responses with backoff. Waits are printed without exposing
+prompts or credentials.
 
 ## What It Shows
 

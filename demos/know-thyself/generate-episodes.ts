@@ -49,9 +49,6 @@ function reviewHash(repoPath: string, keyframes: readonly string[]): string {
 function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   return Boolean(
     env['DEMO_EXTRACT_PROVIDER'] ??
-    env['ANTHROPIC_API_KEY'] ??
-    env['OPENAI_API_KEY'] ??
-    env['OPENROUTER_API_KEY'] ??
     env['OLLAMA_HOST'] ??
     env['DEMO_EXTRACT_BASE_URL'],
   );

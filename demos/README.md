@@ -188,23 +188,20 @@ the first large source-summary or indexing request.
 Use OpenAI for both extraction and embeddings:
 
 ```sh
-OPENAI_API_KEY=sk-...
-
 DEMO_EXTRACT_PROVIDER=openai-compatible
-# DEMO_EXTRACT_BASE_URL=
-# DEMO_EXTRACT_API_KEY=
+DEMO_EXTRACT_BASE_URL=https://api.openai.com/v1
+DEMO_EXTRACT_API_KEY=sk-...
 DEMO_EXTRACT_MODEL=gpt-4o-mini
 
 DEMO_EMBED_PROVIDER=openai-compatible
-# DEMO_EMBED_BASE_URL=
-# DEMO_EMBED_API_KEY=
+DEMO_EMBED_BASE_URL=https://api.openai.com/v1
+DEMO_EMBED_API_KEY=sk-...
 DEMO_EMBED_MODEL=text-embedding-3-small
 DEMO_EMBED_DIMENSION=768
 ```
 
-`OPENAI_API_KEY` supplies the default `https://api.openai.com/v1` base URL. Keep
-optional base URL/API-key overrides commented unless you need an
-OpenAI-compatible gateway.
+Use the same pattern for any OpenAI-compatible gateway: set the base URL, API
+key, and model explicitly for each live capability.
 
 Run either demo:
 
@@ -218,17 +215,13 @@ npx tsx demos/know-thyself/index.ts
 Use Anthropic for extraction and OpenAI-compatible embeddings for retrieval:
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-
 DEMO_EXTRACT_PROVIDER=anthropic
-# DEMO_EXTRACT_BASE_URL=
-# DEMO_EXTRACT_API_KEY=
+DEMO_EXTRACT_API_KEY=sk-ant-...
 DEMO_EXTRACT_MODEL=claude-sonnet-4-20250514
 
 DEMO_EMBED_PROVIDER=openai-compatible
-# DEMO_EMBED_BASE_URL=
-# DEMO_EMBED_API_KEY=
+DEMO_EMBED_BASE_URL=https://api.openai.com/v1
+DEMO_EMBED_API_KEY=sk-...
 DEMO_EMBED_MODEL=text-embedding-3-small
 DEMO_EMBED_DIMENSION=768
 ```

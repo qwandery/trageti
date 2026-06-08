@@ -112,7 +112,7 @@ The prompt requests JSON output matching the `ExtractionResult` schema. Assertio
 
 Three extractor implementations, selected per-environment:
 
-**`anthropicExtractor(apiKey)`** — calls the Anthropic Messages API (which uses a different request format from the OpenAI standard). Requires `ANTHROPIC_API_KEY` environment variable.
+**`anthropicExtractor(apiKey)`** — calls the Anthropic Messages API (which uses a different request format from the OpenAI standard). Requires an explicit extraction API key in demo configuration.
 
 **`openaiExtractor(options)`** — calls any OpenAI-compatible API. This covers OpenAI itself, OpenRouter, Ollama (which exposes an OpenAI-compatible endpoint at `http://localhost:11434/v1`), llama.cpp server, LM Studio, LocalAI, and any other provider that implements the `/v1/chat/completions` interface. Takes `baseUrl`, `apiKey`, and `model` as parameters.
 
@@ -547,11 +547,10 @@ Each demo supports three execution modes determined by environment:
 
 | Mode                  | Trigger                                          | Behavior                                                                 |
 | --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| **Live (Anthropic)**  | `ANTHROPIC_API_KEY` set                          | Anthropic Messages API. Highest quality.                                 |
-| **Live (OpenAI)**     | `OPENAI_API_KEY` set                             | OpenAI API or any compatible endpoint.                                   |
-| **Live (OpenRouter)** | `OPENROUTER_API_KEY` set                         | OpenRouter (OpenAI-compatible, many models).                             |
-| **Live (Ollama)**     | `OLLAMA_HOST` set or Ollama running on localhost | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality. |
-| **Fixture**           | None of the above available                      | Committed fixture files. Deterministic, offline, CI-safe.                |
+| **Live (Anthropic)**         | Anthropic extraction provider configured explicitly | Anthropic Messages API. Highest quality.                                  |
+| **Live (OpenAI-compatible)** | OpenAI-compatible base URL and model configured     | OpenAI-compatible endpoint such as OpenAI, OpenRouter, or a local gateway. |
+| **Live (Ollama)**            | `OLLAMA_HOST` set or Ollama running on localhost    | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality.   |
+| **Fixture**                  | No live provider configured                         | Committed fixture files. Deterministic, offline, CI-safe.                 |
 
 The fixture path is the default — demos must always work without any external dependency. The README for each demo documents all modes.
 
