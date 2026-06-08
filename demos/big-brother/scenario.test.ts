@@ -40,6 +40,12 @@ describe('big-brother demo', () => {
     });
   });
 
+  it('rejects unexpected positional options with npm separator guidance', () => {
+    expect(() => parseBigBrotherCliOptions(['node', 'index.ts', '12', '1'])).toThrow(
+      'npm run trageti-demo -- big-brother prepare',
+    );
+  });
+
   it('creates an offline synthetic prepared artifact', async () => {
     const artifact = await prepareBigBrotherArtifact({
       cli: parseBigBrotherCliOptions(['node', 'index.ts']),

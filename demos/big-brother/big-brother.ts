@@ -137,7 +137,12 @@ export function parseBigBrotherCliOptions(argv = process.argv): BigBrotherCliOpt
     }
     if (arg.startsWith('--duration-minutes=')) {
       durationMinutes = normalizeNonNegative(arg.slice('--duration-minutes='.length), '--duration-minutes');
+      continue;
     }
+    throw new Error(
+      `Unexpected Big Brother option "${arg}". ` +
+        'When passing options through npm run, use: npm run trageti-demo -- big-brother prepare [options]',
+    );
   }
 
   return { query, rateLimitSeconds, warmup, capture, captures, durationMinutes, multimodal };
