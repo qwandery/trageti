@@ -16,6 +16,12 @@ export interface DemoRunLogger {
   success(message: string): void;
 }
 
+interface RuntimeSanitizerContext {
+  episode: Omit<Episode, 'createdAt'>;
+  existingAssertions: readonly Assertion[];
+  citationSources: Record<string, string>;
+}
+
 export function runtimeDbPath(demoName: string): string {
   const path = join('demos', '.local', `${demoName}.db`);
   mkdirSync(dirname(path), { recursive: true });
@@ -163,10 +169,8 @@ export async function ingestEpisodes(options: {
   citationSources?: Record<string, string>;
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
-  sanitizeExtractionResult?: (
-    result: ExtractionResult,
-    context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
-  ) => ExtractionResult;
+  sanitizeParsedExtractionResult?: (result: ExtractionResult, context: RuntimeSanitizerContext) => ExtractionResult;
+  sanitizeExtractionResult?: (result: ExtractionResult, context: RuntimeSanitizerContext) => ExtractionResult;
   logger?: DemoRunLogger;
   trace?: LlmTraceOptions;
 }): Promise<void> {
@@ -188,10 +192,8 @@ export async function ingestPreparedUnits(options: {
   units: readonly PreparedIngestionUnit[];
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
-  sanitizeExtractionResult?: (
-    result: ExtractionResult,
-    context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
-  ) => ExtractionResult;
+  sanitizeParsedExtractionResult?: (result: ExtractionResult, context: RuntimeSanitizerContext) => ExtractionResult;
+  sanitizeExtractionResult?: (result: ExtractionResult, context: RuntimeSanitizerContext) => ExtractionResult;
   logger?: DemoRunLogger;
   trace?: LlmTraceOptions;
   artifactPath?: string;
@@ -262,9 +264,21 @@ export async function ingestPreparedUnits(options: {
       ...(unit.imageSources !== undefined && Object.keys(unit.imageSources).length > 0
         ? { imageSources: unit.imageSources }
         : {}),
+      ...(options.sanitizeParsedExtractionResult !== undefined && {
+        sanitizeParsedExtractionResult: (result: ExtractionResult) =>
+          options.sanitizeParsedExtractionResult?.(result, {
+            episode,
+            existingAssertions: accumulated,
+            citationSources: unit.citationSources,
+          }) ?? result,
+      }),
       ...(options.sanitizeExtractionResult !== undefined && {
         sanitizeExtractionResult: (result: ExtractionResult) =>
-          options.sanitizeExtractionResult?.(result, { episode, existingAssertions: accumulated }) ?? result,
+          options.sanitizeExtractionResult?.(result, {
+            episode,
+            existingAssertions: accumulated,
+            citationSources: unit.citationSources,
+          }) ?? result,
       }),
     };
     let result: ExtractionResult;

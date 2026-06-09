@@ -28,7 +28,11 @@ export interface DemoScenario {
   ): readonly string[] | undefined;
   sanitizeExtractionResult?(
     result: ExtractionResult,
-    context: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
+    context: DemoSanitizerContext,
+  ): ExtractionResult;
+  sanitizeParsedExtractionResult?(
+    result: ExtractionResult,
+    context: DemoSanitizerContext,
   ): ExtractionResult;
   retrieve(
     context: DemoScenarioContext,
@@ -36,6 +40,12 @@ export interface DemoScenario {
     providers: ResolvedDemoProviders,
     store: TemporalStore,
   ): Promise<void>;
+}
+
+export interface DemoSanitizerContext {
+  episode: Omit<Episode, 'createdAt'>;
+  existingAssertions: readonly Assertion[];
+  citationSources: Record<string, string>;
 }
 
 export interface DemoScenarioContext {
@@ -124,10 +134,12 @@ async function ingestPhase(scenario: DemoScenario, context: DemoScenarioContext)
   try {
     const expectedFixtureAssertionIds = scenario.expectedFixtureAssertionIds?.(artifact, providers);
     const sanitizeExtractionResult = scenario.sanitizeExtractionResult
-      ? (
-          result: ExtractionResult,
-          sanitizeContext: { episode: Omit<Episode, 'createdAt'>; existingAssertions: readonly Assertion[] },
-        ) => scenario.sanitizeExtractionResult?.(result, sanitizeContext) ?? result
+      ? (result: ExtractionResult, sanitizeContext: DemoSanitizerContext) =>
+          scenario.sanitizeExtractionResult?.(result, sanitizeContext) ?? result
+      : undefined;
+    const sanitizeParsedExtractionResult = scenario.sanitizeParsedExtractionResult
+      ? (result: ExtractionResult, sanitizeContext: DemoSanitizerContext) =>
+          scenario.sanitizeParsedExtractionResult?.(result, sanitizeContext) ?? result
       : undefined;
     await ingestPreparedUnits({
       store,
@@ -138,6 +150,7 @@ async function ingestPhase(scenario: DemoScenario, context: DemoScenarioContext)
       trace: context.trace,
       artifactPath: context.artifactPath,
       ...(expectedFixtureAssertionIds !== undefined ? { expectedFixtureAssertionIds } : {}),
+      ...(sanitizeParsedExtractionResult ? { sanitizeParsedExtractionResult } : {}),
       ...(sanitizeExtractionResult ? { sanitizeExtractionResult } : {}),
     });
   } finally {

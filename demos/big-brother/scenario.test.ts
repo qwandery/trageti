@@ -7,7 +7,7 @@ import {
   prepareBigBrotherArtifact,
   resolveBigBrotherProviders,
 } from './big-brother.js';
-import { dropUnknownEndpointLinks } from './scenario.js';
+import { dropUnknownEndpointLinks, repairKnownCitationOffsets } from './scenario.js';
 
 const trace = {
   enabled: false,
@@ -153,6 +153,45 @@ describe('big-brother demo', () => {
     expect(result.links).toEqual([]);
     expect(() => {
       validateExtractionResult(result, []);
+    }).not.toThrow();
+  });
+
+  it('repairs invalid text citation offsets for known Big Brother sources', () => {
+    const source = 'The screenshot depicts a terminal and browser.';
+    const repaired = repairKnownCitationOffsets(
+      {
+        assertions: [
+          {
+            id: 'a-screen-02-0',
+            namespace: 'screen-activity',
+            type: 'fact',
+            content: 'The screen shows terminal work.',
+            validFrom: 2,
+            confidence: 0.8,
+            sourceEpisodeId: 'screen-02',
+            citations: [
+              {
+                id: 'c-a-screen-02-0-0',
+                episodeId: 'screen-02',
+                sourceRef: 'descriptions/screen-02.md',
+                excerpt: null,
+                excerptStart: '2520',
+                excerptEnd: '3000',
+              },
+            ],
+          },
+        ],
+        links: [],
+      },
+      { 'descriptions/screen-02.md': source },
+    );
+    const resolved = resolveCitationExcerpts(repaired, 'episode document', { 'descriptions/screen-02.md': source });
+
+    expect(resolved.assertions[0]?.citations[0]?.excerpt).toBe(source);
+    expect(resolved.assertions[0]?.citations[0]?.excerptStart).toBe('0');
+    expect(resolved.assertions[0]?.citations[0]?.excerptEnd).toBe(String(source.length));
+    expect(() => {
+      validateExtractionResult(resolved, []);
     }).not.toThrow();
   });
 });

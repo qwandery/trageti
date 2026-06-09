@@ -1714,6 +1714,67 @@ describe('ingest normalization', () => {
     expect(store.assertions[0]?.citations[0]?.excerpt).toBe('world');
   });
 
+  it('runs parsed sanitizer before citation resolution and result sanitizer afterward', async () => {
+    const store = new FakeStore();
+    const observed: string[] = [];
+    const extractor = providerReturning(
+      JSON.stringify({
+        assertions: [
+          {
+            id: 'a-1',
+            namespace: 'wrong',
+            type: 'fact',
+            content: 'content',
+            validFrom: 999,
+            confidence: 0.9,
+            sourceEpisodeId: 'wrong-episode',
+            citations: [
+              {
+                id: 'c-1',
+                episodeId: 'wrong-episode',
+                sourceRef: 'source.md',
+                excerpt: null,
+                excerptStart: '100',
+                excerptEnd: '200',
+              },
+            ],
+          },
+        ],
+        links: [],
+      }),
+    );
+
+    await ingest({
+      store: store as unknown as TemporalStore,
+      episode: makeEpisode(),
+      document: 'episode summary',
+      namespace: 'correct',
+      citationSources: { 'source.md': 'hello world' },
+      extractor,
+      sanitizeParsedExtractionResult(result) {
+        observed.push(`parsed:${String(result.assertions[0]?.citations[0]?.excerpt ?? null)}`);
+        return {
+          assertions: result.assertions.map((assertion) => ({
+            ...assertion,
+            citations: assertion.citations.map((citation) => ({
+              ...citation,
+              excerptStart: '0',
+              excerptEnd: '5',
+            })),
+          })),
+          links: result.links,
+        };
+      },
+      sanitizeExtractionResult(result) {
+        observed.push(`resolved:${String(result.assertions[0]?.citations[0]?.excerpt ?? null)}`);
+        return result;
+      },
+    });
+
+    expect(observed).toEqual(['parsed:null', 'resolved:hello']);
+    expect(store.assertions[0]?.citations[0]?.excerpt).toBe('hello');
+  });
+
   it('resolves anchored markdown citation offsets relative to the section body', async () => {
     const store = new FakeStore();
     const source = [

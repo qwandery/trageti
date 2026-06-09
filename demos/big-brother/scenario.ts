@@ -77,6 +77,9 @@ export const bigBrotherScenario: DemoScenario = {
   sanitizeExtractionResult(result, context) {
     return dropUnknownEndpointLinks(result, context.existingAssertions);
   },
+  sanitizeParsedExtractionResult(result, context) {
+    return repairKnownCitationOffsets(result, context.citationSources);
+  },
   async retrieve(context, artifact, providers, store) {
     await retrieveBigBrother(context, artifact, providers, store);
   },
@@ -91,6 +94,37 @@ export function dropUnknownEndpointLinks(
     assertions: result.assertions,
     links: result.links.filter((link) => knownIds.has(link.fromId) && knownIds.has(link.toId)),
   };
+}
+
+export function repairKnownCitationOffsets(
+  result: ExtractionResult,
+  citationSources: Record<string, string>,
+): ExtractionResult {
+  return {
+    assertions: result.assertions.map((assertion) => ({
+      ...assertion,
+      citations: assertion.citations.map((citation) => {
+        const source = citationSources[citation.sourceRef];
+        if (source === undefined || source.trim().length === 0) return citation;
+        const start = parseOffset(citation.excerptStart);
+        const end = parseOffset(citation.excerptEnd);
+        if (start !== null && end !== null && start >= 0 && end > start && end <= source.length) return citation;
+        return {
+          ...citation,
+          excerpt: null,
+          excerptStart: '0',
+          excerptEnd: String(source.length),
+        };
+      }),
+    })),
+    links: result.links,
+  };
+}
+
+function parseOffset(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value !== 'string' || !/^\d+$/u.test(value)) return null;
+  return Number.parseInt(value, 10);
 }
 
 async function retrieveBigBrother(

@@ -18,6 +18,7 @@ export interface IngestOptions {
   namespace: string;
   /** Replaces the default extraction prompt entirely. */
   promptOverride?: string;
+  sanitizeParsedExtractionResult?: (result: ExtractionResult) => ExtractionResult;
   sanitizeExtractionResult?: (result: ExtractionResult) => ExtractionResult;
 }
 
@@ -48,7 +49,8 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
   };
   const raw = await extractor.extract(prompt, extractOptions);
   const result = parseExtractionForEpisode(raw, episode.id);
-  const resolved = resolveCitationExcerpts(result, document, citationSources, imageSources);
+  const parsed = options.sanitizeParsedExtractionResult?.(result) ?? result;
+  const resolved = resolveCitationExcerpts(parsed, document, citationSources, imageSources);
   const cited = options.sanitizeExtractionResult?.(resolved) ?? resolved;
   validateExtractionResult(cited, existingAssertions ?? []);
 
