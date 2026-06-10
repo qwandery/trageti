@@ -346,7 +346,7 @@ async function captureScreenshots(options: {
 
 async function describeCapture(provider: ExtractionProvider, capture: CaptureRecord): Promise<string> {
   const prompt = [
-    'Describe this desktop screenshot in as much useful detail as possible for later temporal RAG ingestion.',
+    'Describe this desktop screenshot in as much useful detail as possible for later temporal RAG ingestion. Identify ALL visible Applications and their current Window titles. Then identify other visible tools. Finally, provide a detailed description of the users apparent goals, progress toward those goals, and probable grounded next steps in pursuit of those goals.',
     'Focus on visible applications, documents, UI state, text, apparent user goals, work progress, blockers, and likely next steps.',
     'Do not invent hidden information. Preserve uncertainty when an item is unclear.',
     `Screenshot sourceRef: ${capture.path}`,

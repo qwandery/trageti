@@ -16,7 +16,7 @@ export async function generateNarrative(
     temporalAnchor: latestPosition,
     retrievalStrategy: 'hybrid',
     liveInstruction:
-      'Write a concise activity narrative from the screen-observation assertions. Identify visible tools, apparent goals, progress over time, and a grounded next step.',
+      'Write a concise activity narrative from the screen-observation assertions. Identify visible apps and tools, apparent goals, progress over time, and a grounded next step.',
     fixtureText:
       'The screen history shows the user implementing the Big Brother demo, validating TypeScript work in a terminal, then consulting vision-input documentation and notes about provider configuration, image citations, and capture consent. The next supported step is to finish wiring multimodal provider requests, documentation, and validation.',
   });
