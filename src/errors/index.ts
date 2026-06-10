@@ -8,7 +8,7 @@
  *   - VALIDATION_* — write-time validation
  *   - INDEXING_*   — indexAssertion / indexBatch
  *   - RETRIEVAL_*  — retrieve / explain input validation
- *   - SCORER_*     — DefaultScorer / RetrievalScorer contract violations
+ *   - SCORER_*     — scorer / RetrievalScorer contract violations
  *   - MIGRATION_*  — migration runner / tokenizer compatibility
  *   - STORE_*      — lifecycle (closed, not initialized, hash collision)
  *   - SCHEMA_*     — schema-extension validation

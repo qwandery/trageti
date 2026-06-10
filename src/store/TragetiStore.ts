@@ -55,7 +55,7 @@ import { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js';
 import { DefaultConnectionVerifier } from '../defaults/connection/DefaultConnectionVerifier.js';
 import { DefaultAssertionValidator } from '../defaults/validation/DefaultAssertionValidator.js';
 import { CTEGraphAdapter } from '../defaults/graph/CTEGraphAdapter.js';
-import { DefaultScorer } from '../defaults/scoring/DefaultScorer.js';
+import { RRFScorer } from '../defaults/scoring/RRFScorer.js';
 import { ProseFormatter } from '../defaults/formatting/ProseFormatter.js';
 import {
   NamespaceNotInitializedError,
@@ -195,7 +195,7 @@ export class TragetiStore {
     this.db = db;
     this.options = {
       graphAdapter: options.graphAdapter ?? new CTEGraphAdapter(),
-      scorer: options.scorer ?? new DefaultScorer(),
+      scorer: options.scorer ?? new RRFScorer(),
       defaultFormatter: options.defaultFormatter ?? new ProseFormatter(),
       validators: options.validators ?? [],
       connectionVerifier: options.connectionVerifier ?? new DefaultConnectionVerifier(),

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
-import type { RetrievalScorer, ScoredCandidate, ScoringContext } from '../../src/domain/types.js';
+import type { IRetrievalScorer, ScoredCandidate, ScoringContext } from '../../src/domain/types.js';
+import { LinearScorer } from '../../src/defaults/scoring/LinearScorer.js';
 import { citationFor } from '../fixtures/scenario.js';
 
 const NS = 'test-ns';
@@ -95,7 +96,7 @@ describe('TragetiStore — semantic retrieval', () => {
     await store.indexAssertion('a-future', VEC_C);
   });
 
-  it('returns most semantically similar assertions at anchor', async () => {
+  it('uses RRF plus deterministic tie-breaking by default', async () => {
     const { results } = await store.retrieve({
       namespace: NS,
       queryEmbedding: QUERY_NEAR_A,
@@ -103,7 +104,20 @@ describe('TragetiStore — semantic retrieval', () => {
       limit: 3,
     });
     expect(results.length).toBeGreaterThan(0);
-    // a-early (VEC_A) should be ranked first — nearest to QUERY_NEAR_A
+    // RRF gives a-early semantic rank 1 and recency rank 2; a-mid gets the
+    // inverse, so final tie-breaking selects newer validFrom first.
+    expect(results[0]?.id).toBe('a-mid');
+  });
+
+  it('can use LinearScorer for the previous semantic-dominant behavior', async () => {
+    const { results } = await store.retrieve({
+      namespace: NS,
+      queryEmbedding: QUERY_NEAR_A,
+      temporalAnchor: 5,
+      limit: 3,
+      scorer: new LinearScorer(),
+    });
+    expect(results.length).toBeGreaterThan(0);
     expect(results[0]?.id).toBe('a-early');
   });
 
@@ -154,9 +168,9 @@ describe('TragetiStore — semantic retrieval', () => {
   it('custom scorer override is used for ranking', async () => {
     // Scorer that ranks purely by position descending — opposite of semantic similarity
     // Default scorer would rank a-early (VEC_A ≈ QUERY) first; this scorer ranks a-mid (validFrom=5) first
-    const customScorer = {
-      score(candidate: ScoredCandidate, _ctx: ScoringContext): number {
-        return candidate.position;
+    const customScorer: IRetrievalScorer = {
+      scoreBatch(candidates: ScoredCandidate[], _ctx: ScoringContext): number[] {
+        return candidates.map((candidate) => candidate.position);
       },
     };
     const { results } = await store.retrieve({
@@ -310,8 +324,7 @@ describe('TragetiStore — scoreBatch contract', () => {
     await store.indexAssertion('a-1', VEC_A);
     await store.indexAssertion('a-2', new Float32Array([0.9, 0.44, 0, 0]));
 
-    const broken: RetrievalScorer = {
-      score: () => 0,
+    const broken: IRetrievalScorer = {
       scoreBatch: (candidates) => candidates.slice(0, 1).map(() => 0.5), // wrong length
     };
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DefaultScorer } from '../../src/defaults/scoring/DefaultScorer.js';
+import { LinearScorer } from '../../src/defaults/scoring/LinearScorer.js';
 import { TragetiError } from '../../src/errors/index.js';
 import type { Assertion, ScoredCandidate, ScoringContext } from '../../src/domain/types.js';
 
@@ -19,14 +19,14 @@ function candidate(partial: Partial<ScoredCandidate>): ScoredCandidate {
   };
 }
 
-describe('DefaultScorer.WEIGHTS', () => {
+describe('LinearScorer.WEIGHTS', () => {
   it('exposes the canonical signal weights', () => {
-    expect(DefaultScorer.WEIGHTS).toEqual({ SEMANTIC: 0.6, BM25: 0.3, RECENCY: 0.1 });
+    expect(LinearScorer.WEIGHTS).toEqual({ SEMANTIC: 0.6, BM25: 0.3, RECENCY: 0.1 });
   });
 });
 
-describe('DefaultScorer.score — single-signal cases', () => {
-  const scorer = new DefaultScorer();
+describe('LinearScorer.score — single-signal cases', () => {
+  const scorer = new LinearScorer();
 
   it('scores a vector-only candidate (bm25 null, semantic present)', () => {
     const s = scorer.score(candidate({ semanticDistance: 0.2 }), ctx);
@@ -45,8 +45,8 @@ describe('DefaultScorer.score — single-signal cases', () => {
   });
 });
 
-describe('DefaultScorer.scoreBatch', () => {
-  const scorer = new DefaultScorer();
+describe('LinearScorer.scoreBatch', () => {
+  const scorer = new LinearScorer();
 
   it('returns an empty array for no candidates', () => {
     expect(scorer.scoreBatch([], ctx)).toEqual([]);

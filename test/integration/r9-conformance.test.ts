@@ -9,7 +9,7 @@ import type {
   ContextFormatter,
   FormattedContext,
   NormalizedNewAssertion,
-  RetrievalScorer,
+  IRetrievalScorer,
   RetrievedAssertion,
   ValidationResult,
 } from '../../src/domain/types.js';
@@ -503,8 +503,7 @@ describe('retrieval input validation uses dedicated error codes', () => {
 
   it('scoreBatch length mismatch → SCORER_BATCH_LENGTH_MISMATCH', async () => {
     const store = await seededStore();
-    const badScorer: RetrievalScorer = {
-      score: () => 1,
+    const badScorer: IRetrievalScorer = {
       scoreBatch: () => [],
     };
     expect(

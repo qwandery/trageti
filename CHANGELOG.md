@@ -64,9 +64,16 @@ reason, errorCode? }> }`. Unknown IDs are recorded in `skipped[]`;
 
 ### Scoring and ranking
 
-- `DefaultScorer` retains its 60/30/10 weighting (semantic / BM25 / recency)
-  and renormalizes weights when one signal is absent. Throws
-  `TragetiError(SCORER_NO_USABLE_SIGNAL)` when both signals are null.
+- **BREAKING — scorer contract is batch-only.** `RetrievalScorer` now requires
+  `scoreBatch(candidates, context)`; the retrieval pipeline no longer calls a
+  per-candidate `score()` fallback.
+- **Default scorer changed to RRF.** `RRFScorer` is now the default scorer and
+  fuses semantic, BM25, and recency ranks using reciprocal rank fusion.
+- `LinearScorer` retains the previous 60/30/10 weighting (semantic / BM25 /
+  recency) and renormalizes weights when one signal is absent. It throws
+  `TragetiError(SCORER_NO_USABLE_SIGNAL)` when both semantic and BM25 signals
+  are null. `DefaultScorer` remains as a deprecated alias for the default RRF
+  scorer.
 - **Deterministic tie-breaks:** results are ordered by `(score DESC,
 validFrom DESC, createdAt ASC, id ASC)`. `createdAt` must be ISO 8601
   with consistent precision so lexicographic order matches temporal order;

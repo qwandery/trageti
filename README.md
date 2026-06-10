@@ -511,9 +511,11 @@ retrieval core → per-call `after` (reverse) → global `after` (reverse).
 import type { RetrievalScorer, ScoredCandidate, ScoringContext } from 'trageti';
 
 class MyScorer implements RetrievalScorer {
-  score(candidate: ScoredCandidate, ctx: ScoringContext): number {
-    const range = ctx.namespacePositionRange.max - ctx.namespacePositionRange.min || 1;
-    return (candidate.position - ctx.namespacePositionRange.min) / range;
+  scoreBatch(candidates: ScoredCandidate[], ctx: ScoringContext): number[] {
+    const min = ctx.namespacePositionRange.min ?? 0;
+    const max = ctx.namespacePositionRange.max ?? min;
+    const range = max - min || 1;
+    return candidates.map((candidate) => (candidate.position - min) / range);
   }
 }
 
@@ -527,10 +529,10 @@ const store = await TragetiStore.create({
 
 `ScoredCandidate.semanticDistance` and `bm25Score` are each `number | null`:
 `semanticDistance` is null for a BM25-only candidate, `bm25Score` is null for
-a vector-only candidate. A scorer with no usable signal should throw. For
-cross-candidate normalisation implement the optional `scoreBatch` hook (the
-pipeline calls it instead of per-candidate `score()` and validates the
-returned array length); `DefaultScorer.scoreBatch` is a worked reference.
+a vector-only candidate. `RetrievalScorer` is batch-only in v0.3 rev2: the
+pipeline always calls `scoreBatch()` and validates the returned array length.
+`RRFScorer` is the default scorer; use `LinearScorer` for the previous
+weighted-linear behavior.
 
 ## Migrations
 

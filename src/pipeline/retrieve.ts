@@ -5,7 +5,7 @@ import type {
   RetrievalMeta,
   RetrievedAssertion,
   Assertion,
-  RetrievalScorer,
+  IRetrievalScorer,
   RetrievalMiddleware,
   GraphQueryAdapter,
   ScoredCandidate,
@@ -32,7 +32,7 @@ interface RetrieveContext {
   getPositionRange: (namespace: string) => { min: number | null; max: number | null };
   /** Configured embedding dimension for a namespace, or null if vectorless. */
   getDimension: (namespace: string) => number | null;
-  globalScorer: RetrievalScorer;
+  globalScorer: IRetrievalScorer;
   globalMiddleware: readonly RetrievalMiddleware[];
   graphAdapter: GraphQueryAdapter;
   logger: Logger;
@@ -374,20 +374,15 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     query,
   };
 
-  let scores: number[];
-  if (scorer.scoreBatch) {
-    scores = scorer.scoreBatch(
-      candidates.map((c) => c.candidate),
-      scoringContext,
+  const scores = scorer.scoreBatch(
+    candidates.map((c) => c.candidate),
+    scoringContext,
+  );
+  if (scores.length !== candidates.length) {
+    throw new RetrievalInputError(
+      ErrorCode.SCORER_BATCH_LENGTH_MISMATCH,
+      `RetrievalScorer.scoreBatch returned ${String(scores.length)} scores for ${String(candidates.length)} candidates`,
     );
-    if (scores.length !== candidates.length) {
-      throw new RetrievalInputError(
-        ErrorCode.SCORER_BATCH_LENGTH_MISMATCH,
-        `RetrievalScorer.scoreBatch returned ${String(scores.length)} scores for ${String(candidates.length)} candidates`,
-      );
-    }
-  } else {
-    scores = candidates.map((c) => scorer.score(c.candidate, scoringContext));
   }
   // Scorer output must be finite — NaN / ±Infinity would corrupt ranking.
   for (const s of scores) {

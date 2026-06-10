@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { RetrievalInputError } from '../../src/errors/index.js';
-import type { RetrievalScorer } from '../../src/domain/types.js';
+import type { IRetrievalScorer } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
 
 const NS = 'rv';
@@ -112,7 +112,7 @@ describe('retrieve input validation — typed RetrievalInputError codes', () => 
   });
 
   it('SCORER_INVALID_OUTPUT when a scorer returns a non-finite score', async () => {
-    const nanScorer: RetrievalScorer = { score: () => Number.NaN };
+    const nanScorer: IRetrievalScorer = { scoreBatch: (candidates) => candidates.map(() => Number.NaN) };
     await expect(
       store.retrieve({
         namespace: NS,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DefaultScorer } from '../../src/defaults/scoring/DefaultScorer.js';
+import { LinearScorer } from '../../src/defaults/scoring/LinearScorer.js';
 import type { ScoredCandidate, ScoringContext, Assertion } from '../../src/domain/types.js';
 
 function makeAssertion(overrides: Partial<Assertion> = {}): Assertion {
@@ -35,8 +35,8 @@ function makeContext(overrides: Partial<ScoringContext> = {}): ScoringContext {
   };
 }
 
-describe('DefaultScorer', () => {
-  const scorer = new DefaultScorer();
+describe('LinearScorer', () => {
+  const scorer = new LinearScorer();
 
   it('returns a number between 0 and 1 (no BM25)', async () => {
     const candidate: ScoredCandidate = {

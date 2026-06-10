@@ -207,7 +207,7 @@ export interface RetrievalQuery {
   mode?: RetrievalMode;
   /** Default: 'hybrid'. */
   retrievalStrategy?: RetrievalStrategy;
-  scorer?: RetrievalScorer;
+  scorer?: IRetrievalScorer;
   middleware?: RetrievalMiddleware[];
   debug?: RetrievalDebug;
   /** Optional cancellation signal for provider-derived query embeddings. */
@@ -326,7 +326,7 @@ export interface ContextAssemblyOptions {
   /** Default: 'snapshot'. Trajectory mode propagates to retrieve(). */
   mode?: RetrievalMode;
   retrievalStrategy?: RetrievalStrategy;
-  scorer?: RetrievalScorer;
+  scorer?: IRetrievalScorer;
   middleware?: RetrievalMiddleware[];
   /** Per-call formatter override. */
   formatter?: ContextFormatter;
@@ -439,17 +439,18 @@ export interface GraphQueryAdapter {
   ): AssertionLink[] | null;
 }
 
-export interface RetrievalScorer {
-  score(candidate: ScoredCandidate, context: ScoringContext): number;
+export interface IRetrievalScorer {
   /**
-   * Optional batch scoring hook. When implemented, the retrieval pipeline calls this
-   * instead of per-candidate score(). Use for scorers that need cross-candidate
-   * normalisation (e.g., DefaultScorer's BM25 min-max normalisation).
+   * Batch scoring hook. The retrieval pipeline always scores the full candidate
+   * set so rank-based fusion and cross-candidate normalization can operate.
    * Must return an array whose length equals candidates.length; otherwise the
    * pipeline throws.
    */
-  scoreBatch?(candidates: ScoredCandidate[], context: ScoringContext): number[];
+  scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[];
 }
+
+/** @deprecated Use `IRetrievalScorer`. */
+export type RetrievalScorer = IRetrievalScorer;
 
 export interface ContextFormatter {
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext;
@@ -632,7 +633,7 @@ export interface TragetiStoreOptions {
   embeddingProvider?: EmbeddingProvider;
   maxEpisodeContentBytes?: number;
   graphAdapter?: GraphQueryAdapter;
-  scorer?: RetrievalScorer;
+  scorer?: IRetrievalScorer;
   defaultFormatter?: ContextFormatter;
   validators?: AssertionValidator[];
   connectionVerifier?: ConnectionVerifier;

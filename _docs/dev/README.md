@@ -62,7 +62,7 @@ trageti/
 │   │   ├── formatting/         Prose / Structured / Json formatters
 │   │   ├── graph/              CTEGraphAdapter (recursive CTE BFS, cycle-safe)
 │   │   ├── providers/          MockEmbeddingProvider, RawVectorProvider
-│   │   ├── scoring/            DefaultScorer (semantic 0.6 / bm25 0.3 / recency 0.1)
+│   │   ├── scoring/            RRFScorer default + LinearScorer weighted fallback
 │   │   └── validation/         DefaultAssertionValidator
 │   ├── db/                     Everything that touches the Database object
 │   │   ├── candidates.ts       buildCandidateJson — JSON-serialised id list
@@ -123,7 +123,7 @@ db  ←  pipeline / store / defaults
 internal ← (anything; only Logger/Metrics types are re-exported)
 ```
 
-- `domain/types.ts` is the only file that defines interfaces — domain types **and** the extension-point contracts (`GraphQueryAdapter`, `RetrievalScorer`, `ContextFormatter`, `AssertionValidator`, `ConnectionVerifier`, `RetrievalMiddleware`, `EmbeddingProvider`). There is no separate `contracts/` directory; the v0.2-era re-export barrels were removed in v0.3 as dead code.
+- `domain/types.ts` is the only file that defines interfaces — domain types **and** the extension-point contracts (`GraphQueryAdapter`, `IRetrievalScorer`, `ContextFormatter`, `AssertionValidator`, `ConnectionVerifier`, `RetrievalMiddleware`, `EmbeddingProvider`). There is no separate `contracts/` directory; the v0.2-era re-export barrels were removed in v0.3 as dead code.
 - `db/` is the only directory that touches the `Database` object directly.
 - `pipeline/` orchestrates repositories and contracts. `retrieve.ts` owns the retrieval SQL; other pipeline files delegate to repositories.
 - `internal/` is implementation detail. Only the `Logger` / `Metrics` / `LogFields` **types** are re-exported from `src/index.ts` (consumers must be able to type a custom logger). The runtime helpers in `internal/` are private.
@@ -188,7 +188,7 @@ The pinned step order in `pipeline/retrieve.ts`:
                       ↳ queryTextMode:'phrase' (default) quotes the query as a
                         single FTS5 phrase; 'fts5' passes raw FTS5 syntax — a
                         malformed expression → RETRIEVAL_INVALID_QUERY_TEXT.
-4. Score              TS:  scorer.scoreBatch() — cross-candidate normalisation.
+4. Score              TS:  scorer.scoreBatch() — RRF by default; LinearScorer for weighted normalisation.
 5. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
                       ↳ the `rank` step is emitted here, before graph/trajectory.
 6. Graph expand       SQL: recursive CTE through trageti_links at temporalAnchor.
@@ -659,7 +659,7 @@ npm run build
 
 ### BM25 normalisation is O(candidates)
 
-`runStep3` normalises BM25 across the candidate set before scoring. Cost is proportional to candidate count, not corpus size — fine for typical retrieval sizes.
+`LinearScorer` normalises BM25 across the candidate set before scoring. Cost is proportional to candidate count, not corpus size — fine for typical retrieval sizes.
 
 ### Vec0 dimension is interpolated
 

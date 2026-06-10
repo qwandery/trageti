@@ -63,6 +63,8 @@ export type {
   ValidationResult,
   // Extension interfaces
   GraphQueryAdapter,
+  IRetrievalScorer,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- deliberate public back-compat alias
   RetrievalScorer,
   ContextFormatter,
   AssertionValidator,
@@ -77,7 +79,12 @@ export type { RecommendedAssertionType, RecommendedLinkType } from './domain/voc
 
 // ─── Default implementations ───────────────────────────────────────────────────
 export { CTEGraphAdapter } from './defaults/graph/CTEGraphAdapter.js';
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- deliberate public compatibility export
 export { DefaultScorer } from './defaults/scoring/DefaultScorer.js';
+export { LinearScorer } from './defaults/scoring/LinearScorer.js';
+export type { LinearScorerOptions, LinearScorerWeights } from './defaults/scoring/LinearScorer.js';
+export { RRFScorer } from './defaults/scoring/RRFScorer.js';
+export type { RRFScorerOptions } from './defaults/scoring/RRFScorer.js';
 export { ProseFormatter } from './defaults/formatting/ProseFormatter.js';
 export { StructuredFormatter } from './defaults/formatting/StructuredFormatter.js';
 export { JsonFormatter } from './defaults/formatting/JsonFormatter.js';
