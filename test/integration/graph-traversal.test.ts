@@ -1,19 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { loadScenario } from '../fixtures/scenario.js';
 
 const NS = 'test-ns';
 const DIM = 4;
 
-describe('TemporalStore — graph traversal', () => {
+describe('TragetiStore — graph traversal', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
-    store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await loadScenario(store, NS);
   });

@@ -96,7 +96,7 @@ describe('deriveHistoryData', () => {
     const repo = createRepo();
     const first = commit(repo, 'initial architecture', {
       'README.md': '# Demo\n\nInitial architecture\n',
-      'src/store/TemporalStore.ts': 'export const store = true;\n',
+      'src/store/TragetiStore.ts': 'export const store = true;\n',
     });
     const calls: string[] = [];
 
@@ -116,7 +116,7 @@ describe('deriveHistoryData', () => {
     expect(calls.every((prompt) => prompt.includes('Write a focused source summary for one file'))).toBe(true);
     expect(calls[0]).not.toContain('### README.md');
     expect(calls.join('\n')).toContain('File: README.md');
-    expect(calls.join('\n')).toContain('File: src/store/TemporalStore.ts');
+    expect(calls.join('\n')).toContain('File: src/store/TragetiStore.ts');
   });
 
   it('creates deterministic fixtures with valid source-span citations', async () => {

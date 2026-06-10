@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import type { EmbeddingProvider } from '../../src/domain/types.js';
 import { ReindexError } from '../../src/errors/index.js';
 import { citationFor } from '../fixtures/scenario.js';
@@ -23,13 +23,13 @@ function makeProvider(dim: number): EmbeddingProvider {
   };
 }
 
-describe('TemporalStore — reindexNamespace (staging-swap)', () => {
+describe('TragetiStore — reindexNamespace (staging-swap)', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
-    store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM_INIT });
+    store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM_INIT });
     await store.init();
     for (const [id, pos] of [
       ['ep-1', 1],
@@ -142,7 +142,7 @@ describe('TemporalStore — reindexNamespace (staging-swap)', () => {
 
   it('reindexNamespace uses the store-configured provider when none is passed', async () => {
     // Store dimension and provider dimension must agree (spec §1254-1257).
-    const storeWithProvider = new TemporalStore(db, {
+    const storeWithProvider = new TragetiStore(db, {
       namespace: NS,
       embeddingDimension: DIM_INIT,
       embeddingProvider: makeProvider(DIM_INIT),

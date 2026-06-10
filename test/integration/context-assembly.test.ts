@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { ProseFormatter } from '../../src/defaults/formatting/ProseFormatter.js';
 import { StructuredFormatter } from '../../src/defaults/formatting/StructuredFormatter.js';
 import { JsonFormatter } from '../../src/defaults/formatting/JsonFormatter.js';
@@ -12,8 +12,8 @@ const NS = 'test-ns';
 const DIM = 4;
 const VEC = new Float32Array([1, 0, 0, 0]);
 
-async function setupStore(db: Database): Promise<TemporalStore> {
-  const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+async function setupStore(db: Database): Promise<TragetiStore> {
+  const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
   await store.init();
   await store.writeEpisode({
     id: 'ep-1',
@@ -88,9 +88,9 @@ async function setupStore(db: Database): Promise<TemporalStore> {
   return store;
 }
 
-describe('TemporalStore — context assembly', () => {
+describe('TragetiStore — context assembly', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();

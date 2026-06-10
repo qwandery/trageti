@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import { IndexingError, MissingPeerDependencyError } from '../../src/errors/index.js';
 import { citationFor } from '../fixtures/scenario.js';
@@ -17,7 +17,7 @@ function openPlainDb(): Database.Database {
   return db;
 }
 
-async function seed(store: TemporalStore): Promise<void> {
+async function seed(store: TragetiStore): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: NS,
@@ -42,9 +42,9 @@ async function seed(store: TemporalStore): Promise<void> {
   });
 }
 
-describe('TemporalStore without sqlite-vec loaded', () => {
+describe('TragetiStore without sqlite-vec loaded', () => {
   it('initialises a vector-configured namespace (vec0 is created lazily)', async () => {
-    const store = new TemporalStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
     await store.init();
     const stats = await store.getStats(NS);
     expect(stats.embeddingDimension).toBe(DIM);
@@ -53,7 +53,7 @@ describe('TemporalStore without sqlite-vec loaded', () => {
   });
 
   it('indexAssertion throws MissingPeerDependencyError on a vector path', async () => {
-    const store = new TemporalStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await seed(store);
     await expect(store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))).rejects.toThrow(
@@ -63,7 +63,7 @@ describe('TemporalStore without sqlite-vec loaded', () => {
   });
 
   it("retrieve with strategy 'vector' throws MissingPeerDependencyError", async () => {
-    const store = new TemporalStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await seed(store);
     await expect(
@@ -78,7 +78,7 @@ describe('TemporalStore without sqlite-vec loaded', () => {
   });
 
   it('hybrid retrieval degrades to BM25 with a NO_SQLITE_VEC warning', async () => {
-    const store = new TemporalStore(openPlainDb(), {
+    const store = new TragetiStore(openPlainDb(), {
       namespace: NS,
       embeddingDimension: DIM,
       embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
@@ -95,7 +95,7 @@ describe('TemporalStore without sqlite-vec loaded', () => {
   });
 
   it('getPendingIndexing returns all active assertions when vec0 is not yet created', async () => {
-    const store = new TemporalStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await seed(store);
     const pending = await store.getPendingIndexing(NS);
@@ -104,7 +104,7 @@ describe('TemporalStore without sqlite-vec loaded', () => {
   });
 
   it('indexAssertion error is an IndexingError or MissingPeerDependencyError, never a silent pass', async () => {
-    const store = new TemporalStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(openPlainDb(), { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await expect(store.indexAssertion('ghost', new Float32Array([1, 0, 0, 0]))).rejects.toThrow(IndexingError);
     await store.close();

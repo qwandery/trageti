@@ -8,7 +8,7 @@ Guidance for AI agents working in the **trageti** repository.
 over SQLite. It stores episodic assertions with explicit validity windows and retrieves
 them by temporal position alongside semantic (vector) and full-text (BM25) similarity.
 It is a single-package npm library; entry point `src/index.ts`, public facade
-`TemporalStore` (`src/store/TemporalStore.ts`).
+`TragetiStore` (`src/store/TragetiStore.ts`).
 
 ## Core Rules
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import type { EmbeddingProvider } from '../../src/domain/types.js';
 import { ErrorCode, ReindexError } from '../../src/errors/index.js';
@@ -37,13 +37,13 @@ class DeferredProvider implements EmbeddingProvider {
   }
 }
 
-async function vectorStore(ns: string): Promise<TemporalStore> {
-  const store = new TemporalStore(openTestDb(), { namespace: ns, embeddingDimension: DIM });
+async function vectorStore(ns: string): Promise<TragetiStore> {
+  const store = new TragetiStore(openTestDb(), { namespace: ns, embeddingDimension: DIM });
   await store.init();
   return store;
 }
 
-async function seed(store: TemporalStore, ns: string, contents: Record<string, string>): Promise<void> {
+async function seed(store: TragetiStore, ns: string, contents: Record<string, string>): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: ns,

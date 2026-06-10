@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
-import type { Assertion, AssertionCitation, AssertionLink, Episode, NewAssertionInput, TemporalStore } from 'trageti';
+import type { Assertion, AssertionCitation, AssertionLink, Episode, NewAssertionInput, TragetiStore } from 'trageti';
 import { demoDataVersion, ensureDemoMetadata, ingestEpisodes, ingestPreparedUnits } from './runtime.js';
 import { resolveDemoProviders, type ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
@@ -141,7 +141,7 @@ describe('ingestEpisodes resume checks', () => {
     const store = new ResumeStore([makeAssertion('a-1')], [{ id: 'a-1', content: 'hello world' }]);
 
     await ingestEpisodes({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       namespace: 'test',
       episodes: BASE_EPISODES,
       providers: fixtureProviders(),
@@ -155,7 +155,7 @@ describe('ingestEpisodes resume checks', () => {
 
     await expect(
       ingestEpisodes({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         namespace: 'test',
         episodes: BASE_EPISODES,
         providers: fixtureProviders(),
@@ -168,7 +168,7 @@ describe('ingestEpisodes resume checks', () => {
     const store = new FreshIngestStore();
 
     await ingestEpisodes({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       namespace: 'test',
       episodes: BASE_EPISODES,
       providers: providersWithOneAssertion(),
@@ -183,7 +183,7 @@ describe('ingestEpisodes resume checks', () => {
     const store = new FreshIngestStore();
 
     await ingestEpisodes({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       namespace: 'test',
       episodes: BASE_EPISODES,
       providers: providersWithOneAssertion(),
@@ -200,7 +200,7 @@ describe('ingestEpisodes resume checks', () => {
     const store = new ResumeStore([makeAssertion('a-1')], [{ id: 'a-1', content: 'hello world' }]);
 
     await ingestEpisodes({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       namespace: 'test',
       episodes: BASE_EPISODES,
       providers: fixtureProviders(),
@@ -216,7 +216,7 @@ describe('ingestEpisodes resume checks', () => {
     const store = new FreshIngestStore();
 
     await ingestEpisodes({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       namespace: 'test',
       episodes: BASE_EPISODES,
       providers: providersWithOneAssertion(),
@@ -236,7 +236,7 @@ describe('ingestEpisodes resume checks', () => {
 
     try {
       await ingestPreparedUnits({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         namespace: 'test',
         units: [
           {

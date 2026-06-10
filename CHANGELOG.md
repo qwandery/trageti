@@ -4,7 +4,7 @@
 
 ### Major API redesign
 
-**BREAKING — uniform async API.** All public `TemporalStore` methods now return
+**BREAKING — uniform async API.** All public `TragetiStore` methods now return
 `Promise`. Callers must `await` every store call (`store.init()`,
 `store.writeEpisode(...)`, `store.retrieve(...)`, etc.). Internal repository
 calls remain synchronous; the async surface exists for forward-compat with
@@ -25,7 +25,7 @@ unaffected.
 
 ### New public surface
 
-- **Lifecycle:** `TemporalStore.create(options)` factory, `close()`,
+- **Lifecycle:** `TragetiStore.create(options)` factory, `close()`,
   `requireOpen()`, `prepareDatabase()`, `StoreClosedError`. Ownership rule:
   `create({ database: string })` opens and owns the handle; `create({
 database: Database })` leaves the handle to the caller.
@@ -202,7 +202,7 @@ true })` now returns every assertion with `validFrom <= atPosition` —
 
   Assertions now require at least one citation. New `trl_citations` table, new
   `AssertionCitation` interface, `writeAssertion()` requires `citations`. The
-  default validator and the `TemporalStore` itself enforce this. Existing v0.1
+  default validator and the `TragetiStore` itself enforce this. Existing v0.1
   rows in production databases remain readable with `citations: []` — the
   validator only enforces on new writes.
 

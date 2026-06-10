@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import type { RetrievalScorer, ScoredCandidate, ScoringContext } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
 
@@ -14,13 +14,13 @@ const VEC_B = new Float32Array([0, 1, 0, 0]);
 const VEC_C = new Float32Array([0, 0, 1, 0]);
 const QUERY_NEAR_A = new Float32Array([0.99, 0.14, 0, 0]); // much closer to A than B or C
 
-describe('TemporalStore — semantic retrieval', () => {
+describe('TragetiStore — semantic retrieval', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
-    store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',
@@ -214,10 +214,10 @@ describe('TemporalStore — semantic retrieval', () => {
   });
 });
 
-describe('TemporalStore — retrieve returns typed RetrievedAssertion', () => {
+describe('TragetiStore — retrieve returns typed RetrievedAssertion', () => {
   it('returned objects have all Assertion fields plus score and scoreComponents', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',
@@ -258,10 +258,10 @@ describe('TemporalStore — retrieve returns typed RetrievedAssertion', () => {
   });
 });
 
-describe('TemporalStore — scoreBatch contract', () => {
+describe('TragetiStore — scoreBatch contract', () => {
   it('throws when scoreBatch returns wrong-length array', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',

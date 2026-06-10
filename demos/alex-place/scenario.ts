@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { TemporalStore, RetrievedAssertion } from 'trageti';
+import type { TragetiStore, RetrievedAssertion } from 'trageti';
 import {
   PREPARED_ARTIFACT_VERSION,
   type PreparedDemoArtifact,
@@ -138,7 +138,7 @@ function alexPreparedDataVersion(units: readonly PreparedIngestionUnit[]): strin
 async function retrieveAlexPlace(
   context: DemoScenarioContext,
   providers: ResolvedDemoProviders,
-  store: TemporalStore,
+  store: TragetiStore,
 ): Promise<void> {
   const cli = parseDemoCliOptions([...context.argv]);
   const timeline = createDemoTimeline(episodes);

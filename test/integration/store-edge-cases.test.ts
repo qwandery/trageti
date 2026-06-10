@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import type { EmbeddingProvider, RetrievalMiddleware } from '../../src/domain/types.js';
 import type { Logger } from '../../src/internal/logger.js';
@@ -17,8 +17,8 @@ class EmptyProvider implements EmbeddingProvider {
   }
 }
 
-async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<TemporalStore> {
-  const store = new TemporalStore(openTestDb(), {
+async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<TragetiStore> {
+  const store = new TragetiStore(openTestDb(), {
     namespace: ns,
     embeddingDimension: DIM,
     ...(provider ? { embeddingProvider: provider } : {}),
@@ -27,7 +27,7 @@ async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<Te
   return store;
 }
 
-async function seed(store: TemporalStore, ns: string, ids: string[]): Promise<void> {
+async function seed(store: TragetiStore, ns: string, ids: string[]): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: ns,
@@ -71,7 +71,7 @@ describe('writeCitation — late citation', () => {
   });
 
   it('rejects a late citation with strict requireCitationExcerpt and a null excerpt', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'lcs',
       embeddingDimension: DIM,
       validation: { requireCitationExcerpt: true },
@@ -398,7 +398,7 @@ describe('close — middleware disposal and logger flush', () => {
         flushed = true;
       },
     };
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'cl',
       embeddingDimension: DIM,
       middleware: [middleware],
@@ -413,7 +413,7 @@ describe('close — middleware disposal and logger flush', () => {
 
 describe('prepareDatabase — custom pragmas', () => {
   it('applies caller-supplied pragmas through create()', async () => {
-    const store = await TemporalStore.create({
+    const store = await TragetiStore.create({
       database: ':memory:',
       namespace: 'pg',
       prepare: { pragmas: { cache_size: -2000 } },
@@ -425,7 +425,7 @@ describe('prepareDatabase — custom pragmas', () => {
 
 describe('getPendingIndexing — vectorless namespace', () => {
   it('returns an empty list for a vectorless namespace', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'vl' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'vl' });
     await store.init();
     expect(await store.getPendingIndexing('vl')).toEqual([]);
     await store.close();

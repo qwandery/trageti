@@ -9,7 +9,7 @@
  * Internal helpers:
  *   - structuredWarn(code, meta) — back-compat shim that routes through the
  *     active default-process logger for code paths that have not yet been
- *     plumbed with a TemporalStore-scoped logger.
+ *     plumbed with a TragetiStore-scoped logger.
  *   - emitOnce(code, scopeKey) — registers a one-shot suppression key so
  *     "once per process" warnings (TRGT_MOCK_PROVIDER_NON_PRODUCTION,
  *     TRGT_DEPRECATED_USAGE per-symbol, etc.) do not flood.
@@ -22,7 +22,7 @@ export interface Logger {
   info(code: string, fields?: LogFields): void;
   warn(code: string, fields?: LogFields): void;
   error(code: string, fields?: LogFields): void;
-  /** Optional. When present, called from TemporalStore.close(). */
+  /** Optional. When present, called from TragetiStore.close(). */
   flush?(): void | Promise<void>;
 }
 
@@ -87,14 +87,14 @@ export function resetEmitOnceRegistry(): void {
 // ─── Process-default logger ─────────────────────────────────────────────────
 //
 // Audit note (R9 §4.4): every store-internal log call routes through the
-// per-store `Logger` — `TemporalStore` threads `this.options.logger` into the
+// per-store `Logger` — `TragetiStore` threads `this.options.logger` into the
 // connection verifier (`verify(db, logger)`), the auto-installed
 // `DefaultAssertionValidator` (`{ logger }`), and all repository/pipeline code.
 // The process-default below is NOT a store fallback; it exists only for
 // default components constructed *standalone* (a `DefaultAssertionValidator` or
 // `DefaultConnectionVerifier` created directly without a `logger` option) and
 // for `MockEmbeddingProvider`, whose one-shot non-production warning fires at
-// module scope before any store exists. `TemporalStore`'s constructor still
+// module scope before any store exists. `TragetiStore`'s constructor still
 // calls `setDefaultLogger` so even those standalone fallbacks honor the most
 // recent store's logger. Known limitation: with multiple stores the
 // process-default reflects whichever was constructed last — acceptable, since
@@ -103,7 +103,7 @@ export function resetEmitOnceRegistry(): void {
 let defaultLogger: Logger = new ConsoleLogger();
 
 /** Internal: replace the process-default logger. Called by every
- *  `TemporalStore` constructor so standalone default components (see audit
+ *  `TragetiStore` constructor so standalone default components (see audit
  *  note above) honor the user's chosen logger. */
 export function setDefaultLogger(logger: Logger): void {
   defaultLogger = logger;

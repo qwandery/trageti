@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TemporalStore, Episode, NewAssertionInput, AssertionLink } from 'trageti';
+import type { TragetiStore, Episode, NewAssertionInput, AssertionLink } from 'trageti';
 import { ingest } from './ingest.js';
 import { buildExtractionPrompt } from './prompt.js';
 import {
@@ -1588,7 +1588,7 @@ describe('ingest normalization', () => {
     const episode = makeEpisode();
 
     await ingest({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       episode,
       document: 'doc',
       namespace: 'correct',
@@ -1631,7 +1631,7 @@ describe('ingest normalization', () => {
     const extractor = providerReturning(JSON.stringify({ assertions: [{ id: 'a' }], links: [] }));
     await expect(
       ingest({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         episode: makeEpisode(),
         document: 'doc',
         namespace: 'correct',
@@ -1663,7 +1663,7 @@ describe('ingest normalization', () => {
 
     await expect(
       ingest({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         episode: makeEpisode(),
         document: 'doc',
         namespace: 'correct',
@@ -1703,7 +1703,7 @@ describe('ingest normalization', () => {
     );
 
     await ingest({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       episode: makeEpisode(),
       document: 'episode summary',
       namespace: 'correct',
@@ -1745,7 +1745,7 @@ describe('ingest normalization', () => {
     );
 
     await ingest({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       episode: makeEpisode(),
       document: 'episode summary',
       namespace: 'correct',
@@ -1825,7 +1825,7 @@ describe('ingest normalization', () => {
     );
 
     await ingest({
-      store: store as unknown as TemporalStore,
+      store: store as unknown as TragetiStore,
       episode: makeEpisode(),
       document: 'episode summary',
       namespace: 'correct',
@@ -1867,7 +1867,7 @@ describe('ingest normalization', () => {
 
     await expect(
       ingest({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         episode: makeEpisode(),
         document: 'doc',
         namespace: 'correct',
@@ -1909,7 +1909,7 @@ describe('ingest normalization', () => {
 
     await expect(
       ingest({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         episode: makeEpisode(),
         document: 'doc',
         namespace: 'correct',
@@ -1951,7 +1951,7 @@ describe('ingest normalization', () => {
 
     await expect(
       ingest({
-        store: store as unknown as TemporalStore,
+        store: store as unknown as TragetiStore,
         episode: makeEpisode(),
         document: 'doc',
         namespace: 'correct',

@@ -1,5 +1,5 @@
 import type { ContextAssemblyOptions, AssembledContext, ContextFormatter, RetrievalQuery } from '../domain/types.js';
-import type { TemporalStore } from '../store/TemporalStore.js';
+import type { TragetiStore } from '../store/TragetiStore.js';
 import { ErrorCode, RetrievalInputError } from '../errors/index.js';
 import { DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT } from '../internal/retrieval-defaults.js';
 
@@ -7,7 +7,7 @@ interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter;
 }
 
-export async function assembleContext(store: TemporalStore, options: AssembleOptions): Promise<AssembledContext> {
+export async function assembleContext(store: TragetiStore, options: AssembleOptions): Promise<AssembledContext> {
   // Public-input validation before any SQLite execution (spec §200-202).
   // tokenBudget is a soft cap; public contract requires a positive integer.
   const tb = options.tokenBudget;

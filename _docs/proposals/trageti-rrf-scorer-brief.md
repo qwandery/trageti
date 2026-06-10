@@ -90,15 +90,15 @@ RRF **must** use `scoreBatch` — individual `score()` calls cannot compute RRF 
 
 ```typescript
 // Default — RRF, no configuration needed
-const store = await TemporalStore.create({ ... })
+const store = await TragetiStore.create({ ... })
 
 // Explicit RRF with custom k
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   scorer: new RRFScorer({ k: 40 })
 })
 
 // Linear scorer (previous default behavior)
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   scorer: new LinearScorer({ weights: { semantic: 0.6, keyword: 0.3, recency: 0.1 } })
 })
 ```
@@ -175,15 +175,15 @@ function rankBy(
 
 ```typescript
 // Default (no scorer specified) — RRF with k=60, three signals
-const store = await TemporalStore.create({ ... })
+const store = await TragetiStore.create({ ... })
 
 // RRF with custom k, no recency signal
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   scorer: new RRFScorer({ k: 40, includeRecency: false })
 })
 
 // LinearScorer (previous default) — caller tunes weights
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   scorer: new LinearScorer({
     weights: { semantic: 0.5, keyword: 0.4, recency: 0.1 }
   })

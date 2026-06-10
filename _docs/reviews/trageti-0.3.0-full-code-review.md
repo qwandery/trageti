@@ -1,8 +1,8 @@
 # Code Review: Trageti 0.3.0 Full Review
 
-**Verdict**: REQUEST CHANGES  
-**Confidence**: HIGH  
-**Review date**: 2026-06-01  
+**Verdict**: REQUEST CHANGES
+**Confidence**: HIGH
+**Review date**: 2026-06-01
 **Scope**: Current `develop-v0.3-demos` branch, including the v0.3 library redesign, retrieval/indexing pipelines, demos, docs, and tests. Migration findings are treated as low priority because there are no known consuming applications on v0.2.x or earlier, and the project may flatten migrations before beta/release.
 
 ## Summary
@@ -16,19 +16,19 @@ This document consolidates the initial comprehensive review and a second verific
 | Priority | Issue                                                                                                                                                                     | Location                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | P0       | `reindexNamespace({ strategy: 'staging-swap', batchSize: 0 })` can replace a complete vector index with an empty vec0 table and drop the old index.                       | `src/pipeline/reindex.ts:49`                                                                 |
-| P1       | `indexBatch(..., { onProviderError: 'fail-fast', batchSize: 0 })` can hang forever.                                                                                       | `src/store/TemporalStore.ts:687`                                                             |
-| P1       | `rebuildFts({ batchSize: 0 })` can enter a non-terminating transaction loop after dropping/recreating FTS.                                                                | `src/store/TemporalStore.ts:1116`                                                            |
+| P1       | `indexBatch(..., { onProviderError: 'fail-fast', batchSize: 0 })` can hang forever.                                                                                       | `src/store/TragetiStore.ts:687`                                                             |
+| P1       | `rebuildFts({ batchSize: 0 })` can enter a non-terminating transaction loop after dropping/recreating FTS.                                                                | `src/store/TragetiStore.ts:1116`                                                            |
 | P1       | Reindex staging table names use only `Date.now()` and are blindly dropped before creation, so same-ms/concurrent runs can collide destructively.                          | `src/pipeline/reindex.ts:71`                                                                 |
-| P1       | `deleteNamespace()` deletes only links owned by the namespace, leaving permitted cross-namespace link FKs that can block deletion.                                        | `src/store/TemporalStore.ts:1005`                                                            |
-| P1       | `writeLink()` does not enforce that `sourceEpisodeId` belongs to the link namespace.                                                                                      | `src/store/TemporalStore.ts:487`                                                             |
+| P1       | `deleteNamespace()` deletes only links owned by the namespace, leaving permitted cross-namespace link FKs that can block deletion.                                        | `src/store/TragetiStore.ts:1005`                                                            |
+| P1       | `writeLink()` does not enforce that `sourceEpisodeId` belongs to the link namespace.                                                                                      | `src/store/TragetiStore.ts:487`                                                             |
 | P1       | `reindexNamespace()` bypasses the vec0 readiness guard, so missing `sqlite-vec` can surface raw SQLite errors instead of the typed peer-dependency path.                  | `src/pipeline/reindex.ts:73`                                                                 |
 | P1       | Direct `DefaultScorer.score()` inverts raw negative BM25 relevance, ranking weaker keyword matches above stronger ones when `scoreBatch()` is bypassed.                   | `src/defaults/scoring/DefaultScorer.ts:51`                                                   |
-| P1       | Async provider-backed operations can resume after `close()` has marked the store closed and closed the owned database.                                                    | `src/store/TemporalStore.ts:535`, `src/store/TemporalStore.ts:1278`                          |
-| P2       | Retrieval calls `ensureVectorReady()` through `getEmbeddingTable`, allowing a read path to create vec0 tables.                                                            | `src/store/TemporalStore.ts:1454`                                                            |
+| P1       | Async provider-backed operations can resume after `close()` has marked the store closed and closed the owned database.                                                    | `src/store/TragetiStore.ts:535`, `src/store/TragetiStore.ts:1278`                          |
+| P2       | Retrieval calls `ensureVectorReady()` through `getEmbeddingTable`, allowing a read path to create vec0 tables.                                                            | `src/store/TragetiStore.ts:1454`                                                            |
 | P2       | `assembleContext()` accepts fractional `tokenBudget` values despite the public positive-integer contract.                                                                 | `src/pipeline/assemble.ts:23`                                                                |
 | P2       | `getConnected()` and `findPath()` pass invalid `maxDepth` values directly to the graph adapter; only `retrieve()` validates `maxDepth`.                                   | `src/pipeline/graph.ts:23`                                                                   |
 | P2       | Retrieval accepts non-finite `minConfidence` and temporal-window endpoints because it checks only range/order, not finiteness.                                            | `src/pipeline/retrieve.ts:204`, `src/pipeline/retrieve.ts:214`                               |
-| P2       | Runtime type validation for public assertion/citation fields is incomplete, leading to raw `TypeError`s or database constraint errors instead of typed validation errors. | `src/defaults/validation/DefaultAssertionValidator.ts:56`, `src/store/TemporalStore.ts:1304` |
+| P2       | Runtime type validation for public assertion/citation fields is incomplete, leading to raw `TypeError`s or database constraint errors instead of typed validation errors. | `src/defaults/validation/DefaultAssertionValidator.ts:56`, `src/store/TragetiStore.ts:1304` |
 | P2       | BM25-only retrieval materializes all temporal candidates into JS/JSON before FTS narrows the result set.                                                                  | `src/pipeline/retrieve.ts:267`                                                               |
 | P2       | Trajectory retrieval performs one recursive supersession-chain query per result.                                                                                          | `src/pipeline/retrieve.ts:454`                                                               |
 | P2       | `findPath()` materializes all matching paths before choosing the shortest deterministic result.                                                                           | `src/defaults/graph/CTEGraphAdapter.ts:194`                                                  |
@@ -38,13 +38,13 @@ This document consolidates the initial comprehensive review and a second verific
 | P2       | Demo embedding providers accept `EmbedOptions` but do not pass abort signals to `fetch()`.                                                                                | `demos/shared/providers.ts:179`, `demos/shared/providers.ts:223`                             |
 | P2       | Demo terminal sanitizers normalize punctuation but do not strip ANSI/control sequences.                                                                                   | `demos/shared/output.ts:440`, `demos/shared/runtime.ts:232`                                  |
 | P2       | Fixture-generation scripts do not carry forward prior assertions when prompting or validating each episode.                                                               | `demos/alex-place/generate-fixtures.ts:32`, `demos/know-thyself/generate-fixtures.ts:32`     |
-| P2       | `explain()` manually duplicates vector-routing checks and can drift from `resolveQueryEmbedding()`.                                                                       | `src/store/TemporalStore.ts:1228`                                                            |
-| P2       | FTS rebuild DDL is duplicated between `rebuildFts()` and `applyFtsTokenizer()`.                                                                                           | `src/store/TemporalStore.ts:1123`, `src/store/TemporalStore.ts:1517`                         |
+| P2       | `explain()` manually duplicates vector-routing checks and can drift from `resolveQueryEmbedding()`.                                                                       | `src/store/TragetiStore.ts:1228`                                                            |
+| P2       | FTS rebuild DDL is duplicated between `rebuildFts()` and `applyFtsTokenizer()`.                                                                                           | `src/store/TragetiStore.ts:1123`, `src/store/TragetiStore.ts:1517`                         |
 | P3       | If v005 is retained, it reads persisted tokenizer metadata and interpolates it into FTS5 DDL without validation.                                                          | `src/db/migrations/v005_rename.ts:67`                                                        |
 | P3       | If v005 is retained, it can leave live embedding tables under the legacy `trl_` prefix when `sqlite-vec` is unavailable.                                                  | `src/db/migrations/v005_rename.ts:176`                                                       |
 | P3       | `DefaultScorer.scoreBatch()` uses `bm25NormalisedById` for a map keyed by candidate index, not assertion id.                                                              | `src/defaults/scoring/DefaultScorer.ts:75`                                                   |
 | P3       | Generated planning/review artifacts are committed under `_docs/plans`, making durable project docs harder to trust.                                                       | `_docs/plans/review-c-src-qwandery-trageti-docs-specs-peaceful-ember.md:1`                   |
-| P3       | `retrieveCore()` and `indexBatch()` are large multi-phase functions that concentrate validation, routing, persistence, scoring, metrics, and expansion logic.             | `src/pipeline/retrieve.ts:126`, `src/store/TemporalStore.ts:558`                             |
+| P3       | `retrieveCore()` and `indexBatch()` are large multi-phase functions that concentrate validation, routing, persistence, scoring, metrics, and expansion logic.             | `src/pipeline/retrieve.ts:126`, `src/store/TragetiStore.ts:558`                             |
 
 ## Details
 
@@ -104,7 +104,7 @@ Treat persisted metadata as untrusted at migration boundaries if this migration 
 
 ### [P1] `indexBatch()` can hang forever with `batchSize: 0`
 
-**File:** `src/store/TemporalStore.ts:687`
+**File:** `src/store/TragetiStore.ts:687`
 
 In fail-fast mode:
 
@@ -128,7 +128,7 @@ Use the same helper for `indexBatch()`, `reindexNamespace()`, and `rebuildFts()`
 
 ### [P1] `rebuildFts()` can hang inside a write transaction with invalid `batchSize`
 
-**File:** `src/store/TemporalStore.ts:1116`
+**File:** `src/store/TragetiStore.ts:1116`
 
 `rebuildFts()` validates the tokenizer, drops/recreates `trageti_fulltext`, and then loops with `start += batchSize`. With `batchSize: 0`, this never advances; with negative values, it can also be non-terminating. Because the loop is inside a transaction after FTS DDL, this can hold locks and leave the process wedged.
 
@@ -167,7 +167,7 @@ Consider a per-namespace reindex lock as well; concurrent rebuilds of the same n
 
 ### [P1] `deleteNamespace()` misses inbound cross-namespace references
 
-**File:** `src/store/TemporalStore.ts:1005`
+**File:** `src/store/TragetiStore.ts:1005`
 
 `writeLink()` permits cross-namespace links, but `deleteNamespace()` only deletes:
 
@@ -197,7 +197,7 @@ Add tests for deleting a namespace that is the target of a cross-namespace link 
 
 ### [P1] `writeLink()` does not enforce source episode namespace integrity
 
-**File:** `src/store/TemporalStore.ts:487`
+**File:** `src/store/TragetiStore.ts:487`
 
 `validateLinkInput()` validates that `sourceEpisodeId` is non-empty, but not that it exists in `link.namespace`. The schema FK references only `trageti_episodes(id)`, so the DB cannot enforce this cross-column invariant. The spec says `AssertionLink.sourceEpisodeId` must share the link namespace.
 
@@ -253,7 +253,7 @@ Add direct `score()` tests for two candidates where the only difference is BM25 
 
 ### [P1] `close()` does not coordinate with in-flight async provider work
 
-**File:** `src/store/TemporalStore.ts:535`, `src/store/TemporalStore.ts:1278`
+**File:** `src/store/TragetiStore.ts:535`, `src/store/TragetiStore.ts:1278`
 
 Provider-backed operations await external work and then resume with database writes. `close()` sets `closed = true`, disposes middleware, flushes the logger, and may close the owned database, but in-flight operations are not tracked or cancelled.
 
@@ -302,7 +302,7 @@ Narrowed:
 
 Rejected:
 
-- The initial concern that custom validators bypass structural assertion invariants is not valid for `writeAssertion()`. `TemporalStore.writeAssertion()` calls `enforceStructuralInvariants()` before user validators, so replacing `options.validators` does not bypass citation presence, citation episode namespace, predecessor namespace/order, or citation excerpt policy.
+- The initial concern that custom validators bypass structural assertion invariants is not valid for `writeAssertion()`. `TragetiStore.writeAssertion()` calls `enforceStructuralInvariants()` before user validators, so replacing `options.validators` does not bypass citation presence, citation episode namespace, predecessor namespace/order, or citation excerpt policy.
 
 ## Recommendation
 

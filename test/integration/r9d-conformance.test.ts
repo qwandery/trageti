@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { ValidationError } from '../../src/errors/index.js';
 import type {
   TraversalOptions,
@@ -16,7 +16,7 @@ import { citationFor } from '../fixtures/scenario.js';
 
 const DIM = 4;
 
-async function seedEpisode(store: TemporalStore, ns: string, id = 'ep-1'): Promise<void> {
+async function seedEpisode(store: TragetiStore, ns: string, id = 'ep-1'): Promise<void> {
   await store.writeEpisode({
     id,
     namespace: ns,
@@ -27,7 +27,7 @@ async function seedEpisode(store: TemporalStore, ns: string, id = 'ep-1'): Promi
   });
 }
 
-async function seedAssertion(store: TemporalStore, ns: string, id: string): Promise<void> {
+async function seedAssertion(store: TragetiStore, ns: string, id: string): Promise<void> {
   await store.writeAssertion({
     id,
     namespace: ns,
@@ -46,7 +46,7 @@ async function seedAssertion(store: TemporalStore, ns: string, id: string): Prom
 
 describe('RetrievalMeta.queryTextMode is null when the call carries no queryText', () => {
   it('a vector-only retrieve reports queryTextMode: null', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'ns');
     await seedAssertion(store, 'ns', 'a-1');
@@ -61,7 +61,7 @@ describe('RetrievalMeta.queryTextMode is null when the call carries no queryText
   });
 
   it('a text retrieve reports the effective queryTextMode', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'ns');
     await seedAssertion(store, 'ns', 'a-1');
@@ -87,8 +87,8 @@ describe('RetrievalMeta.queryTextMode is null when the call carries no queryText
 });
 
 describe('writeEpisode rejects malformed input with ValidationError before SQLite', () => {
-  async function store(): Promise<TemporalStore> {
-    const s = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function store(): Promise<TragetiStore> {
+    const s = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await s.init();
     return s;
   }
@@ -124,8 +124,8 @@ describe('writeEpisode rejects malformed input with ValidationError before SQLit
 });
 
 describe('writeLink rejects malformed input with ValidationError before SQLite', () => {
-  async function linkStore(): Promise<TemporalStore> {
-    const s = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function linkStore(): Promise<TragetiStore> {
+    const s = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await s.init();
     await seedEpisode(s, 'ns');
     await seedAssertion(s, 'ns', 'a-1');
@@ -185,7 +185,7 @@ describe('writeLink rejects malformed input with ValidationError before SQLite',
 // implementation fails `tsc --noEmit` (test files are typechecked).
 describe('public type compile fixture', () => {
   it('R9 option/result types match the store + adapter signatures', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'g');
     await seedAssertion(store, 'g', 'a-1');

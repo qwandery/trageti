@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { TemporalStore, type Assertion, type Episode } from 'trageti';
+import { TragetiStore, type Assertion, type Episode } from 'trageti';
 import type { PreparedIngestionUnit } from './artifacts.js';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
@@ -142,7 +142,7 @@ export async function prepareDemoStore(options: {
   namespace: string;
   providers: ResolvedDemoProviders;
   logger?: DemoRunLogger;
-}): Promise<TemporalStore> {
+}): Promise<TragetiStore> {
   const metadataOptions = {
     database: options.database,
     demoName: options.demoName,
@@ -151,19 +151,19 @@ export async function prepareDemoStore(options: {
   };
   ensureDemoMetadata(options.logger ? { ...metadataOptions, logger: options.logger } : metadataOptions);
 
-  options.logger?.step('Opening TemporalStore');
-  const store = await TemporalStore.create({
+  options.logger?.step('Opening TragetiStore');
+  const store = await TragetiStore.create({
     database: options.database,
     namespace: options.namespace,
     embeddingDimension: options.providers.embedder.provider.dimension,
     embeddingProvider: options.providers.embedder.provider,
   });
-  options.logger?.success('TemporalStore is ready');
+  options.logger?.success('TragetiStore is ready');
   return store;
 }
 
 export async function ingestEpisodes(options: {
-  store: TemporalStore;
+  store: TragetiStore;
   namespace: string;
   episodes: readonly Omit<Episode, 'createdAt'>[];
   citationSources?: Record<string, string>;
@@ -187,7 +187,7 @@ export async function ingestEpisodes(options: {
 }
 
 export async function ingestPreparedUnits(options: {
-  store: TemporalStore;
+  store: TragetiStore;
   namespace: string;
   units: readonly PreparedIngestionUnit[];
   providers: ResolvedDemoProviders;
@@ -198,7 +198,7 @@ export async function ingestPreparedUnits(options: {
   trace?: LlmTraceOptions;
   artifactPath?: string;
 }): Promise<void> {
-  options.logger?.step('Ingesting episodes into TemporalStore');
+  options.logger?.step('Ingesting episodes into TragetiStore');
   if (options.artifactPath) options.logger?.detail(`Prepared artifact: ${options.artifactPath}`);
   options.logger?.detail(
     'Prepared ingestion units are converted into assertions and typed links, stored in SQLite, then assertion text is embedded for vector retrieval.',
@@ -395,7 +395,7 @@ export function expectedFixtureAssertionIds(fixtures: Record<string, string>): s
 }
 
 async function indexResult(
-  store: TemporalStore,
+  store: TragetiStore,
   result: ExtractionResult,
   context: {
     episode: Omit<Episode, 'createdAt'>;
@@ -439,13 +439,13 @@ function validateExistingEpisode(existing: Episode, expected: Omit<Episode, 'cre
   }
 }
 
-async function reloadAccumulated(store: TemporalStore, namespace: string, target: Assertion[]): Promise<void> {
+async function reloadAccumulated(store: TragetiStore, namespace: string, target: Assertion[]): Promise<void> {
   target.length = 0;
   target.push(...(await store.getAssertions(namespace, { includeSuperseded: true })));
 }
 
 async function verifyComplete(options: {
-  store: TemporalStore;
+  store: TragetiStore;
   namespace: string;
   episodes?: readonly Omit<Episode, 'createdAt'>[];
   units?: readonly PreparedIngestionUnit[];

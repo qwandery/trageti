@@ -1,5 +1,5 @@
 // ─── Main facade ───────────────────────────────────────────────────────────────
-export { TemporalStore } from './store/TemporalStore.js';
+export { TragetiStore } from './store/TragetiStore.js';
 
 // ─── Domain types ──────────────────────────────────────────────────────────────
 export type {
@@ -38,7 +38,7 @@ export type {
   Migration,
   MigrationDescriptor,
   FTS5TokenizerConfig,
-  TemporalStoreOptions,
+  TragetiStoreOptions,
   CreateStoreOptions,
   PrepareDatabaseOptions,
   ValidationOptions,

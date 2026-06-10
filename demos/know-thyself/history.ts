@@ -776,7 +776,7 @@ function scorePath(path: string, added: number, deleted: number): number {
   let score = Math.min(added + deleted, 600);
   if (path.startsWith('_docs/specs/')) score += 800;
   if (path === 'README.md' || path === 'CHANGELOG.md') score += 250;
-  if (path === 'src/domain/types.ts' || path === 'src/store/TemporalStore.ts') score += 700;
+  if (path === 'src/domain/types.ts' || path === 'src/store/TragetiStore.ts') score += 700;
   if (path.includes('/pipeline/') || path.includes('/defaults/scoring/')) score += 550;
   if (path.includes('/defaults/graph/') || path.includes('/db/migrations/')) score += 400;
   if (path.startsWith('test/') && (path.includes('trajectory') || path.includes('semantic') || path.includes('graph')))

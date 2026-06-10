@@ -55,7 +55,7 @@ npm run trageti-demo -- alex-place run
 
 `prepare` writes reviewable artifacts under
 `demos/.local/prepared/<scenario>/prepared.json`. `ingest` reads only that
-artifact and writes to `TemporalStore`. `retrieve` opens an already-ingested DB
+artifact and writes to `TragetiStore`. `retrieve` opens an already-ingested DB
 and runs retrieval examples without preparing or ingesting content. `run`
 performs all three phases in order.
 
@@ -85,7 +85,7 @@ its default repo/keyframe source docs, extraction fixtures, and hash vectors at
 runtime. Big Brother uses committed synthetic screen fixtures, deterministic
 extraction fixtures, and hash vectors. Offline mode is deterministic, requires no API keys, and is suitable
 for smoke tests and quick orientation. It still writes a real SQLite database
-and exercises the normal `TemporalStore`, schema, ingestion, indexing, and
+and exercises the normal `TragetiStore`, schema, ingestion, indexing, and
 retrieval paths. It is not intended to demonstrate real semantic embedding
 quality. Know Thyself custom repo/keyframe runs require live providers.
 

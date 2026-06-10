@@ -1,6 +1,6 @@
 /*
  * eslint-disable @typescript-eslint/require-await --
- * v0.3 public API contract: every TemporalStore method is `async` for a
+ * v0.3 public API contract: every TragetiStore method is `async` for a
  * uniform Promise-returning surface, even where the body is currently
  * synchronous (repositories and DB calls are sync internally). The
  * require-await rule is therefore disabled file-wide *by design* for this
@@ -19,7 +19,7 @@ import type {
   NormalizedNewAssertion,
   NewLateCitation,
   NamespaceConfig,
-  TemporalStoreOptions,
+  TragetiStoreOptions,
   CreateStoreOptions,
   NamespaceStats,
   MigrationDescriptor,
@@ -141,19 +141,19 @@ function validateLinkInput(link: Omit<AssertionLink, 'createdAt'>): void {
   if (errors.length > 0) throw new ValidationError(errors);
 }
 
-export class TemporalStore {
+export class TragetiStore {
   private readonly db: Database;
-  private readonly options: TemporalStoreOptions & {
-    graphAdapter: NonNullable<TemporalStoreOptions['graphAdapter']>;
-    scorer: NonNullable<TemporalStoreOptions['scorer']>;
-    defaultFormatter: NonNullable<TemporalStoreOptions['defaultFormatter']>;
-    validators: NonNullable<TemporalStoreOptions['validators']>;
-    connectionVerifier: NonNullable<TemporalStoreOptions['connectionVerifier']>;
-    middleware: NonNullable<TemporalStoreOptions['middleware']>;
-    fts5Tokenizer: NonNullable<TemporalStoreOptions['fts5Tokenizer']>;
-    schemaExtensions: NonNullable<TemporalStoreOptions['schemaExtensions']>;
+  private readonly options: TragetiStoreOptions & {
+    graphAdapter: NonNullable<TragetiStoreOptions['graphAdapter']>;
+    scorer: NonNullable<TragetiStoreOptions['scorer']>;
+    defaultFormatter: NonNullable<TragetiStoreOptions['defaultFormatter']>;
+    validators: NonNullable<TragetiStoreOptions['validators']>;
+    connectionVerifier: NonNullable<TragetiStoreOptions['connectionVerifier']>;
+    middleware: NonNullable<TragetiStoreOptions['middleware']>;
+    fts5Tokenizer: NonNullable<TragetiStoreOptions['fts5Tokenizer']>;
+    schemaExtensions: NonNullable<TragetiStoreOptions['schemaExtensions']>;
     maxEpisodeContentBytes: number;
-    logger: NonNullable<TemporalStoreOptions['logger']>;
+    logger: NonNullable<TragetiStoreOptions['logger']>;
   };
   private readonly closeDatabaseOnStoreClose: boolean;
   /** Whether the caller explicitly supplied `fts5Tokenizer` (vs the default). */
@@ -182,16 +182,16 @@ export class TemporalStore {
   private readonly inFlightWaiters: Array<() => void> = [];
   private readonly reindexLocks = new Set<string>();
 
-  static async create(options: CreateStoreOptions): Promise<TemporalStore> {
+  static async create(options: CreateStoreOptions): Promise<TragetiStore> {
     const db = prepareDatabase(options.database, options.prepare);
-    const store = new TemporalStore(db, options, {
+    const store = new TragetiStore(db, options, {
       closeDatabaseOnStoreClose: options.closeDatabaseOnStoreClose ?? typeof options.database === 'string',
     });
     await store.init();
     return store;
   }
 
-  constructor(db: Database, options: TemporalStoreOptions, internal: { closeDatabaseOnStoreClose?: boolean } = {}) {
+  constructor(db: Database, options: TragetiStoreOptions, internal: { closeDatabaseOnStoreClose?: boolean } = {}) {
     this.db = db;
     this.options = {
       graphAdapter: options.graphAdapter ?? new CTEGraphAdapter(),
@@ -1297,7 +1297,7 @@ export class TemporalStore {
   // ─── Internal helpers ──────────────────────────────────────────────────────
 
   /**
-   * Structural invariants (decision §2). These are enforced by TemporalStore
+   * Structural invariants (decision §2). These are enforced by TragetiStore
    * directly so that replacing the validators array cannot bypass them.
    */
   private enforceStructuralInvariants(assertion: NormalizedNewAssertion): void {

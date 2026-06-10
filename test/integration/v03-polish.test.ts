@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { RetrievalInputError } from '../../src/errors/index.js';
 import type { TragetiError } from '../../src/errors/index.js';
 import type { RetrievalStep } from '../../src/index.js';
@@ -8,7 +8,7 @@ import { citationFor } from '../fixtures/scenario.js';
 
 const DIM = 4;
 
-async function seedEpisode(store: TemporalStore, ns: string): Promise<void> {
+async function seedEpisode(store: TragetiStore, ns: string): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: ns,
@@ -20,7 +20,7 @@ async function seedEpisode(store: TemporalStore, ns: string): Promise<void> {
 }
 
 async function writeAssertion(
-  store: TemporalStore,
+  store: TragetiStore,
   ns: string,
   id: string,
   opts: { validFrom: number; validUntil?: number | null; supersedesId?: string | null } = {
@@ -46,8 +46,8 @@ async function writeAssertion(
 // ── Snapshot supersession semantics ───────────────────────────────────────────
 describe('getTemporalSnapshot honors includeSuperseded', () => {
   // Chain A[1,5) → B[5,10) → C[10,∞), one entity.
-  async function chainStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function chainStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'A', { validFrom: 1 });
@@ -91,8 +91,8 @@ describe('getTemporalSnapshot honors includeSuperseded', () => {
 
 // ── Raw FTS5 validation errors ────────────────────────────────────────────────
 describe('malformed fts5 query text fails with RETRIEVAL_INVALID_QUERY_TEXT', () => {
-  async function seededStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function seededStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', { validFrom: 1 });
@@ -166,8 +166,8 @@ describe('malformed fts5 query text fails with RETRIEVAL_INVALID_QUERY_TEXT', ()
 
 // ── Debug / explain step ordering ─────────────────────────────────────────────
 describe('rank is emitted after score and before graph/trajectory expansion', () => {
-  async function seededStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function seededStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', { validFrom: 1 });
@@ -213,7 +213,7 @@ describe('rank is emitted after score and before graph/trajectory expansion', ()
 // ── Deterministic graph neighborhood ordering ─────────────────────────────────
 describe('CTEGraphAdapter.findConnected returns a stable order', () => {
   it('repeated getConnected calls over a multi-link neighborhood are reproducible', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
     await store.init();
     await seedEpisode(store, 'g');
     for (const id of ['a-1', 'a-2', 'a-3', 'a-4', 'a-5', 'a-6', 'a-7']) {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AssembledContext, RetrievedAssertion, TemporalStore } from 'trageti';
+import type { AssembledContext, RetrievedAssertion, TragetiStore } from 'trageti';
 import type { ExtractionProvider } from './providers.js';
 import { generateAssembledAnswer } from './synthesis.js';
 
@@ -94,7 +94,7 @@ describe('generateAssembledAnswer', () => {
   });
 });
 
-function storeWithContext(ctx: AssembledContext): Pick<TemporalStore, 'assembleContext'> {
+function storeWithContext(ctx: AssembledContext): Pick<TragetiStore, 'assembleContext'> {
   return {
     assembleContext() {
       return Promise.resolve(ctx);

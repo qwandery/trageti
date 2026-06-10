@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { IndexingError, ReferencedExtensionTableError, RetrievalInputError } from '../../src/errors/index.js';
 
 const NS = 'vectorless-ns';
 
-describe('TemporalStore vectorless namespace state', () => {
+describe('TragetiStore vectorless namespace state', () => {
   it('registers vectorless namespaces without creating vec0 tables', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS });
+    const store = new TragetiStore(db, { namespace: NS });
     await store.init();
 
     const ns = db
@@ -27,7 +27,7 @@ describe('TemporalStore vectorless namespace state', () => {
 
   it('rejects vector access until a namespace is upgraded, then creates vec0 lazily', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS });
+    const store = new TragetiStore(db, { namespace: NS });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',
@@ -72,7 +72,7 @@ describe('TemporalStore vectorless namespace state', () => {
 describe('deleteNamespace extension cascade', () => {
   it('requires cascade for namespace-referencing extension tables and deletes only matching rows', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, {
+    const store = new TragetiStore(db, {
       namespace: NS,
       embeddingDimension: 4,
       schemaExtensions: {

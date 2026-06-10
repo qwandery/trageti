@@ -53,7 +53,7 @@ trageti/
 ├── src/
 │   ├── index.ts                Top-level barrel — every public name listed here
 │   ├── store/
-│   │   └── TemporalStore.ts    Public facade. Thin orchestration; no SQL inline
+│   │   └── TragetiStore.ts    Public facade. Thin orchestration; no SQL inline
 │   ├── domain/
 │   │   ├── types.ts            ALL interfaces (domain + contracts) live here
 │   │   └── vocabulary.ts       Frozen recommended assertion / link types
@@ -137,7 +137,7 @@ internal ← (anything; only Logger/Metrics types are re-exported)
 v0.3 has a uniform async lifecycle. The recommended entry point is the static factory:
 
 ```typescript
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: '/path/to/data.db', // path string, or a better-sqlite3 Database
   namespace: 'default',
   embeddingDimension: 768, // omit / null → vectorless namespace
@@ -155,11 +155,11 @@ await store.close();
 4. **Namespace registration** — upsert the configured namespace into `trageti_namespaces`.
 5. **Extension-cache warm-up** — read `PRAGMA table_info` for every library table and cache user-extension columns. Repositories use this to populate the `extensions` bag on returned rows.
 
-Direct construction (`new TemporalStore(db, options)` + `await store.init()`) still works and is what most integration tests use, but `create()` is the surface consumers should see. After `close()`, every public method throws `StoreClosedError` — guarded by `requireNotClosed()`.
+Direct construction (`new TragetiStore(db, options)` + `await store.init()`) still works and is what most integration tests use, but `create()` is the surface consumers should see. After `close()`, every public method throws `StoreClosedError` — guarded by `requireNotClosed()`.
 
 ### Uniform async API
 
-Every public method returns a `Promise`, even where the underlying `better-sqlite3` work is synchronous. This is deliberate: it keeps the API stable if an async `EmbeddingProvider` is introduced on a path that is currently sync, and it lets `EmbeddingProvider.embed` (genuinely async) compose without a signature split. `TemporalStore.ts` carries a file-wide, documented `eslint-disable @typescript-eslint/require-await` for the methods that are async-by-contract but sync-by-implementation.
+Every public method returns a `Promise`, even where the underlying `better-sqlite3` work is synchronous. This is deliberate: it keeps the API stable if an async `EmbeddingProvider` is introduced on a path that is currently sync, and it lets `EmbeddingProvider.embed` (genuinely async) compose without a signature split. `TragetiStore.ts` carries a file-wide, documented `eslint-disable @typescript-eslint/require-await` for the methods that are async-by-contract but sync-by-implementation.
 
 ### Hybrid retrieval pipeline
 
@@ -250,7 +250,7 @@ When a new assertion _layers on_ an earlier one without replacing it, use `write
 Users can add columns to library tables and additional tables of their own:
 
 ```typescript
-await TemporalStore.create({
+await TragetiStore.create({
   database: ':memory:',
   namespace: 'x',
   embeddingDimension: 768,
@@ -305,9 +305,9 @@ No code derives a vec0 table name from the namespace hash at runtime. Always rea
 
 `DefaultConnectionVerifier` enables and re-checks `PRAGMA foreign_keys` and throws if enforcement is unavailable. It does **not** check encryption PRAGMAs, and it does **not** warn about a missing `sqlite-vec` — vectorless / BM25-only operation is fully supported. sqlite-vec absence surfaces only where it actually matters (`prepareDatabase`, `ensureVectorReady`, hybrid fallback).
 
-### 7. Structural invariants live on `TemporalStore`, not the validator chain
+### 7. Structural invariants live on `TragetiStore`, not the validator chain
 
-Citation presence / sourceRef / episode-namespace and predecessor existence / namespace / ordering checks are enforced by `TemporalStore.writeAssertion()` itself (`enforceStructuralInvariants`, operating on `NormalizedNewAssertion`). Replacing the `validators` array does **not** bypass them. Configured validators run only after structural checks pass.
+Citation presence / sourceRef / episode-namespace and predecessor existence / namespace / ordering checks are enforced by `TragetiStore.writeAssertion()` itself (`enforceStructuralInvariants`, operating on `NormalizedNewAssertion`). Replacing the `validators` array does **not** bypass them. Configured validators run only after structural checks pass.
 
 ### 8. Public input is validated before SQLite execution
 
@@ -364,7 +364,7 @@ If you add a new top-level directory that should be linted, add it to `tsconfig.
 
 `eslint.config.js` enables `tseslint.configs.strictTypeChecked` plus: `no-non-null-assertion` (must pair with a why-comment), `consistent-type-imports`, `no-explicit-any` and the `no-unsafe-*` family, `restrict-template-expressions` (allows numbers/booleans/nullish). Tests relax `no-unsafe-*`, `no-non-null-assertion`, `no-unnecessary-condition`, `no-confusing-void-expression`, `require-await`.
 
-`TemporalStore.ts` carries a single documented file-wide `eslint-disable @typescript-eslint/require-await` — the uniform-async-API methods are async-by-contract, sync-by-implementation. Any other `eslint-disable` must be a single line paired with a why-comment.
+`TragetiStore.ts` carries a single documented file-wide `eslint-disable @typescript-eslint/require-await` — the uniform-async-API methods are async-by-contract, sync-by-implementation. Any other `eslint-disable` must be a single line paired with a why-comment.
 
 ---
 
@@ -412,7 +412,7 @@ Every bug fix gets a regression test in the integration suite — there is no se
 
 ### Test against the public surface
 
-Prefer exercising the v0.3 primary surface — `TemporalStore.create()` / `prepareDatabase()` / `close()` — not just the low-level constructor. A test that only uses `new TemporalStore(db, …)` is not exercising the path consumers use.
+Prefer exercising the v0.3 primary surface — `TragetiStore.create()` / `prepareDatabase()` / `close()` — not just the low-level constructor. A test that only uses `new TragetiStore(db, …)` is not exercising the path consumers use.
 
 ### Coverage thresholds
 
@@ -456,7 +456,7 @@ The `package.json#exports` map puts the `"types"` condition **first** within eac
 
 ### Adding a public API method
 
-1. Add the method to `TemporalStore` (likely delegating to a `pipeline/` function). Guard it with `requireNotClosed()`.
+1. Add the method to `TragetiStore` (likely delegating to a `pipeline/` function). Guard it with `requireNotClosed()`.
 2. Add domain types to `src/domain/types.ts` for new option/result shapes.
 3. Re-export new types from `src/index.ts`.
 4. Write integration tests — happy path + at least one typed-error case.
@@ -466,7 +466,7 @@ The `package.json#exports` map puts the `"types"` condition **first** within eac
 
 1. Define the interface in `src/domain/types.ts`.
 2. Provide a default implementation in `src/defaults/{category}/MyDefault.ts`.
-3. Wire it into `TemporalStoreOptions` / `CreateStoreOptions` and the constructor defaults.
+3. Wire it into `TragetiStoreOptions` / `CreateStoreOptions` and the constructor defaults.
 4. Pass it down to the consuming pipeline function.
 5. Unit-test the default; integration-test that an override works.
 
@@ -528,7 +528,7 @@ trageti is a library, not a service. Consumers own the operational concerns belo
 
 ### Database lifecycle ownership
 
-When you pass a path string to `create()`, the store opens the connection and `close()` closes it. When you pass an existing `Database`, the store uses it but does **not** own it — `close()` releases store state without closing a caller-supplied handle. Pick one model and be consistent; sharing one `Database` across multiple `TemporalStore` instances is supported but they then share schema and pragmas.
+When you pass a path string to `create()`, the store opens the connection and `close()` closes it. When you pass an existing `Database`, the store uses it but does **not** own it — `close()` releases store state without closing a caller-supplied handle. Pick one model and be consistent; sharing one `Database` across multiple `TragetiStore` instances is supported but they then share schema and pragmas.
 
 ### Pragmas: WAL and busy-timeout
 
@@ -678,7 +678,7 @@ trageti assumes one writer at a time. WAL gives concurrent readers + one writer;
 ## Where to look next
 
 - [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md) — the source of truth for the public contract. v0.1 / v0.2 specs are retained alongside it for history only.
-- `src/store/TemporalStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
+- `src/store/TragetiStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
 - `src/pipeline/retrieve.ts` — the most algorithmically dense file. Step 0 is query routing; Step 7 is trajectory expansion.
 - `src/db/migrations/runner.ts` - baseline schema bootstrap and schema-version recording.
 - `test/integration/e2e.test.ts` — a tour of the full happy path.

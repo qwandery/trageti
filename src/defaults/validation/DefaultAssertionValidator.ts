@@ -19,7 +19,7 @@ export interface DefaultAssertionValidatorOptions {
    *  (neither the `requireCitationExcerpt` hard-fail nor the
    *  `TRGT_CITATION_EXCERPT_MISSING` warning). Default true.
    *
-   *  `TemporalStore` sets this false on the validator it auto-installs because
+   *  `TragetiStore` sets this false on the validator it auto-installs because
    *  the store now owns excerpt policy (it enforces it in `writeAssertion()`
    *  so a custom validators array cannot bypass it) — this prevents a double
    *  warning/error. A `DefaultAssertionValidator` constructed directly keeps
@@ -37,7 +37,7 @@ export interface DefaultAssertionValidatorOptions {
  *
  * NOTE: structural integrity (citation presence, citation episode namespace,
  * predecessor existence/namespace/ordering) is enforced by
- * TemporalStore.writeAssertion() and runs *before* this validator. This
+ * TragetiStore.writeAssertion() and runs *before* this validator. This
  * validator does not re-check those — by the time it is reached, the
  * structural invariants have already passed (decision §2 ordering rule).
  */

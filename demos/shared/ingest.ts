@@ -2,13 +2,13 @@
 // Indexing (vector embedding into sqlite-vec) is left to the caller, who knows
 // whether to supply pre-computed vectors or rely on a configured EmbeddingProvider.
 
-import type { TemporalStore, Episode, Assertion, AssertionLink, NewAssertionInput } from 'trageti';
+import type { TragetiStore, Episode, Assertion, AssertionLink, NewAssertionInput } from 'trageti';
 import { buildExtractionPrompt } from './prompt.js';
 import { parseExtraction } from './parse.js';
 import type { ExtractionProvider, ExtractionImageInput } from './providers.js';
 
 export interface IngestOptions {
-  store: TemporalStore;
+  store: TragetiStore;
   episode: Omit<Episode, 'createdAt'>;
   document: string;
   citationSources?: Record<string, string>;

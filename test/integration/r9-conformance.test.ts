@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import { StructuredFormatter } from '../../src/defaults/formatting/StructuredFormatter.js';
 import type {
@@ -44,7 +44,7 @@ class RecordingLogger implements Logger {
   }
 }
 
-async function writeEpisode(store: TemporalStore, ns: string, id = 'ep-1'): Promise<void> {
+async function writeEpisode(store: TragetiStore, ns: string, id = 'ep-1'): Promise<void> {
   await store.writeEpisode({
     id,
     namespace: ns,
@@ -57,7 +57,7 @@ async function writeEpisode(store: TemporalStore, ns: string, id = 'ep-1'): Prom
 
 describe('citation-excerpt policy cannot be bypassed by a custom validator', () => {
   it('writeAssertion rejects a null-excerpt citation under requireCitationExcerpt, even with a custom validator', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       validators: [new PassValidator()],
@@ -86,7 +86,7 @@ describe('citation-excerpt policy cannot be bypassed by a custom validator', () 
 
   it('without the flag, a null-excerpt citation emits TRGT_CITATION_EXCERPT_MISSING exactly once', async () => {
     const logger = new RecordingLogger();
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       validators: [new PassValidator()],
@@ -115,8 +115,8 @@ describe('citation-excerpt policy cannot be bypassed by a custom validator', () 
 });
 
 describe('retrieve() returns the assertion valid at the anchor (mid-chain)', () => {
-  async function chainStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function chainStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
     // A→B→C: A[1,5) → B[5,10) → C[10,∞). Shared token so BM25 matches all.
@@ -187,8 +187,8 @@ describe('retrieve() returns the assertion valid at the anchor (mid-chain)', () 
 });
 
 describe('reindexNamespace validates newDimension before vec0 DDL', () => {
-  async function vectorStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function vectorStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     return store;
   }
@@ -217,8 +217,8 @@ describe('reindexNamespace validates newDimension before vec0 DDL', () => {
 });
 
 describe('graph traversal honors linkTypes and includeSuperseded', () => {
-  async function graphStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
+  async function graphStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'g');
     const writeA = async (id: string) => {
@@ -353,7 +353,7 @@ describe('graph traversal honors linkTypes and includeSuperseded', () => {
 
 describe('getMigrations() reports appliedAt', () => {
   it('every applied migration carries a non-null appliedAt timestamp', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     const migrations = await store.getMigrations();
     expect(migrations).toHaveLength(1);
@@ -368,7 +368,7 @@ describe('getMigrations() reports appliedAt', () => {
 
 describe('FTS5 tokenizer validation at init', () => {
   it('rejects an unknown built-in tokenizer with SchemaExtensionError', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       fts5Tokenizer: { tokenizer: 'not_a_real_tokenizer' },
@@ -380,10 +380,10 @@ describe('FTS5 tokenizer validation at init', () => {
 describe('FTS5 tokenizer change on reopen is never silently ignored', () => {
   it('rebuilds silently when the database has no assertions', async () => {
     const db = openTestDb();
-    const store1 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM });
+    const store1 = new TragetiStore(db, { namespace: 'ns', embeddingDimension: DIM });
     await store1.init();
     // Reopen with a different explicit tokenizer; the DB is empty → safe rebuild.
-    const store2 = new TemporalStore(db, {
+    const store2 = new TragetiStore(db, {
       namespace: 'ns',
       embeddingDimension: DIM,
       fts5Tokenizer: { tokenizer: 'porter' },
@@ -396,7 +396,7 @@ describe('FTS5 tokenizer change on reopen is never silently ignored', () => {
 
   it('throws MigrationCompatibilityError when assertions exist', async () => {
     const db = openTestDb();
-    const store1 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM });
+    const store1 = new TragetiStore(db, { namespace: 'ns', embeddingDimension: DIM });
     await store1.init();
     await writeEpisode(store1, 'ns');
     await store1.writeAssertion({
@@ -413,7 +413,7 @@ describe('FTS5 tokenizer change on reopen is never silently ignored', () => {
       entityType: null,
       citations: [citationFor('a-1', 'ep-1')],
     });
-    const store2 = new TemporalStore(db, {
+    const store2 = new TragetiStore(db, {
       namespace: 'ns',
       embeddingDimension: DIM,
       fts5Tokenizer: { tokenizer: 'porter' },
@@ -423,8 +423,8 @@ describe('FTS5 tokenizer change on reopen is never silently ignored', () => {
 });
 
 describe('retrieval input validation uses dedicated error codes', () => {
-  async function seededStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+  async function seededStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
     await store.writeAssertion({
@@ -524,7 +524,7 @@ describe('retrieval input validation uses dedicated error codes', () => {
 
 describe('AssembledContext.assertions matches the rendered text', () => {
   it('StructuredFormatter truncation: every returned assertion is in the rendered text', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       defaultFormatter: new StructuredFormatter(),
@@ -584,7 +584,7 @@ describe('AssembledContext.assertions matches the rendered text', () => {
         };
       },
     };
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       defaultFormatter: minimalFormatter,

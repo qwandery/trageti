@@ -145,8 +145,8 @@ export class StoreClosedError extends TragetiError {
     super(
       ErrorCode.STORE_CLOSED,
       operation
-        ? `TemporalStore has been closed; cannot invoke "${operation}".`
-        : 'TemporalStore has been closed; no further operations are allowed.',
+        ? `TragetiStore has been closed; cannot invoke "${operation}".`
+        : 'TragetiStore has been closed; no further operations are allowed.',
     );
     this.name = 'StoreClosedError';
   }

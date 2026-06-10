@@ -3,7 +3,7 @@
 // clearly-labeled pre-written paragraph. Demonstrates the downstream
 // assembleContext -> LLM pattern trageti is designed to support.
 
-import type { TemporalStore } from 'trageti';
+import type { TragetiStore } from 'trageti';
 import type { ExtractionProvider } from '../shared/providers.js';
 import { generateNarrativeSynthesis } from '../shared/synthesis.js';
 import { NAMESPACE } from './data/episodes.js';
@@ -18,7 +18,7 @@ const PRE_WRITTEN =
   "feedback, Mrs. Park's kimchi advice, knife-practice notes, and the gluten-free dinner show " +
   'Alex turning constraints and scattered observations into repeatable technique without treating every question as solved.';
 
-export async function generateNarrative(store: TemporalStore, extractor: ExtractionProvider): Promise<string> {
+export async function generateNarrative(store: TragetiStore, extractor: ExtractionProvider): Promise<string> {
   const result = await generateNarrativeSynthesis({
     store,
     extractor,

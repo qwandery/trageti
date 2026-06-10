@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { ValidationError } from '../../src/errors/index.js';
 import type { AssertionValidator, NormalizedNewAssertion, ValidationResult } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
@@ -10,9 +10,9 @@ const NS = 'cit-ns';
 const NS2 = 'cit-ns-2';
 const DIM = 4;
 
-function makeStore(db: Database, validators?: AssertionValidator[]): TemporalStore {
+function makeStore(db: Database, validators?: AssertionValidator[]): TragetiStore {
   const opts = { namespace: NS, embeddingDimension: DIM };
-  return new TemporalStore(db, validators ? { ...opts, validators } : opts);
+  return new TragetiStore(db, validators ? { ...opts, validators } : opts);
 }
 
 class PermissiveValidator implements AssertionValidator {
@@ -21,9 +21,9 @@ class PermissiveValidator implements AssertionValidator {
   }
 }
 
-describe('TemporalStore — citations', () => {
+describe('TragetiStore — citations', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
@@ -387,10 +387,10 @@ describe('TemporalStore — citations', () => {
   });
 });
 
-describe('TemporalStore — structural invariants are not delegated to replaceable validators', () => {
+describe('TragetiStore — structural invariants are not delegated to replaceable validators', () => {
   it('citations: [] still rejects with validators: []', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, validators: [] });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM, validators: [] });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',
@@ -450,7 +450,7 @@ describe('TemporalStore — structural invariants are not delegated to replaceab
 
   it('cross-namespace citation episode still rejects with validators: []', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, validators: [] });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM, validators: [] });
     await store.init();
     await store.initNamespace(NS2);
     await store.writeEpisode({

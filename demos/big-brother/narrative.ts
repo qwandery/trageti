@@ -1,10 +1,10 @@
-import type { TemporalStore } from 'trageti';
+import type { TragetiStore } from 'trageti';
 import { generateNarrativeSynthesis } from '../shared/synthesis.js';
 import type { ExtractionProvider } from '../shared/providers.js';
 import { NAMESPACE, NARRATIVE_QUERY_TEXT } from './big-brother.js';
 
 export async function generateNarrative(
-  store: TemporalStore,
+  store: TragetiStore,
   extractor: ExtractionProvider,
   latestPosition: number,
 ): Promise<string> {

@@ -35,7 +35,7 @@ function rowToCitation(row: CitationRow): AssertionCitation {
 /**
  * DAO for trageti_citations. Transaction-neutral — all writes execute against the shared
  * Database handle without opening inner transactions. Compound-write callers (e.g.,
- * TemporalStore.writeAssertion) own the transaction boundary.
+ * TragetiStore.writeAssertion) own the transaction boundary.
  */
 export class CitationRepository {
   private readonly db: Database;

@@ -3,7 +3,7 @@ import type {
   ContextAssemblyOptions,
   RetrievalQuery,
   RetrievedAssertion,
-  TemporalStore,
+  TragetiStore,
 } from 'trageti';
 import type { ExtractionProvider } from './providers.js';
 
@@ -24,7 +24,7 @@ export interface SynthesisResult {
 }
 
 export interface GenerateAssembledAnswerOptions {
-  store: Pick<TemporalStore, 'assembleContext'>;
+  store: Pick<TragetiStore, 'assembleContext'>;
   extractor: ExtractionProvider;
   query: RetrievalQuery;
   annotation: string;
@@ -33,7 +33,7 @@ export interface GenerateAssembledAnswerOptions {
 }
 
 export interface GenerateNarrativeSynthesisOptions {
-  store: Pick<TemporalStore, 'assembleContext'>;
+  store: Pick<TragetiStore, 'assembleContext'>;
   extractor: ExtractionProvider;
   namespace: string;
   queryText: string;

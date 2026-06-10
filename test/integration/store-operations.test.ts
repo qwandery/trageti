@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import type { EmbeddingProvider } from '../../src/domain/types.js';
 import {
@@ -22,8 +22,8 @@ class FailingProvider implements EmbeddingProvider {
   }
 }
 
-async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<TemporalStore> {
-  const store = new TemporalStore(openTestDb(), {
+async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<TragetiStore> {
+  const store = new TragetiStore(openTestDb(), {
     namespace: ns,
     embeddingDimension: DIM,
     ...(provider ? { embeddingProvider: provider } : {}),
@@ -32,7 +32,7 @@ async function vectorStore(ns: string, provider?: EmbeddingProvider): Promise<Te
   return store;
 }
 
-async function seed(store: TemporalStore, ns: string, ids: string[]): Promise<void> {
+async function seed(store: TragetiStore, ns: string, ids: string[]): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: ns,
@@ -232,7 +232,7 @@ describe('upgradeNamespaceToVector', () => {
   });
 
   it('upgrades a vectorless namespace and binds a per-namespace provider', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'vl' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'vl' });
     await store.init();
     const provider = new MockEmbeddingProvider({ dimension: DIM });
     await store.upgradeNamespaceToVector('vl', {

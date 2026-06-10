@@ -466,7 +466,7 @@ export interface ConnectionVerifier {
 export interface RetrievalMiddleware {
   before?(query: RetrievalQuery): RetrievalQuery;
   after?(results: RetrievedAssertion[], query: RetrievalQuery): RetrievedAssertion[];
-  /** Optional disposal hook; called from TemporalStore.close(). */
+  /** Optional disposal hook; called from TragetiStore.close(). */
   dispose?(): void | Promise<void>;
 }
 
@@ -623,7 +623,7 @@ export interface ValidationOptions {
   requireCitationExcerpt?: boolean;
 }
 
-export interface TemporalStoreOptions {
+export interface TragetiStoreOptions {
   namespace: string;
   /** v0.3: optional. Omitting it registers the namespace as vectorless
    *  (BM25-only retrieval; cannot index vectors until upgradeNamespaceToVector). */
@@ -646,7 +646,7 @@ export interface TemporalStoreOptions {
   validation?: ValidationOptions;
 }
 
-export interface CreateStoreOptions extends TemporalStoreOptions {
+export interface CreateStoreOptions extends TragetiStoreOptions {
   /** Filename to open a new better-sqlite3 database, OR an existing Database
    *  instance to wrap. */
   database: string | Database;

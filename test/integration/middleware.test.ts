@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import type { RetrievalMiddleware, RetrievalQuery, RetrievedAssertion } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
 
@@ -8,9 +8,9 @@ const NS = 'test-ns';
 const DIM = 4;
 const VEC_A = new Float32Array([1, 0, 0, 0]);
 
-async function makeStoreWithMiddleware(middleware: RetrievalMiddleware[]): Promise<TemporalStore> {
+async function makeStoreWithMiddleware(middleware: RetrievalMiddleware[]): Promise<TragetiStore> {
   const db = openTestDb();
-  const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM, middleware });
+  const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM, middleware });
   await store.init();
   await store.writeEpisode({
     id: 'ep-1',
@@ -38,7 +38,7 @@ async function makeStoreWithMiddleware(middleware: RetrievalMiddleware[]): Promi
   return store;
 }
 
-describe('TemporalStore — middleware', () => {
+describe('TragetiStore — middleware', () => {
   it('global before middleware is called before retrieval', async () => {
     const log: string[] = [];
     const mw: RetrievalMiddleware = {
@@ -177,7 +177,7 @@ describe('TemporalStore — middleware', () => {
       },
     };
     const db = openTestDb();
-    const store = new TemporalStore(db, {
+    const store = new TragetiStore(db, {
       namespace: NS,
       embeddingDimension: DIM,
       middleware: [mw1, mw2, mw3],
@@ -231,7 +231,7 @@ describe('TemporalStore — middleware', () => {
       },
     };
     const db = openTestDb();
-    const store = new TemporalStore(db, {
+    const store = new TragetiStore(db, {
       namespace: NS,
       embeddingDimension: DIM,
       middleware: [mw1, mw2, mw3],

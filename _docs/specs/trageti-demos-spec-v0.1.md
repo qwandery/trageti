@@ -65,7 +65,7 @@ The core function. Takes a document, feeds it to an LLM (or reads from a fixture
 
 ```typescript
 interface IngestOptions {
-  store: TemporalStore;
+  store: TragetiStore;
   episode: Omit<Episode, 'createdAt'>;
   document: string;
   existingAssertions?: Assertion[];

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import type { EmbeddingProvider } from '../../src/domain/types.js';
 import type { Logger, LogFields } from '../../src/internal/logger.js';
@@ -72,7 +72,7 @@ function tmpDbPath(): string {
   return join(dir, 'store.db');
 }
 
-async function writeEpisode(store: TemporalStore, ns: string): Promise<void> {
+async function writeEpisode(store: TragetiStore, ns: string): Promise<void> {
   await store.writeEpisode({
     id: `ep-${ns}`,
     namespace: ns,
@@ -84,7 +84,7 @@ async function writeEpisode(store: TemporalStore, ns: string): Promise<void> {
 }
 
 async function writeAssertion(
-  store: TemporalStore,
+  store: TragetiStore,
   ns: string,
   id: string,
   content: string,
@@ -108,7 +108,7 @@ async function writeAssertion(
 
 describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
   it('hybrid: a throwing provider rejects (no BM25 degrade)', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new FailingProvider(),
@@ -123,7 +123,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
   });
 
   it('hybrid: an empty-result provider rejects', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new EmptyProvider(),
@@ -138,7 +138,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
   });
 
   it("strategy 'vector' + queryText: a throwing provider rejects (no fallback path)", async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new FailingProvider(),
@@ -158,7 +158,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
   });
 
   it("strategy 'vector' + queryText: an empty-result provider rejects", async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new EmptyProvider(),
@@ -180,7 +180,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
 
 describe('per-namespace embedding providers drive indexing', () => {
   it('a namespace-bound provider indexes even when the store has none', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'main', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'main', embeddingDimension: DIM });
     await store.init();
     await store.initNamespace('bound', {
       embeddingDimension: DIM,
@@ -200,7 +200,7 @@ describe('per-namespace embedding providers drive indexing', () => {
   });
 
   it('indexBatch spanning namespaces uses each namespace its own provider', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'A',
       embeddingDimension: DIM,
       embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
@@ -227,7 +227,7 @@ describe('per-namespace embedding providers drive indexing', () => {
 
 describe('hybrid retrieval — BM25 attaches to vector-selected candidates only', () => {
   it('a BM25-strong but vector-absent assertion is excluded from a hybrid result', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-vec', 'alpha apple', 1);
@@ -260,7 +260,7 @@ describe('hybrid retrieval — BM25 attaches to vector-selected candidates only'
 
 describe('explain() models Step-0 provider routing', () => {
   it('wouldApplyVector is true for queryText + bound provider + vector-ready namespace', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
@@ -276,7 +276,7 @@ describe('explain() models Step-0 provider routing', () => {
   });
 
   it('wouldApplyVector is false with a fallback note when no provider is configured', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
@@ -287,7 +287,7 @@ describe('explain() models Step-0 provider routing', () => {
   });
 
   it('wouldApplyVector is false with a vectorless note for a vectorless namespace', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns' });
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
@@ -301,12 +301,12 @@ describe('explain() models Step-0 provider routing', () => {
 describe('rebuildFts() preserves the stored tokenizer', () => {
   it('a no-tokenizer rebuild keeps the tokenizer recorded in the database', async () => {
     const db = openTestDb();
-    const store1 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM });
+    const store1 = new TragetiStore(db, { namespace: 'ns', embeddingDimension: DIM });
     await store1.init();
     await store1.rebuildFts({ tokenizer: { tokenizer: 'porter' } });
 
     // Reopen the store with default options (default tokenizer is unicode61).
-    const store2 = new TemporalStore(db, { namespace: 'ns', embeddingDimension: DIM });
+    const store2 = new TragetiStore(db, { namespace: 'ns', embeddingDimension: DIM });
     await store2.init();
     const result = await store2.rebuildFts();
     // The repair rebuild must preserve 'porter', not reset to the store default.
@@ -320,7 +320,7 @@ describe('getStats() emits TRGT_STATS_VEC_NOT_INTROSPECTED', () => {
     const path = tmpDbPath();
 
     // Phase 1: with sqlite-vec, create and populate the vec0 table.
-    const writer = await TemporalStore.create({
+    const writer = await TragetiStore.create({
       database: path,
       namespace: 'ns',
       embeddingDimension: DIM,
@@ -335,7 +335,7 @@ describe('getStats() emits TRGT_STATS_VEC_NOT_INTROSPECTED', () => {
     plainDb.pragma('journal_mode = WAL');
     plainDb.pragma('foreign_keys = ON');
     const logger = new RecordingLogger();
-    const reader = new TemporalStore(plainDb, {
+    const reader = new TragetiStore(plainDb, {
       namespace: 'ns',
       embeddingDimension: DIM,
       logger,
@@ -352,7 +352,7 @@ describe('getStats() emits TRGT_STATS_VEC_NOT_INTROSPECTED', () => {
 describe('debug hook failures log a stable code, never a raw message', () => {
   it('records the thrown error code, or UNKNOWN for a plain Error', async () => {
     const logger = new RecordingLogger();
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       logger,
@@ -401,7 +401,7 @@ describe('debug hook failures log a stable code, never a raw message', () => {
 
 describe('assembleContext() validates tokenBudget', () => {
   it('rejects a negative or non-finite tokenBudget', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
+    const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
@@ -428,8 +428,8 @@ describe('assembleContext() validates tokenBudget', () => {
 });
 
 describe('maxDepth: 0 means no graph traversal', () => {
-  async function graphStore(): Promise<TemporalStore> {
-    const store = new TemporalStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
+  async function graphStore(): Promise<TragetiStore> {
+    const store = new TragetiStore(openTestDb(), { namespace: 'g', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'g');
     await writeAssertion(store, 'g', 'a-1', 'first', 1);
@@ -509,7 +509,7 @@ describe('indexBatch skip-mode errorCode derives from the thrown error', () => {
   }
 
   it('uses the thrown TragetiError code as the skipped[] errorCode', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new CodedFailProvider(),
@@ -528,7 +528,7 @@ describe('namespaceColumn identifier validation', () => {
     // R9 §4.5: a SQLite reserved keyword is a valid namespaceColumn — the
     // identifier is quoteIdent-quoted wherever it reaches DDL. Only the
     // trageti_ prefix remains a rejection.
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       schemaExtensions: {
@@ -547,7 +547,7 @@ describe('namespaceColumn identifier validation', () => {
   });
 
   it('rejects a trageti_-prefixed namespaceColumn', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       schemaExtensions: {
@@ -567,7 +567,7 @@ describe('namespaceColumn identifier validation', () => {
 
 describe('reindexNamespace never converts a vectorless namespace', () => {
   it('rejects reindex of a vectorless namespace even with newDimension', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'vl' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'vl' });
     await store.init();
     await expect(
       store.reindexNamespace('vl', {
@@ -583,7 +583,7 @@ describe('reindexNamespace never converts a vectorless namespace', () => {
 
 describe('dimension / provider agreement is validated', () => {
   it('the constructor rejects a dimension that disagrees with the provider', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: 4,
       embeddingProvider: new MockEmbeddingProvider({ dimension: 8 }),
@@ -592,7 +592,7 @@ describe('dimension / provider agreement is validated', () => {
   });
 
   it('initNamespace rejects a dimension that disagrees with the provider', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'base' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'base' });
     await store.init();
     await expect(
       store.initNamespace('mismatch', {
@@ -604,7 +604,7 @@ describe('dimension / provider agreement is validated', () => {
   });
 
   it('upgradeNamespaceToVector rejects a dimension that disagrees with the provider', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'base' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'base' });
     await store.init();
     await store.initNamespace('vl');
     await expect(
@@ -617,7 +617,7 @@ describe('dimension / provider agreement is validated', () => {
   });
 
   it('upgradeNamespaceToVector accepts a provider-only upgrade and derives the dimension', async () => {
-    const store = new TemporalStore(openTestDb(), { namespace: 'base' });
+    const store = new TragetiStore(openTestDb(), { namespace: 'base' });
     await store.init();
     await store.initNamespace('vl');
     await store.upgradeNamespaceToVector('vl', {
@@ -629,7 +629,7 @@ describe('dimension / provider agreement is validated', () => {
 
   it('rejects an invalid (non-positive / non-integer) embedding dimension', async () => {
     for (const bad of [0, -4, 2.5]) {
-      const store = new TemporalStore(openTestDb(), { namespace: 'ns', embeddingDimension: bad });
+      const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: bad });
       await expect(store.init()).rejects.toThrow(ValidationError);
     }
   });
@@ -645,7 +645,7 @@ describe('provider error messages do not leak the raw cause', () => {
   }
 
   it('indexBatch fail-fast EmbeddingProviderError omits the raw provider message', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new SecretLeakProvider(),
@@ -665,7 +665,7 @@ describe('provider error messages do not leak the raw cause', () => {
   });
 
   it('Step-0 retrieve EmbeddingProviderError omits the raw provider message', async () => {
-    const store = new TemporalStore(openTestDb(), {
+    const store = new TragetiStore(openTestDb(), {
       namespace: 'ns',
       embeddingDimension: DIM,
       embeddingProvider: new SecretLeakProvider(),

@@ -37,11 +37,11 @@ retrieval.
 ## Quick start — hybrid retrieval
 
 ```typescript
-import { TemporalStore } from 'trageti';
+import { TragetiStore } from 'trageti';
 
 // create() opens the database, applies the v0.3 default pragmas
 // (WAL, busy_timeout, temp_store), loads sqlite-vec, and runs init().
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
@@ -103,9 +103,9 @@ Omit `embeddingDimension` to register a vectorless namespace. It needs no
 `sqlite-vec` install and supports BM25-only retrieval.
 
 ```typescript
-import { TemporalStore } from 'trageti';
+import { TragetiStore } from 'trageti';
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'logs.db',
   namespace: 'logs',
   prepare: { loadSqliteVec: false }, // sqlite-vec not needed
@@ -133,7 +133,7 @@ A vectorless namespace can be upgraded to vector-configured later with
 
 ## Lifecycle and the database handle
 
-`TemporalStore.create()` is the recommended entry point. Ownership of the
+`TragetiStore.create()` is the recommended entry point. Ownership of the
 database handle determines what `close()` does:
 
 - `create({ database: 'file.db' })` — trageti opens the handle; `close()`
@@ -146,10 +146,10 @@ The low-level path remains available for callers that already manage a
 
 ```typescript
 import Database from 'better-sqlite3';
-import { TemporalStore, prepareDatabase } from 'trageti';
+import { TragetiStore, prepareDatabase } from 'trageti';
 
 const db = prepareDatabase('my-store.db'); // applies pragmas, loads sqlite-vec
-const store = new TemporalStore(db, { namespace: 'ns', embeddingDimension: 1536 });
+const store = new TragetiStore(db, { namespace: 'ns', embeddingDimension: 1536 });
 await store.init();
 ```
 
@@ -345,7 +345,7 @@ Core ships two providers:
 ```typescript
 import { MockEmbeddingProvider } from 'trageti';
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'ns',
   embeddingDimension: 384,
@@ -425,7 +425,7 @@ Pass a `Logger` to capture structured records, and a `Metrics` sink for
 counters/observations:
 
 ```typescript
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'ns',
   embeddingDimension: 1536,
@@ -447,7 +447,7 @@ emission is a guarded no-op when unset.
 Add custom columns or tables without breaking migrations:
 
 ```typescript
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
@@ -493,7 +493,7 @@ const loggingMiddleware: RetrievalMiddleware = {
   },
 };
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,
@@ -517,7 +517,7 @@ class MyScorer implements RetrievalScorer {
   }
 }
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'my-store.db',
   namespace: 'my-namespace',
   embeddingDimension: 1536,

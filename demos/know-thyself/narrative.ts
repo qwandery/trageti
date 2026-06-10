@@ -1,10 +1,10 @@
-import type { TemporalStore } from 'trageti';
+import type { TragetiStore } from 'trageti';
 import type { ExtractionProvider } from '../shared/providers.js';
 import { generateNarrativeSynthesis } from '../shared/synthesis.js';
 import { NAMESPACE } from './history.js';
 
 export async function generateNarrative(
-  store: TemporalStore,
+  store: TragetiStore,
   extractor: ExtractionProvider,
   temporalAnchor: number,
 ): Promise<string> {

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import {
   StoreClosedError,
@@ -33,7 +33,7 @@ afterEach(() => {
   }
 });
 
-async function seedEpisodeAndAssertion(store: TemporalStore, ns: string): Promise<void> {
+async function seedEpisodeAndAssertion(store: TragetiStore, ns: string): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace: ns,
@@ -58,9 +58,9 @@ async function seedEpisodeAndAssertion(store: TemporalStore, ns: string): Promis
   });
 }
 
-describe('TemporalStore.create() lifecycle', () => {
+describe('TragetiStore.create() lifecycle', () => {
   it('create() on an in-memory database initialises a usable store', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'mem' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'mem' });
     expect(await store.getCurrentSchemaVersion()).toBe(1);
     await store.close();
   });
@@ -68,11 +68,11 @@ describe('TemporalStore.create() lifecycle', () => {
   it('file-backed lifecycle: create → write → close → reopen → retrieve', async () => {
     const path = tmpDbPath();
 
-    const writer = await TemporalStore.create({ database: path, namespace: 'fb' });
+    const writer = await TragetiStore.create({ database: path, namespace: 'fb' });
     await seedEpisodeAndAssertion(writer, 'fb');
     await writer.close();
 
-    const reader = await TemporalStore.create({ database: path, namespace: 'fb' });
+    const reader = await TragetiStore.create({ database: path, namespace: 'fb' });
     const { results } = await reader.retrieve({
       namespace: 'fb',
       queryText: 'fox',
@@ -84,7 +84,7 @@ describe('TemporalStore.create() lifecycle', () => {
   });
 
   it('close() is idempotent and every subsequent call throws StoreClosedError', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'closed' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'closed' });
     await store.close();
     await store.close(); // no-op, no throw
     await expect(store.getStats('closed')).rejects.toThrow(StoreClosedError);
@@ -92,9 +92,9 @@ describe('TemporalStore.create() lifecycle', () => {
   });
 });
 
-describe('TemporalStore migration introspection', () => {
+describe('TragetiStore migration introspection', () => {
   it('getMigrations() reports the v0.3 baseline descriptor', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'mig' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'mig' });
     const migrations = await store.getMigrations();
     expect(migrations.map((m) => m.version)).toEqual([1]);
     expect(migrations.every((m) => typeof m.description === 'string')).toBe(true);
@@ -105,16 +105,16 @@ describe('TemporalStore migration introspection', () => {
   });
 
   it('applyMigrations() is idempotent on an already-current database', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'mig' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'mig' });
     await store.applyMigrations();
     expect(await store.getCurrentSchemaVersion()).toBe(1);
     await store.close();
   });
 });
 
-describe('TemporalStore read helpers', () => {
+describe('TragetiStore read helpers', () => {
   it('getEpisode / getAssertions / getEntityHistory return persisted rows', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'read' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'read' });
     await seedEpisodeAndAssertion(store, 'read');
 
     expect((await store.getEpisode('ep-1'))?.content).toBe('the quick brown fox');
@@ -129,16 +129,16 @@ describe('TemporalStore read helpers', () => {
   });
 
   it('getStats and getPendingIndexing throw NamespaceNotInitializedError for an unknown namespace', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'known' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'known' });
     await expect(store.getStats('ghost')).rejects.toThrow(NamespaceNotInitializedError);
     await expect(store.getPendingIndexing('ghost')).rejects.toThrow(NamespaceNotInitializedError);
     await store.close();
   });
 });
 
-describe('TemporalStore initNamespace reopen matrix', () => {
+describe('TragetiStore initNamespace reopen matrix', () => {
   it('re-registering a vectorless namespace with no dimension is a no-op', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'base' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'base' });
     const first = await store.initNamespace('extra');
     expect(first.embeddingDimension).toBeNull();
     const second = await store.initNamespace('extra');
@@ -147,7 +147,7 @@ describe('TemporalStore initNamespace reopen matrix', () => {
   });
 
   it('re-registering a vector namespace with the same dimension is a no-op', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'base' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'base' });
     await store.initNamespace('vec', { embeddingDimension: 4 });
     const again = await store.initNamespace('vec', { embeddingDimension: 4 });
     expect(again.embeddingDimension).toBe(4);
@@ -155,7 +155,7 @@ describe('TemporalStore initNamespace reopen matrix', () => {
   });
 
   it('re-registering a vector namespace with a different dimension throws', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'base' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'base' });
     await store.initNamespace('vec', { embeddingDimension: 4 });
     await expect(store.initNamespace('vec', { embeddingDimension: 8 })).rejects.toThrow(
       NamespaceDimensionMismatchError,
@@ -164,7 +164,7 @@ describe('TemporalStore initNamespace reopen matrix', () => {
   });
 
   it('re-registering a vectorless namespace with a dimension throws NamespaceDimensionMismatchError', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'base' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'base' });
     await store.initNamespace('later-vec');
     let thrown: unknown;
     try {
@@ -182,7 +182,7 @@ describe('TemporalStore initNamespace reopen matrix', () => {
   it('getNamespaceProvider resolves the per-namespace binding over the store default', async () => {
     const storeDefault = new MockEmbeddingProvider({ dimension: 4 });
     const perNamespace = new MockEmbeddingProvider({ dimension: 4 });
-    const store = await TemporalStore.create({
+    const store = await TragetiStore.create({
       database: ':memory:',
       namespace: 'base',
       embeddingProvider: storeDefault,
@@ -194,9 +194,9 @@ describe('TemporalStore initNamespace reopen matrix', () => {
   });
 });
 
-describe('TemporalStore.explain()', () => {
+describe('TragetiStore.explain()', () => {
   it('reports a non-executing plan with routing flags for a bm25 query', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'exp' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'exp' });
     await seedEpisodeAndAssertion(store, 'exp');
     const plan = await store.explain({
       namespace: 'exp',
@@ -212,7 +212,7 @@ describe('TemporalStore.explain()', () => {
   });
 
   it('flags vectorless namespaces as not applying vector retrieval', async () => {
-    const store = await TemporalStore.create({ database: ':memory:', namespace: 'exp' });
+    const store = await TragetiStore.create({ database: ':memory:', namespace: 'exp' });
     await seedEpisodeAndAssertion(store, 'exp');
     const plan = await store.explain({
       namespace: 'exp',

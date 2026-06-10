@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { NamespaceNotInitializedError, ValidationError } from '../../src/errors/index.js';
 import { citationFor } from '../fixtures/scenario.js';
 
 const NS = 'test-ns';
 const DIM = 4;
 
-function makeStore(db: Database): TemporalStore {
-  return new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+function makeStore(db: Database): TragetiStore {
+  return new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
 }
 
-describe('TemporalStore — init and namespace lifecycle', () => {
+describe('TragetiStore — init and namespace lifecycle', () => {
   let db: Database;
 
   beforeEach(() => {
@@ -60,9 +60,9 @@ describe('TemporalStore — init and namespace lifecycle', () => {
   });
 });
 
-describe('TemporalStore — write and read', () => {
+describe('TragetiStore — write and read', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
@@ -201,7 +201,7 @@ describe('TemporalStore — write and read', () => {
   });
 
   it('no warning when maxEpisodeContentBytes = 0', async () => {
-    const storeNoWarn = new TemporalStore(db, {
+    const storeNoWarn = new TragetiStore(db, {
       namespace: NS,
       embeddingDimension: DIM,
       maxEpisodeContentBytes: 0,
@@ -221,9 +221,9 @@ describe('TemporalStore — write and read', () => {
   });
 });
 
-describe('TemporalStore — stats', () => {
+describe('TragetiStore — stats', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();

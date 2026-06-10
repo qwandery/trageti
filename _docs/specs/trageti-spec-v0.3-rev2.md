@@ -74,9 +74,6 @@ has not yet caught up. It supersedes earlier `RetrievalScorer` /
 `IRetrievalScorer`, the default scorer is `RRFScorer`, and the previous
 weighted-linear default is retained as `LinearScorer`.
 
-The class name is `RRFScorer` (Reciprocal Rank Fusion). `RFFScorer` is not a
-contract name.
-
 ---
 
 ### v0.3 Amendment â€” 2026-05-20 â€” Table-naming overhaul
@@ -309,7 +306,7 @@ library that can be adopted safely by teams who will not read the source.
 **Notable changes from v0.2** (after multi-round design review against the
 actual v0.2 source):
 
-- **All public `TemporalStore` methods are async.** Uniform `Promise<...>`
+- **All public `TragetiStore` methods are async.** Uniform `Promise<...>`
   contract across writes, retrieval, indexing, introspection, lifecycle.
 - **`NewAssertion` split** into caller-facing `NewAssertionInput` (nullable
   fields are optional and default to `null` at the boundary) and
@@ -339,7 +336,7 @@ actual v0.2 source):
 - **`TableExtension`** gains declarative `namespaceColumn`; raw
   `cleanupSQL` deferred to v0.4. Extension tables are NEVER dropped by
   `deleteNamespace()` â€” only per-namespace rows via the generated DELETE.
-- **`InitializedTemporalStore` brand dropped** in favor of runtime guards
+- **`InitializedTragetiStore` brand dropped** in favor of runtime guards
   via `requireOpen()` / `StoreClosedError` / `NamespaceNotInitializedError`.
 - **`MissingPeerDependencyError`** is the single error type for "sqlite-vec
   not loaded" (the previous `RETRIEVAL_REQUIRES_VECTOR_BACKEND` code is
@@ -413,7 +410,7 @@ actual v0.2 source):
 
 #### Developer Experience - ADDITIVE and BREAKING
 
-- **`TemporalStore.create()` initializes the common path.** A factory opens or
+- **`TragetiStore.create()` initializes the common path.** A factory opens or
   accepts a database, applies migrations, verifies connection state, registers
   the namespace, and returns an initialized store.
 - **`prepareDatabase()` is a convenience helper.** It loads `sqlite-vec` when the
@@ -512,8 +509,8 @@ sites continue to work without changes.
 The full v0.3 surface described in this spec, including everything moved
 out of Phase 1 because it is in fact API/behavior-changing:
 
-- All public `TemporalStore` methods become async.
-- `TemporalStore.create()` factory; `prepareDatabase()` helper; `close()`
+- All public `TragetiStore` methods become async.
+- `TragetiStore.create()` factory; `prepareDatabase()` helper; `close()`
   lifecycle.
 - `EmbeddingProvider` interface and `RawVectorProvider` /
   `MockEmbeddingProvider` defaults in core; reference adapters as subpath
@@ -576,9 +573,9 @@ the `sqlite-vec` peer dependency.
 Install: `npm install trageti better-sqlite3 sqlite-vec`
 
 ```typescript
-import { TemporalStore, MockEmbeddingProvider } from 'trageti';
+import { TragetiStore, MockEmbeddingProvider } from 'trageti';
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'rag.db',
   namespace: 'demo',
   embeddingProvider: new MockEmbeddingProvider({ dimension: 384 }),
@@ -639,9 +636,9 @@ and run on bare `better-sqlite3`.
 Install: `npm install trageti better-sqlite3` (no `sqlite-vec`)
 
 ```typescript
-import { TemporalStore } from 'trageti';
+import { TragetiStore } from 'trageti';
 
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'rag.db',
   namespace: 'compliance',
   prepare: { loadSqliteVec: false },
@@ -1423,7 +1420,7 @@ interface Metrics {
 }
 ```
 
-When configured via `TemporalStoreOptions.metrics`, the library emits a small
+When configured via `TragetiStoreOptions.metrics`, the library emits a small
 fixed set of measurements: `trageti.retrieve.tookMs` (observe),
 `trageti.retrieve.candidateCount` (observe), `trageti.indexBatch.indexed`
 (incr), `trageti.indexBatch.skipped` (incr), `trageti.reindex.tookMs`
@@ -1436,7 +1433,7 @@ no-op and must not allocate fallback collectors or write to the logger.
 ## Namespace Configuration
 
 ```typescript
-interface TemporalStoreOptions {
+interface TragetiStoreOptions {
   namespace: string;
   /** Required for vector-configured namespaces; omit (or pair with no
    *  embeddingProvider) for vectorless namespaces. */
@@ -1711,10 +1708,10 @@ makes the optional-peer story work: `npm install trageti better-sqlite3`
 (no `sqlite-vec`) suffices for stores that operate vectorlessly or in
 hybrid mode with text-only inputs.
 
-### Recommended Path â€” `TemporalStore.create()`
+### Recommended Path â€” `TragetiStore.create()`
 
 ```typescript
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'rag.db',
   namespace: 'case-123',
   embeddingProvider: provider,
@@ -1722,7 +1719,7 @@ const store = await TemporalStore.create({
 ```
 
 ```typescript
-interface CreateOptions extends TemporalStoreOptions {
+interface CreateOptions extends TragetiStoreOptions {
   /** Filename, ':memory:', or an already-prepared better-sqlite3 Database. */
   database: string | Database;
   /** Forwarded to prepareDatabase() when `database` is a string. */
@@ -1744,20 +1741,20 @@ interface CreateOptions extends TemporalStoreOptions {
   closeDatabaseOnStoreClose?: boolean;
 }
 
-namespace TemporalStore {
-  function create(options: CreateOptions): Promise<TemporalStore>;
+namespace TragetiStore {
+  function create(options: CreateOptions): Promise<TragetiStore>;
 }
 ```
 
-`TemporalStore.create()` is async because `EmbeddingProvider` initialization
+`TragetiStore.create()` is async because `EmbeddingProvider` initialization
 may itself be async (model load, server handshake). The factory is the
 recommended path for >95% of consumers and handles: opening or accepting the
 database; loading `sqlite-vec` (when `prepare.loadSqliteVec` is true);
 applying recommended pragmas; running migrations; verifying connection state;
 registering the namespace; and returning a fully initialized store.
 
-The factory returns a plain `TemporalStore`. v0.3 deliberately does NOT brand
-the returned type as `InitializedTemporalStore` (a previous design proposed
+The factory returns a plain `TragetiStore`. v0.3 deliberately does NOT brand
+the returned type as `InitializedTragetiStore` (a previous design proposed
 this); type-branding instance methods would require a `this:` parameter on
 every method, which is verbose, hostile to extension, and provides marginal
 safety over the runtime guards. Instead, every public method calls an
@@ -1773,7 +1770,7 @@ explicitly:
 
 ```typescript
 const db = prepareDatabase('rag.db');
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'case-123',
   embeddingDimension: 768,
 });
@@ -1826,7 +1823,7 @@ in v0.3.** It wraps only synchronous operations: `new Database(...)` from
 `better-sqlite3`, `db.loadExtension(...)` for `sqlite-vec` (synchronous),
 and `db.pragma(...)` calls. There is no async work to await, so a
 Promise-returning wrapper would be ceremony without payoff. It is safe to
-call indirectly from inside `await TemporalStore.create({ database: 'rag.db' })`
+call indirectly from inside `await TragetiStore.create({ database: 'rag.db' })`
 (which the factory does on the caller's behalf when `database` is a string).
 
 ### `ensureVectorReady()` â€” single chokepoint for vec0-touching paths
@@ -1878,7 +1875,7 @@ explicit `store.upgradeNamespaceToVector()` API (see Maintenance), which
 sets `embedding_dimension` and `embedding_table` together inside one
 transaction, satisfying the CHECK constraint atomically. **Reopening a
 vectorless namespace with `embeddingProvider` or `embeddingDimension` set in
-`TemporalStoreOptions` does NOT auto-upgrade**: `init()` throws
+`TragetiStoreOptions` does NOT auto-upgrade**: `init()` throws
 `NamespaceDimensionMismatchError` with the message
 `"namespace '<name>' is vectorless; pass it to
 store.upgradeNamespaceToVector() to add a vector configuration."` This
@@ -1890,7 +1887,7 @@ performs the upgrade â€” it only operates on already-configured namespaces.
 
 ## API
 
-**All public `TemporalStore` methods return Promises.** v0.3 adopts a uniform
+**All public `TragetiStore` methods return Promises.** v0.3 adopts a uniform
 async contract across writes, retrieval, indexing, introspection, and
 lifecycle. Internal repositories and the migration runner remain synchronous â€”
 the async boundary is the public API, not the storage layer. This is an
@@ -2455,8 +2452,8 @@ step would prepare, and which capabilities are missing. Safe to call against
 production stores for tuning.
 
 `initNamespace(namespace, options?)` registers an additional namespace
-beyond the default one supplied to `TemporalStore.create()` /
-`TemporalStoreOptions.namespace`. Multi-namespace stores ARE supported:
+beyond the default one supplied to `TragetiStore.create()` /
+`TragetiStoreOptions.namespace`. Multi-namespace stores ARE supported:
 write/index/retrieve methods all accept arbitrary `namespace` strings, but
 each namespace must have been registered via either the constructor's
 default-namespace path OR `initNamespace()` first. Calling a
@@ -2725,17 +2722,17 @@ handle is governed by `CreateOptions.closeDatabaseOnStoreClose`, which
 defaults to **ownership-driven**: trageti closes the handle iff it opened
 it. Concretely:
 
-- `TemporalStore.create({ database: 'rag.db' })` â†’ store opened the
+- `TragetiStore.create({ database: 'rag.db' })` â†’ store opened the
   handle â†’ `close()` closes it. Callers do not need to track the handle.
-- `TemporalStore.create({ database: existingDb })` â†’ caller opened the
+- `TragetiStore.create({ database: existingDb })` â†’ caller opened the
   handle â†’ `close()` leaves it open. Caller closes when ready.
 - Explicit `closeDatabaseOnStoreClose: true | false` overrides the default
   in either direction.
 
-This means the common path â€” `await TemporalStore.create({ database: 'rag.db' })`
+This means the common path â€” `await TragetiStore.create({ database: 'rag.db' })`
 
 - `await store.close()` â€” does not leak the connection. The low-level
-  `prepareDatabase()` + `new TemporalStore(db, opts)` path is unchanged:
+  `prepareDatabase()` + `new TragetiStore(db, opts)` path is unchanged:
   caller owns `db`, caller closes `db`.
 
 `close()` is idempotent.
@@ -3466,7 +3463,7 @@ trageti without `sqlite-vec` (compliance review, structured-document
 indexing), declare the namespace vectorless and use `'bm25'`:
 
 ```typescript
-const store = await TemporalStore.create({
+const store = await TragetiStore.create({
   database: 'rag.db',
   namespace: 'compliance',
   prepare: { loadSqliteVec: false },
@@ -3528,18 +3525,18 @@ const result = await store.reindexNamespace(ns, {
 
 ```typescript
 // Before
-const store = new TemporalStore(db, options);
+const store = new TragetiStore(db, options);
 store.init();
 // ... use ...
 db.close();
 
 // After
-const store = await TemporalStore.create({ database: 'rag.db', ...options });
+const store = await TragetiStore.create({ database: 'rag.db', ...options });
 // ... use ...
 await store.close();
 ```
 
-The common filename path â€” `TemporalStore.create({ database: 'rag.db' })`
+The common filename path â€” `TragetiStore.create({ database: 'rag.db' })`
 
 - `await store.close()` â€” now closes the underlying `better-sqlite3`
   handle automatically; the v0.3 ownership-driven default (see
@@ -3601,7 +3598,7 @@ the v0.3 contract.
 - **Vectorless â†’ vector upgrade â€” RESOLVED.** v0.3 ships
   `store.upgradeNamespaceToVector(namespace, options)` as the only path. Reopening
   a vectorless namespace with `embeddingProvider`/`embeddingDimension` set in
-  `TemporalStoreOptions` does NOT auto-upgrade; `init()` throws
+  `TragetiStoreOptions` does NOT auto-upgrade; `init()` throws
   `NamespaceDimensionMismatchError` with an actionable message pointing at
   the upgrade API. This makes upgrade an explicit, auditable operation
   rather than a side effect of changing call-site options. Vec0 virtual

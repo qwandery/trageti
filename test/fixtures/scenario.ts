@@ -1,4 +1,4 @@
-import type { TemporalStore } from '../../src/store/TemporalStore.js';
+import type { TragetiStore } from '../../src/store/TragetiStore.js';
 import type { NewAssertionCitation } from '../../src/domain/types.js';
 
 /**
@@ -33,7 +33,7 @@ export function citationFor(
  *   - Supersession chain 2 (a-8): kept as an explicit supersedeAssertion call
  *     because there is no replacement assertion.
  */
-export async function loadScenario(store: TemporalStore, namespace: string): Promise<void> {
+export async function loadScenario(store: TragetiStore, namespace: string): Promise<void> {
   await store.writeEpisode({
     id: 'ep-1',
     namespace,

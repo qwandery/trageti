@@ -296,7 +296,7 @@ class CTEGraphAdapter implements GraphQueryAdapter { ... }
 Register at init time:
 
 ```typescript
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   graphAdapter: new MyCypherAdapter(db), // optional; defaults to CTEGraphAdapter
 });
@@ -339,7 +339,7 @@ class DefaultScorer implements RetrievalScorer { ... }
 Register at init time:
 
 ```typescript
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   scorer: new MyDomainScorer(), // optional; defaults to DefaultScorer
 });
@@ -374,7 +374,7 @@ Register at init time or per `assembleContext()` call:
 
 ```typescript
 // At init — sets default for all assembleContext() calls
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   defaultFormatter: new MyXmlFormatter(),
 });
@@ -417,7 +417,7 @@ class DefaultAssertionValidator implements AssertionValidator { ... }
 Register at init time:
 
 ```typescript
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   validators: [
     new DefaultAssertionValidator(), // include if you want default validation plus custom
@@ -455,7 +455,7 @@ class DefaultConnectionVerifier implements ConnectionVerifier {
 Register at init time:
 
 ```typescript
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   connectionVerifier: new MyConnectionVerifier(),
 });
@@ -488,7 +488,7 @@ Register at init time (applied to all retrieve() calls) or per retrieve() call:
 
 ```typescript
 // Global — all retrieve() calls
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   middleware: [new LoggingMiddleware(), new CachingMiddleware()],
 });
@@ -568,7 +568,7 @@ The library never reads or writes extended columns itself. They are `null` in al
 **Example:**
 
 ```typescript
-const store = new TemporalStore(db, {
+const store = new TragetiStore(db, {
   namespace: 'my-namespace',
   schemaExtensions: {
     columns: [
@@ -702,7 +702,7 @@ CREATE TABLE IF NOT EXISTS trl_citations (
 
 -- Vector index — one table per namespace (dimension varies)
 -- Named trl_embeddings_{namespace} to support per-namespace dimensions
--- Created dynamically by TemporalStore.init() for each namespace
+-- Created dynamically by TragetiStore.init() for each namespace
 
 -- Full-text search index
 CREATE VIRTUAL TABLE IF NOT EXISTS trl_fts USING fts5(
@@ -766,9 +766,9 @@ Callers who need to extend the schema — adding application-specific columns to
 ## Initialization
 
 ```typescript
-import { TemporalStore } from 'trageti';
+import { TragetiStore } from 'trageti';
 
-interface TemporalStoreOptions {
+interface TragetiStoreOptions {
   namespace: string; // default namespace for calls that don't specify one
   embeddingDimension: number; // required for new namespaces
   maxEpisodeContentBytes?: number; // content size warning threshold; default 8192; 0 = disabled
@@ -783,7 +783,7 @@ interface TemporalStoreOptions {
 }
 
 // Caller fully controls the connection before passing it in
-const store = new TemporalStore(db, options);
+const store = new TragetiStore(db, options);
 
 // init() runs connection verification, applies migrations, creates namespace if new
 store.init();
@@ -1094,7 +1094,7 @@ Citations are joined for each chain member so that every assertion in `supersess
 trageti/
 ├── src/
 │   ├── index.ts               — public API exports
-│   ├── TemporalStore.ts       — main class and init logic
+│   ├── TragetiStore.ts       — main class and init logic
 │   ├── schema.ts              — DDL, migrations, version management
 │   ├── retrieval.ts           — retrieve(), pipeline orchestration
 │   ├── assembly.ts            — assembleContext()

@@ -1,4 +1,4 @@
-import type { Assertion, TemporalStore } from 'trageti';
+import type { Assertion, TragetiStore } from 'trageti';
 import { PREPARED_ARTIFACT_VERSION, type PreparedDemoArtifact } from '../shared/artifacts.js';
 import { buildCustomRetrievalQuery, warmupDemoProviders } from '../shared/cli.js';
 import type { DemoScenario, DemoScenarioContext } from '../shared/demo-runner.js';
@@ -131,7 +131,7 @@ async function retrieveBigBrother(
   context: DemoScenarioContext,
   artifact: PreparedDemoArtifact,
   providers: ResolvedDemoProviders,
-  store: TemporalStore,
+  store: TragetiStore,
 ): Promise<void> {
   const cli = parseBigBrotherCliOptions([...context.argv]);
   const metadata = bigBrotherMetadata(artifact);

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { RetrievalInputError } from '../../src/errors/index.js';
 import type { RetrievalScorer } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
@@ -8,10 +8,10 @@ import { citationFor } from '../fixtures/scenario.js';
 const NS = 'rv';
 const DIM = 4;
 
-let store: TemporalStore;
+let store: TragetiStore;
 
 beforeEach(async () => {
-  store = new TemporalStore(openTestDb(), { namespace: NS, embeddingDimension: DIM });
+  store = new TragetiStore(openTestDb(), { namespace: NS, embeddingDimension: DIM });
   await store.init();
   await store.writeEpisode({
     id: 'ep-1',

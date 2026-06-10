@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { loadScenario } from '../fixtures/scenario.js';
 import { JsonFormatter } from '../../src/defaults/formatting/JsonFormatter.js';
 import { citationFor } from '../fixtures/scenario.js';
@@ -15,7 +15,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
   it('full happy path', async () => {
     // ── 1. Setup ──────────────────────────────────────────────────────────────
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
 
     // ── 2. Write episodes and assertions ─────────────────────────────────────
@@ -124,7 +124,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     const ns1 = 'ns-one';
     const ns2 = 'ns-two';
 
-    const store1 = new TemporalStore(db, { namespace: ns1, embeddingDimension: DIM });
+    const store1 = new TragetiStore(db, { namespace: ns1, embeddingDimension: DIM });
     await store1.init();
     await store1.initNamespace(ns2);
 
@@ -184,7 +184,7 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
 
   it('schema version is 1 after init (v0.3 baseline)', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     expect(await store.getCurrentSchemaVersion()).toBe(1);
   });

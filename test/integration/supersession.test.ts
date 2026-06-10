@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { ValidationError } from '../../src/errors/index.js';
 import { citationFor } from '../fixtures/scenario.js';
 
@@ -9,13 +9,13 @@ const NS = 'test-ns';
 const NS2 = 'other-ns';
 const DIM = 4;
 
-function makeStore(db: Database, namespace = NS): TemporalStore {
-  return new TemporalStore(db, { namespace, embeddingDimension: DIM });
+function makeStore(db: Database, namespace = NS): TragetiStore {
+  return new TragetiStore(db, { namespace, embeddingDimension: DIM });
 }
 
-describe('TemporalStore — supersession', () => {
+describe('TragetiStore — supersession', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();

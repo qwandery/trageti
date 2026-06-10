@@ -1,4 +1,4 @@
-import type { TemporalStore } from 'trageti';
+import type { TragetiStore } from 'trageti';
 import {
   PREPARED_ARTIFACT_VERSION,
   type PreparedDemoArtifact,
@@ -156,7 +156,7 @@ async function retrieveKnowThyself(
   context: DemoScenarioContext,
   artifact: PreparedDemoArtifact,
   providers: ResolvedDemoProviders,
-  store: TemporalStore,
+  store: TragetiStore,
 ): Promise<void> {
   const cli = parseKnowThyselfCliOptions([...context.argv]);
   const metadata = knowMetadata(artifact);

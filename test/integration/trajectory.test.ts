@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { citationFor, loadScenario } from '../fixtures/scenario.js';
 
 const NS = 'traj-ns';
 const DIM = 4;
 const VEC = new Float32Array([1, 0, 0, 0]);
 
-async function makeStoreWithScenario(): Promise<TemporalStore> {
+async function makeStoreWithScenario(): Promise<TragetiStore> {
   const db = openTestDb();
-  const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+  const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
   await store.init();
   await loadScenario(store, NS);
   // Index a subset so retrieve has candidates
@@ -20,7 +20,7 @@ async function makeStoreWithScenario(): Promise<TemporalStore> {
   return store;
 }
 
-describe('TemporalStore — trajectory mode', () => {
+describe('TragetiStore — trajectory mode', () => {
   it('snapshot mode (default) and explicit snapshot produce identical output', async () => {
     const store = await makeStoreWithScenario();
     const { results: a } = await store.retrieve({
@@ -104,7 +104,7 @@ describe('TemporalStore — trajectory mode', () => {
   });
 });
 
-describe('TemporalStore — getEntityTrajectory', () => {
+describe('TragetiStore — getEntityTrajectory', () => {
   it('returns the chain oldest-first for a superseded entity', async () => {
     const store = await makeStoreWithScenario();
     const trajectory = await store.getEntityTrajectory(NS, 'entity-delta');
@@ -119,7 +119,7 @@ describe('TemporalStore — getEntityTrajectory', () => {
 
   it('semantic distinction: trajectory follows chain only; history returns everything for entity', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',
@@ -197,10 +197,10 @@ describe('TemporalStore — getEntityTrajectory', () => {
   });
 });
 
-describe('TemporalStore — non-superseding layered assertions (decision §19)', () => {
+describe('TragetiStore — non-superseding layered assertions (decision §19)', () => {
   it('two layered same-entity assertions remain valid in snapshot; trajectory does not chain via deepens link', async () => {
     const db = openTestDb();
-    const store = new TemporalStore(db, { namespace: NS, embeddingDimension: DIM });
+    const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
     await store.writeEpisode({
       id: 'ep-1',

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { TemporalStore } from 'trageti';
+import { TragetiStore } from 'trageti';
 import {
   preparedArtifactPath,
   readPreparedArtifact,
@@ -38,7 +38,7 @@ export interface DemoScenario {
     context: DemoScenarioContext,
     artifact: PreparedDemoArtifact,
     providers: ResolvedDemoProviders,
-    store: TemporalStore,
+    store: TragetiStore,
   ): Promise<void>;
 }
 
@@ -154,7 +154,7 @@ async function ingestPhase(scenario: DemoScenario, context: DemoScenarioContext)
       ...(sanitizeExtractionResult ? { sanitizeExtractionResult } : {}),
     });
   } finally {
-    context.logger.step('Closing TemporalStore');
+    context.logger.step('Closing TragetiStore');
     await store.close();
   }
 }
@@ -176,8 +176,8 @@ async function retrievePhase(scenario: DemoScenario, context: DemoScenarioContex
     rateLimitSeconds: rateLimitFromArgv(context.argv),
   });
   if (context.argv.includes('--warmup')) await warmupDemoProviders({ providers, logger: context.logger });
-  context.logger.step('Opening TemporalStore for retrieval');
-  const store = await TemporalStore.create({
+  context.logger.step('Opening TragetiStore for retrieval');
+  const store = await TragetiStore.create({
     database,
     namespace: artifact.namespace,
     embeddingDimension: providers.embedder.provider.dimension,
@@ -186,7 +186,7 @@ async function retrievePhase(scenario: DemoScenario, context: DemoScenarioContex
   try {
     await scenario.retrieve(context, artifact, providers, store);
   } finally {
-    context.logger.step('Closing TemporalStore');
+    context.logger.step('Closing TragetiStore');
     await store.close();
   }
 }

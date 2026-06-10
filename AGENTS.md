@@ -4,7 +4,7 @@
 
 `trageti` is a TypeScript library for temporally-aware RAG over SQLite. It manages episodic assertions with validity windows.
 
-- **`src/`**: Contains core logic including the `TemporalStore`, schema migrations, and retrieval engine.
+- **`src/`**: Contains core logic including the `TragetiStore`, schema migrations, and retrieval engine.
 - **`test/`**: Divided into `unit` and `integration` tests. Integration tests verify interactions with `better-sqlite3` and `sqlite-vec`.
 - **`_docs/`**: Holds specification documents like `_docs/specs/trageti-spec-v0.3.md`.
 

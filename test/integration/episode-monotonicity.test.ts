@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
-import { TemporalStore } from '../../src/store/TemporalStore.js';
+import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { ValidationError } from '../../src/errors/index.js';
 
 const NS_A = 'test-ns-a';
@@ -10,11 +10,11 @@ const DIM = 4;
 
 describe('Episode position monotonicity (v0.2 spec invariant)', () => {
   let db: Database;
-  let store: TemporalStore;
+  let store: TragetiStore;
 
   beforeEach(async () => {
     db = openTestDb();
-    store = new TemporalStore(db, { namespace: NS_A, embeddingDimension: DIM });
+    store = new TragetiStore(db, { namespace: NS_A, embeddingDimension: DIM });
     await store.init();
     await store.initNamespace(NS_B, { embeddingDimension: DIM });
   });
