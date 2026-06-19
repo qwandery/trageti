@@ -1,7 +1,7 @@
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { EmbeddingProvider, Episode } from 'trageti';
+import type { EmbeddingProvider, NewEpisodeInput } from 'trageti';
 import { generateFixtureFiles } from './generate-fixtures.js';
 import type { ExtractionProvider } from './providers.js';
 
@@ -48,7 +48,7 @@ describe('generateFixtureFiles', () => {
   });
 });
 
-const episodes: Array<Omit<Episode, 'createdAt'>> = [
+const episodes: Array<NewEpisodeInput> = [
   {
     id: 'ep-1',
     namespace: 'fixture-helper-test',

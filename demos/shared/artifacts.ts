@@ -1,12 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Episode } from 'trageti';
+import type { NewEpisodeInput } from 'trageti';
 
 export const PREPARED_ARTIFACT_VERSION = 1;
 
 export interface PreparedIngestionUnit {
   id: string;
-  episode: Omit<Episode, 'createdAt'>;
+  episode: NewEpisodeInput;
   document: string;
   citationSources: Record<string, string>;
   imageSources?: Record<string, PreparedImageSource>;

@@ -2,14 +2,14 @@
 // Indexing (vector embedding into sqlite-vec) is left to the caller, who knows
 // whether to supply pre-computed vectors or rely on a configured EmbeddingProvider.
 
-import type { TragetiStore, Episode, Assertion, AssertionLink, NewAssertionInput } from 'trageti';
+import type { Assertion, NewAssertionInput, NewAssertionLinkInput, NewEpisodeInput, TragetiStore } from 'trageti';
 import { buildExtractionPrompt } from './prompt.js';
 import { parseExtraction } from './parse.js';
 import type { ExtractionProvider, ExtractionImageInput } from './providers.js';
 
 export interface IngestOptions {
   store: TragetiStore;
-  episode: Omit<Episode, 'createdAt'>;
+  episode: NewEpisodeInput;
   document: string;
   citationSources?: Record<string, string>;
   imageSources?: Record<string, ExtractionImageInput>;
@@ -24,7 +24,7 @@ export interface IngestOptions {
 
 export interface ExtractionResult {
   assertions: NewAssertionInput[];
-  links: Array<Omit<AssertionLink, 'createdAt'>>;
+  links: Array<NewAssertionLinkInput>;
 }
 
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
@@ -187,7 +187,7 @@ function resolveMarkdownSection(markdown: string, anchor: string): string | null
 function normalizeExtractionResult(
   result: ExtractionResult,
   namespace: string,
-  episode: Omit<Episode, 'createdAt'>,
+  episode: NewEpisodeInput,
 ): ExtractionResult {
   return {
     assertions: result.assertions.map((a) => ({

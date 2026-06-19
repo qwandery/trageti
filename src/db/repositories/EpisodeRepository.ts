@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { Episode } from '../../domain/types.js';
+import type { Episode, NewEpisodeInput } from '../../domain/types.js';
 import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js';
 
 interface EpisodeRow {
@@ -22,7 +22,7 @@ export class EpisodeRepository {
     this.extensionColumns = extensionColumns;
   }
 
-  insert(episode: Omit<Episode, 'createdAt'>): Episode {
+  insert(episode: NewEpisodeInput): Episode {
     return this.db.transaction(() => {
       const max = this.db
         .prepare<
@@ -32,9 +32,12 @@ export class EpisodeRepository {
         .get(episode.namespace);
       const maxPos = max?.max_pos ?? null;
       if (maxPos !== null && episode.position <= maxPos) {
-        throw new ValidationError([
-          `Episode position ${String(episode.position)} for namespace "${episode.namespace}" must be strictly greater than the existing max position ${String(maxPos)} (positions must increase monotonically within a namespace per spec v0.2).`,
-        ]);
+        throw new ValidationError(
+          [
+            `Episode position ${String(episode.position)} for namespace "${episode.namespace}" must be strictly greater than the existing max position ${String(maxPos)} (positions must increase monotonically within a namespace per spec v0.2).`,
+          ],
+          'Episode',
+        );
       }
       this.db
         .prepare(
@@ -76,6 +79,7 @@ export class EpisodeRepository {
       type: row.type,
       content: row.content,
       createdAt: row.created_at,
+      extensions,
     };
   }
 }

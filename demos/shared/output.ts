@@ -9,7 +9,7 @@ import type {
   RetrievalQuery,
   RetrievalResult,
   RetrievedAssertion,
-  Episode,
+  NewEpisodeInput,
 } from 'trageti';
 import type { DemoRunLogger } from './runtime.js';
 import type { LlmTraceOptions, ResolvedDemoProviders } from './providers.js';
@@ -34,11 +34,11 @@ const DEFAULT_RELEVANCE_OPTIONS: RelevanceDisplayOptions = {
 };
 
 export interface DemoTimeline {
-  byPosition: ReadonlyMap<number, Omit<Episode, 'createdAt'>>;
-  byEpisodeId: ReadonlyMap<string, Omit<Episode, 'createdAt'>>;
+  byPosition: ReadonlyMap<number, NewEpisodeInput>;
+  byEpisodeId: ReadonlyMap<string, NewEpisodeInput>;
 }
 
-export function createDemoTimeline(episodes: readonly Omit<Episode, 'createdAt'>[]): DemoTimeline {
+export function createDemoTimeline(episodes: readonly NewEpisodeInput[]): DemoTimeline {
   return {
     byPosition: new Map(episodes.map((episode) => [episode.position, episode])),
     byEpisodeId: new Map(episodes.map((episode) => [episode.id, episode])),

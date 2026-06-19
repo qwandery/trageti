@@ -1,8 +1,8 @@
-import type { Episode } from 'trageti';
+import type { NewEpisodeInput } from 'trageti';
 
 export const NAMESPACE = 'alex-journal';
 
-export const episodes: ReadonlyArray<Omit<Episode, 'createdAt'>> = [
+export const episodes: ReadonlyArray<NewEpisodeInput> = [
   {
     id: 'journal-1',
     namespace: NAMESPACE,

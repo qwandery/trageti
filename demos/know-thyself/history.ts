@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { Assertion, Episode } from 'trageti';
+import type { Assertion, NewEpisodeInput } from 'trageti';
 import { RawVectorProvider } from 'trageti';
 import { parseExtraction } from '../shared/parse.js';
 import type {
@@ -46,7 +46,7 @@ export interface KnowThyselfCliOptions {
 export interface DerivedHistoryData {
   repoPath: string;
   keyframes: readonly Keyframe[];
-  episodes: ReadonlyArray<Omit<Episode, 'createdAt'>>;
+  episodes: ReadonlyArray<NewEpisodeInput>;
   citationSources: Readonly<Record<string, string>>;
   sourceSummaries: Readonly<Record<string, string>>;
   latestPosition: number;
@@ -275,7 +275,7 @@ export async function deriveHistoryData(options: {
 
   const citationSources: Record<string, string> = {};
   const sourceSummaries: Record<string, string> = {};
-  const episodes: Array<Omit<Episode, 'createdAt'>> = [];
+  const episodes: Array<NewEpisodeInput> = [];
   const tokenBudget = options.tokenBudget ?? 8192;
 
   for (let i = 0; i < keyframes.length; i++) {
@@ -515,7 +515,7 @@ export function runtimeDatabasePath(hash: string): string {
 export function dataVersion(options: {
   repoPath: string;
   keyframes: readonly Keyframe[];
-  episodes: ReadonlyArray<Omit<Episode, 'createdAt'>>;
+  episodes: ReadonlyArray<NewEpisodeInput>;
   citationSources: Readonly<Record<string, string>>;
   queryTexts: readonly string[];
 }): string {
@@ -821,7 +821,7 @@ function truncateToTokenBudget(text: string, tokenBudget: number): string {
 }
 
 function deterministicExtractionForEpisode(
-  episode: Omit<Episode, 'createdAt'>,
+  episode: NewEpisodeInput,
   citationSources: Readonly<Record<string, string>>,
   prior: readonly Assertion[],
 ): ExtractionResult {
@@ -898,7 +898,7 @@ function deterministicExtractionForEpisode(
   };
 }
 
-function sourceRefFromEpisode(episode: Omit<Episode, 'createdAt'>): string {
+function sourceRefFromEpisode(episode: NewEpisodeInput): string {
   const match = /Source document:\s+(sources\/\S+?\.md)/.exec(episode.content);
   if (!match?.[1]) throw new Error(`episode ${episode.id} does not name a source document`);
   return match[1];
@@ -946,7 +946,7 @@ function cleanAssertionContent(text: string): string {
 
 function toPromptAssertion(
   assertion: ExtractionResult['assertions'][number],
-  episode: Omit<Episode, 'createdAt'>,
+  episode: NewEpisodeInput,
 ): Assertion {
   return {
     id: assertion.id,

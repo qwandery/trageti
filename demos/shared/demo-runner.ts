@@ -11,7 +11,7 @@ import type { ResolvedDemoProviders } from './providers.js';
 import { ingestPreparedUnits, prepareDemoStore, type DemoRunLogger } from './runtime.js';
 import { warmupDemoProviders } from './cli.js';
 import type { ExtractionResult } from './ingest.js';
-import type { Assertion, Episode } from 'trageti';
+import type { Assertion, NewEpisodeInput } from 'trageti';
 
 export type DemoPhase = 'prepare' | 'ingest' | 'retrieve' | 'run';
 
@@ -43,7 +43,7 @@ export interface DemoScenario {
 }
 
 export interface DemoSanitizerContext {
-  episode: Omit<Episode, 'createdAt'>;
+  episode: NewEpisodeInput;
   existingAssertions: readonly Assertion[];
   citationSources: Record<string, string>;
 }

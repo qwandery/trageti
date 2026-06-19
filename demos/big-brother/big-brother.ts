@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Assertion, Episode } from 'trageti';
+import type { Assertion, NewEpisodeInput } from 'trageti';
 import { RawVectorProvider } from 'trageti';
 import {
   PREPARED_ARTIFACT_VERSION,
@@ -282,7 +282,7 @@ function artifactFromCaptures(options: {
       mode === 'multimodal'
         ? `Screenshot ${capture.id} captured at ${capture.capturedAt}. Source image: ${capture.path}.`
         : `Screenshot ${capture.id} captured at ${capture.capturedAt}.\n\n${description ?? ''}`;
-    const episode: Omit<Episode, 'createdAt'> = {
+    const episode: NewEpisodeInput = {
       id: capture.id,
       namespace: NAMESPACE,
       position: capture.position,

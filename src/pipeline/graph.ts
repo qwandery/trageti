@@ -8,11 +8,19 @@ import type {
   TraversalOptions,
 } from '../domain/types.js';
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js';
+import type { LinkRepository } from '../db/repositories/LinkRepository.js';
 import { DEFAULT_GRAPH_CONNECTED_DEPTH, DEFAULT_GRAPH_PATH_DEPTH } from '../internal/retrieval-defaults.js';
 import { ErrorCode, RetrievalInputError } from '../errors/index.js';
-import { nonNegativeIntegerOptionError } from '../internal/validate.js';
+import { finiteNumberError, nonNegativeIntegerOptionError, stringArrayOptionError } from '../internal/validate.js';
 
-function validateMaxDepth(maxDepth: number | undefined): void {
+function validateTraversalOptions(options: TraversalOptions | PathOptions): void {
+  const anchorError = finiteNumberError(options.temporalAnchor, 'temporalAnchor');
+  if (anchorError) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_ANCHOR, anchorError);
+  if (options.linkTypes !== undefined) {
+    const err = stringArrayOptionError(options.linkTypes, 'linkTypes');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_FILTER, err);
+  }
+  const { maxDepth } = options;
   if (maxDepth === undefined) return;
   const err = nonNegativeIntegerOptionError(maxDepth, 'maxDepth');
   if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH, err);
@@ -36,7 +44,7 @@ export function getConnected(
   adapter: GraphQueryAdapter,
   options: TraversalOptions,
 ): Assertion[] {
-  validateMaxDepth(options.maxDepth);
+  validateTraversalOptions(options);
   const links = adapter.findConnected(
     db,
     options.namespace,
@@ -51,13 +59,22 @@ export function getConnected(
   return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null);
 }
 
-export function findPath(db: Database, adapter: GraphQueryAdapter, options: PathOptions): AssertionLink[] | null {
-  validateMaxDepth(options.maxDepth);
-  return adapter.findPath(
+export function findPath(
+  db: Database,
+  linkRepo: LinkRepository,
+  adapter: GraphQueryAdapter,
+  options: PathOptions,
+): AssertionLink[] | null {
+  validateTraversalOptions(options);
+  const path = adapter.findPath(
     db,
     options.namespace,
     options.fromAssertionId,
     options.toAssertionId,
     toAdapterOptions(options, DEFAULT_GRAPH_PATH_DEPTH),
   );
+  if (path === null) return null;
+  const hydrated = linkRepo.getByIds(path.map((link) => link.id));
+  const hydratedById = new Map(hydrated.map((link) => [link.id, link]));
+  return path.map((link) => hydratedById.get(link.id) ?? { ...link, extensions: link.extensions ?? {} });
 }

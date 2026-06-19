@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import type { GraphQueryAdapter, AssertionLink, GraphAdapterTraversalOptions } from '../../domain/types.js';
+import type { GraphQueryAdapter, GraphAdapterLink, GraphAdapterTraversalOptions } from '../../domain/types.js';
 
 interface LinkRow {
   id: string;
@@ -13,7 +13,7 @@ interface LinkRow {
   created_at: string;
 }
 
-function rowToLink(row: LinkRow): AssertionLink {
+function rowToLink(row: LinkRow): GraphAdapterLink {
   return {
     id: row.id,
     namespace: row.namespace,
@@ -40,7 +40,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     namespace: string,
     fromIds: string[],
     options: GraphAdapterTraversalOptions,
-  ): AssertionLink[] {
+  ): GraphAdapterLink[] {
     if (fromIds.length === 0) return [];
 
     const { temporalAnchor, maxDepth, linkTypes, includeSuperseded } = options;
@@ -126,7 +126,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     fromId: string,
     toId: string,
     options: GraphAdapterTraversalOptions,
-  ): AssertionLink[] | null {
+  ): GraphAdapterLink[] | null {
     if (fromId === toId) return [];
 
     const { temporalAnchor, maxDepth, linkTypes, includeSuperseded } = options;
@@ -201,7 +201,7 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const linkRows = db
       .prepare<string[], LinkRow>(`SELECT * FROM trageti_links WHERE id IN (${placeholders})`)
       .all(...allIds);
-    const byId = new Map<string, AssertionLink>();
+    const byId = new Map<string, GraphAdapterLink>();
     for (const r of linkRows) byId.set(r.id, rowToLink(r));
 
     return pathIds.flatMap((id) => {

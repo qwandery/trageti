@@ -23,7 +23,13 @@ import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js';
 import { observe } from '../internal/logger.js';
 import { DEFAULT_RETRIEVAL_LIMIT, OVERSAMPLE_MULTIPLIER } from '../internal/retrieval-defaults.js';
-import { finiteNumberError } from '../internal/validate.js';
+import {
+  finiteNumberError,
+  literalOptionError,
+  nonNegativeIntegerOptionError,
+  positiveIntegerOptionError,
+  stringArrayOptionError,
+} from '../internal/validate.js';
 
 interface RetrieveContext {
   assertionRepo: AssertionRepository;
@@ -80,6 +86,70 @@ interface Step3Row {
   bm25_score: number;
 }
 
+const RETRIEVAL_STRATEGIES = ['hybrid', 'vector', 'bm25'] as const;
+const RETRIEVAL_MODES = ['snapshot', 'trajectory'] as const;
+const QUERY_TEXT_MODES = ['phrase', 'fts5'] as const;
+
+export function validateRetrievalQuery(query: RetrievalQuery): void {
+  const limit = query.limit ?? DEFAULT_RETRIEVAL_LIMIT;
+  const limitError = positiveIntegerOptionError(limit, 'limit');
+  if (limitError) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, limitError);
+
+  const anchorError = finiteNumberError(query.temporalAnchor, 'temporalAnchor');
+  if (anchorError) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_ANCHOR, anchorError);
+
+  if (query.retrievalStrategy !== undefined) {
+    const err = literalOptionError(query.retrievalStrategy, 'retrievalStrategy', RETRIEVAL_STRATEGIES);
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_STRATEGY, err);
+  }
+  if (query.mode !== undefined) {
+    const err = literalOptionError(query.mode, 'mode', RETRIEVAL_MODES);
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_MODE, err);
+  }
+  if (query.queryTextMode !== undefined) {
+    const err = literalOptionError(query.queryTextMode, 'queryTextMode', QUERY_TEXT_MODES);
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_QUERY_TEXT_MODE, err);
+  }
+  if (query.maxDepth !== undefined) {
+    const err = nonNegativeIntegerOptionError(query.maxDepth, 'maxDepth');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH, err);
+  }
+
+  const tw = query.temporalWindow;
+  if (tw?.from !== undefined) {
+    const err = finiteNumberError(tw.from, 'temporalWindow.from');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW, err);
+  }
+  if (tw?.to !== undefined) {
+    const err = finiteNumberError(tw.to, 'temporalWindow.to');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW, err);
+  }
+  if (tw?.from !== undefined && tw.to !== undefined && tw.from > tw.to) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW,
+      `temporalWindow.from (${String(tw.from)}) must not exceed temporalWindow.to (${String(tw.to)})`,
+    );
+  }
+
+  if (
+    query.minConfidence !== undefined &&
+    (!Number.isFinite(query.minConfidence) || query.minConfidence < 0 || query.minConfidence > 1)
+  ) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_INVALID_CONFIDENCE,
+      `minConfidence must be within [0, 1], got ${String(query.minConfidence)}`,
+    );
+  }
+  if (query.entityTypes !== undefined) {
+    const err = stringArrayOptionError(query.entityTypes, 'entityTypes');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_FILTER, err);
+  }
+  if (query.assertionTypes !== undefined) {
+    const err = stringArrayOptionError(query.assertionTypes, 'assertionTypes');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_FILTER, err);
+  }
+}
+
 export function retrieve(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
   const started = Date.now();
   const callMiddleware = query.middleware ?? [];
@@ -121,13 +191,8 @@ function buildMeta(
 }
 
 function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
+  validateRetrievalQuery(query);
   const limit = query.limit ?? DEFAULT_RETRIEVAL_LIMIT;
-  if (limit < 1 || !Number.isInteger(limit)) {
-    throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INVALID_LIMIT,
-      `limit must be a positive integer, got ${String(limit)}`,
-    );
-  }
   const oversample = limit * OVERSAMPLE_MULTIPLIER;
   const mode = query.mode ?? 'snapshot';
   const strategy = query.retrievalStrategy ?? 'hybrid';
@@ -181,16 +246,6 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     );
   }
 
-  // maxDepth (only meaningful with expandLinks, but validate whenever supplied).
-  // Spec §2805: only `maxDepth < 0` or a non-integer is invalid — `0` is valid
-  // and means "no graph expansion".
-  if (query.maxDepth !== undefined && (!Number.isInteger(query.maxDepth) || query.maxDepth < 0)) {
-    throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH,
-      `maxDepth must be a non-negative integer, got ${String(query.maxDepth)}`,
-    );
-  }
-
   // queryEmbedding length vs the namespace's configured dimension.
   if (query.queryEmbedding) {
     const dim = ctx.getDimension(query.namespace);
@@ -200,34 +255,6 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
         `queryEmbedding length ${String(query.queryEmbedding.length)} does not match namespace dimension ${String(dim)}`,
       );
     }
-  }
-
-  // temporalWindow ordering.
-  const tw = query.temporalWindow;
-  if (tw?.from !== undefined) {
-    const err = finiteNumberError(tw.from, 'temporalWindow.from');
-    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW, err);
-  }
-  if (tw?.to !== undefined) {
-    const err = finiteNumberError(tw.to, 'temporalWindow.to');
-    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW, err);
-  }
-  if (tw?.from !== undefined && tw.to !== undefined && tw.from > tw.to) {
-    throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INVALID_TEMPORAL_WINDOW,
-      `temporalWindow.from (${String(tw.from)}) must not exceed temporalWindow.to (${String(tw.to)})`,
-    );
-  }
-
-  // minConfidence bounds.
-  if (
-    query.minConfidence !== undefined &&
-    (!Number.isFinite(query.minConfidence) || query.minConfidence < 0 || query.minConfidence > 1)
-  ) {
-    throw new RetrievalInputError(
-      ErrorCode.RETRIEVAL_INVALID_CONFIDENCE,
-      `minConfidence must be within [0, 1], got ${String(query.minConfidence)}`,
-    );
   }
 
   debugStep(query, ctx.logger, 'validate', {

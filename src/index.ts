@@ -9,10 +9,13 @@ export type {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- deliberate public back-compat alias
   NewAssertion,
   NewAssertionInput,
+  NewEpisodeInput,
+  NewAssertionLinkInput,
   NormalizedNewAssertion,
   NewAssertionCitation,
   NewLateCitation,
   AssertionLink,
+  GraphAdapterLink,
   NamespaceConfig,
   RetrievalQuery,
   RetrievalMode,

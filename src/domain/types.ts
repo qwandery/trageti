@@ -15,6 +15,8 @@ export interface Episode {
   content: string;
   /** ISO 8601 — when the system recorded this episode. */
   createdAt: string;
+  /** Caller-registered extended columns, populated at query time. */
+  extensions: Record<string, unknown>;
 }
 
 export interface Assertion {
@@ -119,6 +121,11 @@ export type NormalizedNewAssertion = Omit<Assertion, 'createdAt' | 'extensions' 
   citations: NewAssertionCitation[];
 };
 
+/** v0.4 write-API shape for episodes. Extension-column values are not accepted
+ * by the core writer; registered extension columns are read back under
+ * `Episode.extensions`. */
+export type NewEpisodeInput = Omit<Episode, 'createdAt' | 'extensions'>;
+
 export interface AssertionLink {
   id: string;
   namespace: string;
@@ -132,7 +139,21 @@ export interface AssertionLink {
   sourceEpisodeId: string;
   /** ISO 8601 */
   createdAt: string;
+  /** Caller-registered extended columns, populated at query time. */
+  extensions: Record<string, unknown>;
 }
+
+/** v0.4 write-API shape for links. Extension-column values are not accepted by
+ * the core writer; registered extension columns are read back under
+ * `AssertionLink.extensions`. */
+export type NewAssertionLinkInput = Omit<AssertionLink, 'createdAt' | 'extensions'>;
+
+/** Link shape returned by graph adapters. The store hydrates public
+ * `AssertionLink.extensions` for built-in repository-backed links, so custom
+ * adapters may omit the extensions bag. */
+export type GraphAdapterLink = Omit<AssertionLink, 'extensions'> & {
+  extensions?: Record<string, unknown>;
+};
 
 export interface NamespaceConfig {
   namespace: string;
@@ -168,8 +189,10 @@ export interface RetrievalStepInfo {
   candidateCount: number;
   /** Wall-clock time spent in this step, in milliseconds. */
   tookMs: number;
-  /** Additional step-specific details. */
-  notes?: Record<string, unknown>;
+  /** Human-readable step notes. */
+  notes?: string[];
+  /** Additional structured step-specific details. */
+  details?: Record<string, unknown>;
   /** Whether the step's optional branch actually applied. */
   applied?: boolean;
 }
@@ -428,7 +451,7 @@ export interface GraphQueryAdapter {
     namespace: string,
     fromIds: string[],
     options: GraphAdapterTraversalOptions,
-  ): AssertionLink[];
+  ): GraphAdapterLink[];
 
   findPath(
     db: Database,
@@ -436,7 +459,7 @@ export interface GraphQueryAdapter {
     fromId: string,
     toId: string,
     options: GraphAdapterTraversalOptions,
-  ): AssertionLink[] | null;
+  ): GraphAdapterLink[] | null;
 }
 
 export interface IRetrievalScorer {

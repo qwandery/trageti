@@ -16,6 +16,8 @@ import type {
   AssertionLink,
   AssertionCitation,
   NewAssertionInput,
+  NewEpisodeInput,
+  NewAssertionLinkInput,
   NormalizedNewAssertion,
   NewLateCitation,
   NamespaceConfig,
@@ -77,9 +79,14 @@ import { ConsoleLogger, setDefaultLogger, emitOnce, incr, observe } from '../int
 import { namespaceToEmbeddingTable } from '../internal/hash.js';
 import { validateTokenizer } from '../internal/tokenizer.js';
 import { quoteIdent } from '../internal/sql-ident.js';
-import { positiveIntegerOptionError } from '../internal/validate.js';
+import {
+  finiteNumberError,
+  literalOptionError,
+  positiveIntegerOptionError,
+  stringArrayOptionError,
+} from '../internal/validate.js';
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js';
-import { retrieve } from '../pipeline/retrieve.js';
+import { retrieve, validateRetrievalQuery } from '../pipeline/retrieve.js';
 import { assembleContext } from '../pipeline/assemble.js';
 import { getTemporalSnapshot } from '../pipeline/snapshot.js';
 import { getConnected, findPath } from '../pipeline/graph.js';
@@ -111,12 +118,12 @@ function isNonEmptyString(value: unknown): value is string {
  * `content` are opaque payload — the library does not constrain their values
  * (an empty `occurredAt` is an accepted "no audit timestamp" sentinel).
  */
-function validateEpisodeInput(episode: Omit<Episode, 'createdAt'>): void {
+function validateEpisodeInput(episode: NewEpisodeInput): void {
   const errors: string[] = [];
   if (!isNonEmptyString(episode.id)) errors.push('episode.id is required');
   if (!Number.isFinite(episode.position))
     errors.push(`episode.position must be a finite number, got ${String(episode.position)}`);
-  if (errors.length > 0) throw new ValidationError(errors);
+  if (errors.length > 0) throw new ValidationError(errors, 'Episode');
 }
 
 /**
@@ -126,7 +133,7 @@ function validateEpisodeInput(episode: Omit<Episode, 'createdAt'>): void {
  * `validFrom`; `validUntil` either null or finite. `linkType` is opaque,
  * caller-defined payload and is not constrained.
  */
-function validateLinkInput(link: Omit<AssertionLink, 'createdAt'>): void {
+function validateLinkInput(link: NewAssertionLinkInput): void {
   const errors: string[] = [];
   if (!isNonEmptyString(link.id)) errors.push('link.id is required');
   if (!isNonEmptyString(link.fromId)) errors.push('link.fromId is required');
@@ -138,7 +145,7 @@ function validateLinkInput(link: Omit<AssertionLink, 'createdAt'>): void {
     errors.push(`link.validUntil must be null or a finite number, got ${String(link.validUntil)}`);
   if (link.validUntil !== null && Number.isFinite(link.validUntil) && link.validUntil <= link.validFrom)
     errors.push('link.validUntil must be greater than link.validFrom');
-  if (errors.length > 0) throw new ValidationError(errors);
+  if (errors.length > 0) throw new ValidationError(errors, 'Link');
 }
 
 export class TragetiStore {
@@ -255,7 +262,7 @@ export class TragetiStore {
       this.citationRepo,
       this.extensionColumnCache.get('trageti_assertions') ?? [],
     );
-    this.linkRepo = new LinkRepository(this.db);
+    this.linkRepo = new LinkRepository(this.db, this.extensionColumnCache.get('trageti_links') ?? []);
     this.embeddingRepo = new EmbeddingRepository(this.db);
 
     // Add default validators if none provided. The store owns citation-excerpt
@@ -330,7 +337,7 @@ export class TragetiStore {
 
   // ─── Writing ───────────────────────────────────────────────────────────────
 
-  async writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
+  async writeEpisode(episode: NewEpisodeInput): Promise<Episode> {
     this.requireNamespaceInit(episode.namespace);
     validateEpisodeInput(episode);
     const maxBytes = this.options.maxEpisodeContentBytes;
@@ -370,7 +377,7 @@ export class TragetiStore {
       const result = validator.validate(assertion);
       if (!result.valid) errors.push(...result.errors);
     }
-    if (errors.length > 0) throw new ValidationError(errors);
+    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
 
     // ─── Atomic write ───────────────────────────────────────────────────────
     return this.db.transaction(() => {
@@ -407,11 +414,11 @@ export class TragetiStore {
         );
       }
     }
-    if (errors.length > 0) throw new ValidationError(errors);
+    if (errors.length > 0) throw new ValidationError(errors, 'Citation');
 
     if (citation.excerpt === null) {
       if (this.options.validation?.requireCitationExcerpt) {
-        throw new ValidationError([`citation "${citation.id}" excerpt is required`]);
+        throw new ValidationError([`citation "${citation.id}" excerpt is required`], 'Citation');
       }
       this.options.logger.warn('TRGT_CITATION_EXCERPT_MISSING', {
         assertionId: citation.assertionId,
@@ -447,25 +454,37 @@ export class TragetiStore {
 
   private closeAssertionInternal(assertionId: string, validUntil: number): void {
     this.requireInit();
+    if (!Number.isFinite(validUntil)) {
+      throw new ValidationError([`validUntil must be a finite number, got ${String(validUntil)}`], 'Assertion');
+    }
     const existing = this.assertionRepo.getById(assertionId);
-    if (!existing) throw new ValidationError([`Assertion "${assertionId}" not found`]);
+    if (!existing) throw new ValidationError([`Assertion "${assertionId}" not found`], 'Assertion');
     if (existing.validUntil !== null) {
-      throw new ValidationError([
-        `Assertion "${assertionId}" is already closed (valid_until=${existing.validUntil}); cannot re-close. Mutating an established replacement chain is rejected (decision §2).`,
-      ]);
+      throw new ValidationError(
+        [
+          `Assertion "${assertionId}" is already closed (valid_until=${existing.validUntil}); cannot re-close. Mutating an established replacement chain is rejected (decision §2).`,
+        ],
+        'Assertion',
+      );
     }
     if (validUntil <= existing.validFrom) {
-      throw new ValidationError([`validUntil must be strictly greater than validFrom (${existing.validFrom})`]);
+      throw new ValidationError(
+        [`validUntil must be strictly greater than validFrom (${existing.validFrom})`],
+        'Assertion',
+      );
     }
     this.assertionRepo.supersedeAssertion(assertionId, validUntil);
   }
 
-  async writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
+  async writeLink(link: NewAssertionLinkInput): Promise<AssertionLink> {
     this.requireNamespaceInit(link.namespace);
     validateLinkInput(link);
     // Warn once per cross-namespace link pair (spec §Future: permitted but flagged)
     const fromA = this.assertionRepo.getById(link.fromId);
     const toA = this.assertionRepo.getById(link.toId);
+    const linkErrors: string[] = [];
+    if (!fromA) linkErrors.push(`link.fromId "${link.fromId}" does not reference an existing assertion`);
+    if (!toA) linkErrors.push(`link.toId "${link.toId}" does not reference an existing assertion`);
     if (fromA && toA && fromA.namespace !== toA.namespace) {
       this.options.logger.warn('TRGT_CROSS_NAMESPACE_LINK', {
         fromNs: fromA.namespace,
@@ -476,10 +495,11 @@ export class TragetiStore {
       .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
       .get(link.sourceEpisodeId, link.namespace);
     if (!sourceEpisode) {
-      throw new ValidationError([
+      linkErrors.push(
         `link.sourceEpisodeId "${link.sourceEpisodeId}" does not reference an episode in namespace "${link.namespace}"`,
-      ]);
+      );
     }
+    if (linkErrors.length > 0) throw new ValidationError(linkErrors, 'Link');
     return this.linkRepo.insert(link);
   }
 
@@ -517,9 +537,14 @@ export class TragetiStore {
             { assertionId },
           );
         }
-        const [computed] = await provider.embed([assertion.content], {
-          purpose: 'assertion',
-        });
+        let computed: Float32Array | undefined;
+        try {
+          [computed] = await provider.embed([assertion.content], {
+            purpose: 'assertion',
+          });
+        } catch (err) {
+          throw new EmbeddingProviderError(provider.name, 0, err);
+        }
         if (!computed) {
           throw new IndexingError(
             ErrorCode.INDEXING_NO_EMBEDDING_AND_NO_PROVIDER,
@@ -547,8 +572,12 @@ export class TragetiStore {
       this.requireInit();
       const batchSize = options.batchSize ?? 64;
       const batchError = positiveIntegerOptionError(batchSize, 'batchSize');
-      if (batchError) throw new ValidationError([batchError]);
+      if (batchError) throw new ValidationError([batchError], 'IndexBatch');
       const mode = options.onProviderError ?? 'fail-fast';
+      const modeError = literalOptionError(mode, 'onProviderError', ['fail-fast', 'skip'] as const);
+      if (modeError) {
+        throw new IndexingError(ErrorCode.INDEXING_INVALID_PROVIDER_ERROR_MODE, modeError);
+      }
 
       // Skips are tracked with their input index so the returned skipped[]
       // preserves input order regardless of which resolution stage produced them.
@@ -795,6 +824,7 @@ export class TragetiStore {
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     return this.trackOperation('retrieve', async () => {
       this.requireNamespaceInit(query.namespace);
+      validateRetrievalQuery(query);
       // Step 0: routing. Resolve a provider-derived query embedding when the
       // caller gave queryText but no queryEmbedding, or record why the vector
       // branch is skipped under hybrid degradation.
@@ -910,6 +940,7 @@ export class TragetiStore {
 
   async getTemporalSnapshot(options: TemporalSnapshotOptions): Promise<Assertion[]> {
     this.requireNamespaceInit(options.namespace);
+    this.validateTemporalSnapshotOptions(options);
     return getTemporalSnapshot(this.db, this.assertionRepo, options);
   }
 
@@ -922,7 +953,7 @@ export class TragetiStore {
 
   async findPath(options: PathOptions): Promise<AssertionLink[] | null> {
     this.requireNamespaceInit(options.namespace);
-    return findPath(this.db, this.options.graphAdapter, options);
+    return findPath(this.db, this.linkRepo, this.options.graphAdapter, options);
   }
 
   // ─── Utility ───────────────────────────────────────────────────────────────
@@ -938,6 +969,10 @@ export class TragetiStore {
     },
   ): Promise<Assertion[]> {
     this.requireNamespaceInit(namespace);
+    if (options?.validAt !== undefined) {
+      const err = finiteNumberError(options.validAt, 'validAt');
+      if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_ANCHOR, err);
+    }
     return this.assertionRepo.query(namespace, options);
   }
 
@@ -1014,6 +1049,18 @@ export class TragetiStore {
         const batchSize = options.batchSize ?? 64;
         const batchError = positiveIntegerOptionError(batchSize, 'batchSize');
         if (batchError) throw new ReindexError(namespace, 0, batchError);
+        const strategy = options.strategy ?? 'staging-swap';
+        const strategyError = literalOptionError(strategy, 'strategy', ['staging-swap', 'in-place'] as const);
+        if (strategyError) {
+          throw new ReindexError(namespace, 0, strategyError, { code: ErrorCode.REINDEX_INVALID_STRATEGY });
+        }
+        const mode = options.onProviderError ?? 'fail-fast';
+        const modeError = literalOptionError(mode, 'onProviderError', ['fail-fast', 'skip'] as const);
+        if (modeError) {
+          throw new ReindexError(namespace, 0, modeError, {
+            code: ErrorCode.REINDEX_INVALID_PROVIDER_ERROR_MODE,
+          });
+        }
         // Validate newDimension before any vec0 DDL — a non-integer / non-positive
         // value would otherwise surface as a raw SQLite error.
         if (options.newDimension !== undefined) {
@@ -1208,6 +1255,7 @@ export class TragetiStore {
    */
   async explain(query: RetrievalQuery): Promise<RetrievalExplainResult> {
     this.requireNamespaceInit(query.namespace);
+    validateRetrievalQuery(query);
     const strategy = query.retrievalStrategy ?? 'hybrid';
     const config = this.namespaceRepo.get(query.namespace);
     const table = this.namespaceRepo.getEmbeddingTable(query.namespace);
@@ -1303,6 +1351,44 @@ export class TragetiStore {
   private enforceStructuralInvariants(assertion: NormalizedNewAssertion): void {
     const errors: string[] = [];
 
+    for (const [value, label] of [
+      [assertion.id, 'id'],
+      [assertion.namespace, 'namespace'],
+      [assertion.type, 'type'],
+      [assertion.content, 'content'],
+      [assertion.sourceEpisodeId, 'sourceEpisodeId'],
+    ] as const) {
+      if (!isNonEmptyString(value)) errors.push(`${label} is required`);
+    }
+
+    const validFromError = finiteNumberError(assertion.validFrom, 'validFrom');
+    if (validFromError) errors.push(validFromError);
+    if (assertion.validUntil !== null) {
+      const validUntilError = finiteNumberError(assertion.validUntil, 'validUntil');
+      if (validUntilError) errors.push(validUntilError);
+    }
+    if (
+      Number.isFinite(assertion.validFrom) &&
+      assertion.validUntil !== null &&
+      Number.isFinite(assertion.validUntil) &&
+      assertion.validUntil <= assertion.validFrom
+    ) {
+      errors.push('validUntil must be strictly greater than validFrom');
+    }
+    if (!Number.isFinite(assertion.confidence) || assertion.confidence < 0 || assertion.confidence > 1) {
+      errors.push('confidence must be a number in [0.0, 1.0]');
+    }
+    if (isNonEmptyString(assertion.sourceEpisodeId) && isNonEmptyString(assertion.namespace)) {
+      const sourceEpisode = this.db
+        .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
+        .get(assertion.sourceEpisodeId, assertion.namespace);
+      if (!sourceEpisode) {
+        errors.push(
+          `sourceEpisodeId "${assertion.sourceEpisodeId}" does not reference a known episode in namespace "${assertion.namespace}"`,
+        );
+      }
+    }
+
     // Citation presence + per-citation fields
     if (!Array.isArray(assertion.citations) || assertion.citations.length === 0) {
       errors.push('citations array is required and must contain at least one entry');
@@ -1347,7 +1433,7 @@ export class TragetiStore {
       }
     }
 
-    if (errors.length > 0) throw new ValidationError(errors);
+    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
   }
 
   /**
@@ -1372,7 +1458,20 @@ export class TragetiStore {
         }
       }
     }
-    if (errors.length > 0) throw new ValidationError(errors);
+    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
+  }
+
+  private validateTemporalSnapshotOptions(options: TemporalSnapshotOptions): void {
+    const anchorError = finiteNumberError(options.atPosition, 'atPosition');
+    if (anchorError) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_TEMPORAL_ANCHOR, anchorError);
+    if (options.entityTypes !== undefined) {
+      const err = stringArrayOptionError(options.entityTypes, 'entityTypes');
+      if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_FILTER, err);
+    }
+    if (options.assertionTypes !== undefined) {
+      const err = stringArrayOptionError(options.assertionTypes, 'assertionTypes');
+      if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_FILTER, err);
+    }
   }
 
   private normalizeAssertionInput(input: NewAssertionInput): NormalizedNewAssertion {

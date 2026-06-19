@@ -2,12 +2,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
-import type { Assertion, AssertionCitation, AssertionLink, Episode, NewAssertionInput, TragetiStore } from 'trageti';
+import type {
+  Assertion,
+  AssertionCitation,
+  AssertionLink,
+  Episode,
+  NewAssertionInput,
+  NewAssertionLinkInput,
+  NewEpisodeInput,
+  TragetiStore,
+} from 'trageti';
 import { demoDataVersion, ensureDemoMetadata, ingestEpisodes, ingestPreparedUnits } from './runtime.js';
 import { resolveDemoProviders, type ResolvedDemoProviders } from './providers.js';
 import { sanitizeForTerminal } from './sanitize.js';
 
-const BASE_EPISODES: Omit<Episode, 'createdAt'>[] = [
+const BASE_EPISODES: NewEpisodeInput[] = [
   {
     id: 'ep-1',
     namespace: 'test',
@@ -24,7 +33,7 @@ const BASE_QUERY_EMBEDDINGS: Record<string, number[]> = { 'what is hello?': [0.3
 
 function version(
   overrides: {
-    episodes?: Omit<Episode, 'createdAt'>[];
+    episodes?: NewEpisodeInput[];
     fixtures?: Record<string, string>;
     assertionEmbeddings?: Record<string, number[]>;
     queryEmbeddings?: Record<string, number[]>;
@@ -385,7 +394,7 @@ class ResumeStore {
     if (id !== 'ep-1') return Promise.resolve(null);
     const episode = BASE_EPISODES[0];
     if (!episode) throw new Error('missing fixture episode');
-    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z' });
+    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z', extensions: {} });
   }
 
   getAssertions(): Promise<Assertion[]> {
@@ -404,18 +413,18 @@ class ResumeStore {
 }
 
 class FreshIngestStore {
-  readonly episodes: Array<Omit<Episode, 'createdAt'>> = [];
+  readonly episodes: Array<NewEpisodeInput> = [];
   readonly assertions: Assertion[] = [];
-  readonly links: Array<Omit<AssertionLink, 'createdAt'>> = [];
+  readonly links: Array<NewAssertionLinkInput> = [];
   readonly indexedIds: string[] = [];
 
   getEpisode(): Promise<Episode | null> {
     return Promise.resolve(null);
   }
 
-  writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
+  writeEpisode(episode: NewEpisodeInput): Promise<Episode> {
     this.episodes.push(episode);
-    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z' });
+    return Promise.resolve({ ...episode, createdAt: '2026-01-01T00:00:00Z', extensions: {} });
   }
 
   writeAssertion(assertion: NewAssertionInput): Promise<Assertion> {
@@ -438,9 +447,9 @@ class FreshIngestStore {
     return Promise.resolve(stored);
   }
 
-  writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink> {
+  writeLink(link: NewAssertionLinkInput): Promise<AssertionLink> {
     this.links.push(link);
-    return Promise.resolve({ ...link, createdAt: '2026-01-01T00:00:00Z' });
+    return Promise.resolve({ ...link, createdAt: '2026-01-01T00:00:00Z', extensions: {} });
   }
 
   getAssertions(): Promise<Assertion[]> {

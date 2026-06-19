@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { Assertion, EmbeddingProvider, Episode } from 'trageti';
+import type { Assertion, EmbeddingProvider, NewEpisodeInput } from 'trageti';
 import { resolveCitationExcerpts, validateExtractionResult, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
 import { buildExtractionPrompt } from './prompt.js';
@@ -8,7 +8,7 @@ import type { ExtractionProvider } from './providers.js';
 
 export interface GenerateFixtureFilesOptions {
   demoName: string;
-  episodes: readonly Omit<Episode, 'createdAt'>[];
+  episodes: readonly NewEpisodeInput[];
   citationSources?: Record<string, string>;
   queryTexts: readonly string[];
   embeddingDimension: number;
@@ -90,7 +90,7 @@ export async function generateFixtureFiles(options: GenerateFixtureFilesOptions)
 
 function toPromptAssertion(
   assertion: ExtractionResult['assertions'][number],
-  episode: Omit<Episode, 'createdAt'>,
+  episode: NewEpisodeInput,
 ): Assertion {
   return {
     id: assertion.id,

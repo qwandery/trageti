@@ -1,4 +1,4 @@
-import type { Assertion, Episode } from 'trageti';
+import type { Assertion, NewEpisodeInput } from 'trageti';
 
 /**
  * Default extraction prompt. Instructs the LLM to extract self-contained,
@@ -9,7 +9,7 @@ import type { Assertion, Episode } from 'trageti';
 export function buildExtractionPrompt(
   document: string,
   existingAssertions: readonly Assertion[],
-  episode?: Omit<Episode, 'createdAt'>,
+  episode?: NewEpisodeInput,
   namespace?: string,
   citationSources?: Record<string, string>,
   imageSources?: Record<string, { path: string; mimeType: string }>,

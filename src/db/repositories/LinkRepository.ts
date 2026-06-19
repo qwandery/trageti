@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3';
-import type { AssertionLink } from '../../domain/types.js';
+import type { AssertionLink, NewAssertionLinkInput } from '../../domain/types.js';
 import { ErrorCode, TragetiError } from '../../errors/index.js';
+import { buildCandidateJson } from '../candidates.js';
 
 interface LinkRow {
   id: string;
@@ -12,9 +13,14 @@ interface LinkRow {
   valid_until: number | null;
   source_episode_id: string;
   created_at: string;
+  [key: string]: unknown;
 }
 
-function rowToLink(row: LinkRow): AssertionLink {
+function rowToLink(row: LinkRow, extensionColumns: readonly string[] = []): AssertionLink {
+  const extensions: Record<string, unknown> = {};
+  for (const col of extensionColumns) {
+    extensions[col] = row[col] ?? null;
+  }
   return {
     id: row.id,
     namespace: row.namespace,
@@ -25,17 +31,20 @@ function rowToLink(row: LinkRow): AssertionLink {
     validUntil: row.valid_until,
     sourceEpisodeId: row.source_episode_id,
     createdAt: row.created_at,
+    extensions,
   };
 }
 
 export class LinkRepository {
   private readonly db: Database;
+  private readonly extensionColumns: readonly string[];
 
-  constructor(db: Database) {
+  constructor(db: Database, extensionColumns: readonly string[] = []) {
     this.db = db;
+    this.extensionColumns = extensionColumns;
   }
 
-  insert(link: Omit<AssertionLink, 'createdAt'>): AssertionLink {
+  insert(link: NewAssertionLinkInput): AssertionLink {
     this.db
       .prepare(
         `INSERT INTO trageti_links (id, namespace, from_id, to_id, link_type, valid_from, valid_until, source_episode_id, created_at)
@@ -56,7 +65,19 @@ export class LinkRepository {
     if (!row) {
       throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Link "${link.id}" not found after insert`);
     }
-    return rowToLink(row);
+    return rowToLink(row, this.extensionColumns);
+  }
+
+  getByIds(ids: readonly string[]): AssertionLink[] {
+    if (ids.length === 0) return [];
+    const rows = this.db
+      .prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id IN (SELECT value FROM json_each(?))')
+      .all(buildCandidateJson(ids));
+    const byId = new Map(rows.map((row) => [row.id, rowToLink(row, this.extensionColumns)]));
+    return ids.flatMap((id) => {
+      const link = byId.get(id);
+      return link ? [link] : [];
+    });
   }
 
   getCount(namespace: string): number {

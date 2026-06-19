@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { TragetiStore, type Assertion, type Episode } from 'trageti';
+import { TragetiStore, type Assertion, type Episode, type NewEpisodeInput } from 'trageti';
 import type { PreparedIngestionUnit } from './artifacts.js';
 import { ingest, type ExtractionResult } from './ingest.js';
 import { parseExtraction } from './parse.js';
@@ -17,7 +17,7 @@ export interface DemoRunLogger {
 }
 
 interface RuntimeSanitizerContext {
-  episode: Omit<Episode, 'createdAt'>;
+  episode: NewEpisodeInput;
   existingAssertions: readonly Assertion[];
   citationSources: Record<string, string>;
 }
@@ -30,7 +30,7 @@ export function runtimeDbPath(demoName: string): string {
 
 export function demoDataVersion(
   demoName: string,
-  episodes: readonly Omit<Episode, 'createdAt'>[],
+  episodes: readonly NewEpisodeInput[],
   fixtures: Record<string, string>,
   assertionEmbeddings: Record<string, number[]>,
   queryEmbeddings: Record<string, number[]>,
@@ -165,7 +165,7 @@ export async function prepareDemoStore(options: {
 export async function ingestEpisodes(options: {
   store: TragetiStore;
   namespace: string;
-  episodes: readonly Omit<Episode, 'createdAt'>[];
+  episodes: readonly NewEpisodeInput[];
   citationSources?: Record<string, string>;
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];
@@ -327,7 +327,7 @@ function extractionFailureError(
   err: unknown,
   context: {
     unit: PreparedIngestionUnit;
-    episode: Omit<Episode, 'createdAt'>;
+    episode: NewEpisodeInput;
     providerLabel: string;
     sourceRefs: readonly string[];
     elapsedMs: number;
@@ -347,7 +347,7 @@ function extractionFailureError(
   );
 }
 
-function formatEpisode(episode: Omit<Episode, 'createdAt'>): string {
+function formatEpisode(episode: NewEpisodeInput): string {
   return `${formatDateTime(episode.occurredAt)} - ${episode.type} episode, sequence ${String(episode.position)}`;
 }
 
@@ -398,7 +398,7 @@ async function indexResult(
   store: TragetiStore,
   result: ExtractionResult,
   context: {
-    episode: Omit<Episode, 'createdAt'>;
+    episode: NewEpisodeInput;
     providerLabel: string;
     embeddingDimension: number | undefined;
     trace: LlmTraceOptions | undefined;
@@ -426,7 +426,7 @@ async function indexResult(
   }
 }
 
-function validateExistingEpisode(existing: Episode, expected: Omit<Episode, 'createdAt'>): void {
+function validateExistingEpisode(existing: Episode, expected: NewEpisodeInput): void {
   if (
     existing.namespace !== expected.namespace ||
     existing.position !== expected.position ||
@@ -447,7 +447,7 @@ async function reloadAccumulated(store: TragetiStore, namespace: string, target:
 async function verifyComplete(options: {
   store: TragetiStore;
   namespace: string;
-  episodes?: readonly Omit<Episode, 'createdAt'>[];
+  episodes?: readonly NewEpisodeInput[];
   units?: readonly PreparedIngestionUnit[];
   providers: ResolvedDemoProviders;
   expectedFixtureAssertionIds?: readonly string[];

@@ -5,7 +5,7 @@ import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository
 import type { EmbeddingProvider, IndexBatchSkipped, ReindexOptions, ReindexResult } from '../domain/types.js';
 import { namespaceToEmbeddingTable } from '../internal/hash.js';
 import { ErrorCode, ReindexError, errorCodeOf } from '../errors/index.js';
-import { positiveIntegerOptionError } from '../internal/validate.js';
+import { literalOptionError, positiveIntegerOptionError } from '../internal/validate.js';
 
 const DEFAULT_BATCH_SIZE = 64;
 
@@ -46,6 +46,14 @@ export async function reindexNamespace(
   const allowPartialSwap = options.allowPartialSwap ?? false;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const provider = options.embeddingProvider;
+  const strategyError = literalOptionError(strategy, 'strategy', ['staging-swap', 'in-place'] as const);
+  if (strategyError) {
+    throw new ReindexError(namespace, 0, strategyError, { code: ErrorCode.REINDEX_INVALID_STRATEGY });
+  }
+  const modeError = literalOptionError(mode, 'onProviderError', ['fail-fast', 'skip'] as const);
+  if (modeError) {
+    throw new ReindexError(namespace, 0, modeError, { code: ErrorCode.REINDEX_INVALID_PROVIDER_ERROR_MODE });
+  }
   const batchError = positiveIntegerOptionError(batchSize, 'batchSize');
   if (batchError) {
     throw new ReindexError(namespace, 0, batchError);

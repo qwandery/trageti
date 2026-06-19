@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TragetiStore, Episode, NewAssertionInput, AssertionLink } from 'trageti';
+import type {
+  AssertionLink,
+  Episode,
+  NewAssertionInput,
+  NewAssertionLinkInput,
+  NewEpisodeInput,
+  TragetiStore,
+} from 'trageti';
 import { ingest } from './ingest.js';
 import { buildExtractionPrompt } from './prompt.js';
 import {
@@ -2074,7 +2081,7 @@ function requestUrlString(value: string | URL | Request | undefined): string | u
   return value?.url;
 }
 
-function makeEpisode(): Omit<Episode, 'createdAt'> {
+function makeEpisode(): NewEpisodeInput {
   return {
     id: 'ep-1',
     namespace: 'correct',
@@ -2100,13 +2107,13 @@ function dataValue(value: unknown, path: Array<string | number>): unknown {
 }
 
 class FakeStore {
-  readonly episodes: Array<Omit<Episode, 'createdAt'>> = [];
+  readonly episodes: Array<NewEpisodeInput> = [];
   readonly assertions: NewAssertionInput[] = [];
-  readonly links: Array<Omit<AssertionLink, 'createdAt'>> = [];
+  readonly links: Array<NewAssertionLinkInput> = [];
 
-  writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode> {
+  writeEpisode(episode: NewEpisodeInput): Promise<Episode> {
     this.episodes.push(episode);
-    return Promise.resolve({ ...episode, createdAt: '' });
+    return Promise.resolve({ ...episode, createdAt: '', extensions: {} });
   }
 
   writeAssertion(assertion: NewAssertionInput): Promise<never> {
@@ -2114,7 +2121,7 @@ class FakeStore {
     return Promise.resolve(undefined as never);
   }
 
-  writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<never> {
+  writeLink(link: NewAssertionLinkInput): Promise<never> {
     this.links.push(link);
     return Promise.resolve(undefined as never);
   }
