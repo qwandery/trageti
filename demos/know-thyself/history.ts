@@ -230,10 +230,87 @@ export function createDeterministicSummarizer(): SourceSummarizer {
   };
 }
 
-export function createLiveSummarizer(extractor: ExtractionProvider): SourceSummarizer {
+export interface SummaryResilienceOptions {
+  /** Warning channel for re-attempts and fallbacks. */
+  logger?: { warn(message: string): void };
+  /** Live extraction attempts before falling back. Default 2. */
+  maxAttempts?: number;
+  /** Non-LLM fallback when live summarization keeps failing. */
+  fallback?: SourceSummarizer;
+}
+
+const DEFAULT_SUMMARY_ATTEMPTS = 2;
+
+interface SummaryOutcome {
+  text: string;
+  degraded: boolean;
+}
+
+/**
+ * Live summarization that never aborts a prepare run: re-attempt on empty or
+ * failed model output, then fall back to a deterministic non-LLM summary, then
+ * a clearly-labeled placeholder. Degraded results are flagged so callers can
+ * avoid caching a transient failure.
+ */
+async function summarizeWithResilience(
+  extractor: ExtractionProvider,
+  prompt: string,
+  context: SourceSummaryContext | undefined,
+  opts: SummaryResilienceOptions,
+): Promise<SummaryOutcome> {
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_SUMMARY_ATTEMPTS);
+  const ref = context?.sourceRef ?? 'source';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const text = (
+        await extractor.extract(prompt, {
+          responseFormat: 'text',
+          ...(context?.sourceRef ? { episodeId: context.sourceRef } : {}),
+        })
+      ).trim();
+      if (text.length > 0) return { text, degraded: false };
+      opts.logger?.warn(
+        `source summary for "${ref}" attempt ${String(attempt)}/${String(maxAttempts)} returned empty output`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      opts.logger?.warn(
+        `source summary for "${ref}" attempt ${String(attempt)}/${String(maxAttempts)} failed: ${message}`,
+      );
+      if (attempt >= maxAttempts) return fallbackSummary(prompt, context, opts, `provider error: ${message}`);
+    }
+  }
+  return fallbackSummary(prompt, context, opts, 'empty model output');
+}
+
+async function fallbackSummary(
+  prompt: string,
+  context: SourceSummaryContext | undefined,
+  opts: SummaryResilienceOptions,
+  reason: string,
+): Promise<SummaryOutcome> {
+  const ref = context?.sourceRef ?? 'source';
+  const fallback = opts.fallback ?? createDeterministicSummarizer();
+  try {
+    const text = (await fallback.summarize(prompt, context)).trim();
+    if (text.length > 0) {
+      opts.logger?.warn(`using deterministic summary for "${ref}" (${reason})`);
+      return { text, degraded: true };
+    }
+  } catch (err) {
+    opts.logger?.warn(
+      `deterministic summary fallback for "${ref}" failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  opts.logger?.warn(`using placeholder summary for "${ref}" (${reason})`);
+  return { text: `Summary unavailable for ${ref} (${reason}).`, degraded: true };
+}
+
+export function createLiveSummarizer(extractor: ExtractionProvider, opts: SummaryResilienceOptions = {}): SourceSummarizer {
   return {
-    summarize(prompt) {
-      return extractor.extract(prompt, { responseFormat: 'text' });
+    async summarize(prompt, context) {
+      const outcome = await summarizeWithResilience(extractor, prompt, context, opts);
+      return outcome.text;
     },
   };
 }
@@ -243,9 +320,11 @@ export function createCachedLiveSummarizer(options: {
   repoPath: string;
   cacheDir?: string;
   progress?: HistoryProgress;
+  resilience?: SummaryResilienceOptions;
 }): SourceSummarizer {
   const cacheDir = options.cacheDir ?? join('demos', '.local', 'know-thyself', 'source-summary-cache');
   mkdirSync(cacheDir, { recursive: true });
+  const resilience = options.resilience ?? {};
   return {
     async summarize(prompt, context) {
       const key = sourceSummaryCacheKey({
@@ -256,23 +335,31 @@ export function createCachedLiveSummarizer(options: {
       });
       const path = join(cacheDir, `${key}.json`);
       if (existsSync(path)) {
-        const cached = JSON.parse(readFileSync(path, 'utf8')) as { summary?: unknown };
-        if (typeof cached.summary === 'string') {
+        const cached = readCachedSummary(path, resilience.logger);
+        if (cached !== null) {
           if (context) context.cacheHit = true;
-          return cached.summary;
+          return cached;
         }
       }
-      const summary = (
-        await options.extractor.extract(prompt, {
-          responseFormat: 'text',
-          ...(context?.sourceRef ? { episodeId: context.sourceRef } : {}),
-        })
-      ).trim();
+      const outcome = await summarizeWithResilience(options.extractor, prompt, context, resilience);
       if (context) context.cacheHit = false;
-      writeFileSync(path, JSON.stringify({ summary }, null, 2));
-      return summary;
+      // Never cache a degraded summary: a transient failure must not poison
+      // future runs that could succeed live.
+      if (!outcome.degraded) writeFileSync(path, JSON.stringify({ summary: outcome.text }, null, 2));
+      return outcome.text;
     },
   };
+}
+
+function readCachedSummary(path: string, logger?: { warn(message: string): void }): string | null {
+  try {
+    const cached = JSON.parse(readFileSync(path, 'utf8')) as { summary?: unknown };
+    if (typeof cached.summary === 'string' && cached.summary.trim().length > 0) return cached.summary;
+    return null;
+  } catch (err) {
+    logger?.warn(`ignoring corrupt source-summary cache ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 export async function deriveHistoryData(options: {

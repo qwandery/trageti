@@ -72,6 +72,7 @@ export const knowThyselfScenario: DemoScenario = {
           : createCachedLiveSummarizer({
               extractor: providers.extractor,
               repoPath: resolveRepoPath(cli.repo),
+              resilience: { logger: context.logger },
             }),
       mode: providers.extractor.provenance.kind === 'fixture' ? 'fixture' : 'live',
       progress: progressLogger(context.logger),
