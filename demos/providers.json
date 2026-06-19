@@ -14,30 +14,34 @@
       "label": "Fixture",
       "kind": "fixture",
       "supports": ["extract", "embed", "vision"],
-      "extractModel": "committed-fixtures",
-      "embedModel": "committed-vectors",
-      "visionModel": "committed-fixtures"
+      "model": "committed-fixtures",
+      "embed": {
+        "model": "committed-vectors"
+      }
     },
     {
-      "id": "openrouter",
-      "label": "OpenRouter",
+      "id": "openrouter-gpt-mini",
+      "label": "OpenRouter (GPT-4o-Mini)",
       "kind": "openai-compatible",
-      "supports": ["extract", "vision"],
+      "supports": ["extract", "vision", "embed"],
       "baseUrl": "https://openrouter.ai/api/v1",
       "apiKeyEnv": "OPENROUTER_API_KEY",
-      "extractModel": "gpt-4o-mini",
-      "extractMaxTokens": 8192,
-      "extractResponseFormat": "json_schema",
-      "extractExtraBody": {
-        "reasoning": {
-          "effort": "none",
-          "exclude": true
+      "model": "gpt-4o-mini",
+      "maxTokens": 8192,
+      "rateLimitSeconds": 30,
+      "embed": {
+        "model": "text-embedding-3-small",
+        "dimensions": 768,
+        "responseFormat": "json_schema",
+        "extraBody": {
+          "reasoning": {
+            "effort": "none",
+            "exclude": true
+          }
         }
       },
-      "visionModel": "gpt-4o-mini",
-      "visionMaxTokens": 8192,
-      "visionExtraBody": {
-        "reasoning": {
+      "vision": {
+        "extraBody": {
           "effort": "none",
           "exclude": true
         }
@@ -50,18 +54,19 @@
       "supports": ["extract", "embed", "vision"],
       "baseUrl": "https://api.openai.com/v1",
       "apiKeyEnv": "OPENAI_API_KEY",
-      "extractModel": "gpt-4o-mini",
-      "extractMaxTokens": 8192,
-      "extractResponseFormat": "json_schema",
-      "embedModel": "text-embedding-3-small",
-      "embedDimension": 768,
-      "embedExtraBody": {
-        "response_format": {
-          "type": "float"
+      "rateLimitSeconds": 30,
+      "model": "gpt-4o-mini",
+      "maxTokens": 8192,
+      "responseFormat": "json_schema",
+      "embed": {
+        "model": "text-embedding-3-small",
+        "dimensions": 768,
+        "extraBody": {
+          "response_format": {
+            "type": "float"
+          }
         }
-      },
-      "visionModel": "gpt-4o-mini",
-      "visionMaxTokens": 8192
+      }
     },
     {
       "id": "anthropic",
@@ -69,25 +74,17 @@
       "kind": "anthropic",
       "supports": ["extract", "vision"],
       "apiKeyEnv": "ANTHROPIC_API_KEY",
-      "extractModel": "claude-sonnet-4-20250514",
-      "extractMaxTokens": 8192,
-      "visionModel": "claude-sonnet-4-20250514",
-      "visionMaxTokens": 8192
+      "model": "claude-sonnet-4.5",
+      "maxTokens": 8192
     },
     {
       "id": "ollama",
       "label": "Ollama",
       "kind": "openai-compatible",
-      "supports": ["extract", "embed"],
+      "supports": ["extract", "vision"],
       "baseUrl": "http://127.0.0.1:11434/v1",
-      "apiKey": "ollama",
-      "extractModel": "llama3.1",
-      "extractMaxTokens": 8192,
-      "extractResponseFormat": "json_object",
-      "embedKind": "ollama-native",
-      "embedBaseUrl": "http://127.0.0.1:11434",
-      "embedModel": "nomic-embed-text",
-      "embedDimension": 768
+      "model": "gemma4:12b",
+      "maxTokens": 8192
     }
   ]
 }
