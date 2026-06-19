@@ -27,6 +27,7 @@ export const NAMESPACE = 'repository-history';
 export const EMBEDDING_DIMENSION = 768;
 
 export interface Keyframe {
+  ref: string;
   hash: string;
   position: number;
   label: string;
@@ -146,7 +147,7 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
   }
 
   if (repoProvided && !keyframesProvided) {
-    throw new Error('--repo requires --keyframes so the demo knows which commits to ingest');
+    throw new Error('--repo requires --keyframes so the demo knows which refs to ingest');
   }
 
   return {
@@ -269,7 +270,7 @@ export async function deriveHistoryData(options: {
   const repoPath = resolve(options.repoPath);
   verifyGitRepo(repoPath);
   const keyframes = options.keyframeRefs.map((ref, index) => resolveKeyframe(repoPath, ref, index + 1));
-  if (keyframes.length === 0) throw new Error('At least one keyframe commit is required');
+  if (keyframes.length === 0) throw new Error('At least one keyframe ref is required');
   const mode = options.mode ?? 'fixture';
   options.progress?.start?.({ repoPath, keyframeCount: keyframes.length, mode });
 
@@ -541,10 +542,15 @@ function verifyGitRepo(repoPath: string): void {
 }
 
 function resolveKeyframe(repoPath: string, ref: string, position: number): Keyframe {
-  const hash = git(repoPath, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
+  let hash: string;
+  try {
+    hash = git(repoPath, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
+  } catch {
+    throw new Error(`Keyframe ref "${ref}" must resolve to a commit hash or tag`);
+  }
   const label = git(repoPath, ['log', hash, '-1', '--format=%s']).trim() || hash.slice(0, 12);
   const date = git(repoPath, ['log', hash, '-1', '--format=%cI']).trim() || '1970-01-01T00:00:00Z';
-  return { hash, position, label, date };
+  return { ref, hash, position, label, date };
 }
 
 function git(repoPath: string, args: readonly string[]): string {

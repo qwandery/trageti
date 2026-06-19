@@ -65,10 +65,13 @@ query suite with one custom user query:
 ```sh
 npm run trageti-demo -- alex-place run --query "From whom has Alex learned specific knife techniques?"
 npm run trageti-demo -- know-thyself run --query "What changed about persistence?"
-npm run trageti-demo -- know-thyself run --repo ../some-repo --keyframes abc123,def456,789abcd
+npm run trageti-demo -- know-thyself run --repo ../some-repo --keyframes v0.1,abc123,release-candidate
 npm run trageti-demo -- know-thyself run --limit 60
 npm run trageti-demo -- big-brother run --query "What should I work on next?"
 ```
+
+Know Thyself `--keyframes` values can be tag names or commit hashes, as long as
+each Git ref resolves to a commit.
 
 Custom-query mode runs ingestion, then prints one retrieval result and one
 assembled-context answer. It skips the built-in demo queries, follow-up API

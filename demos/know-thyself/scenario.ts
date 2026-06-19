@@ -57,7 +57,7 @@ export const knowThyselfScenario: DemoScenario = {
     const providers = resolveProvidersAndDataMode(cli, context.trace);
     if (cli.warmup) await warmupDemoProviders({ providers, logger: context.logger });
     context.logger.detail(`Repository: ${resolveRepoPath(cli.repo)}`);
-    context.logger.detail(`Keyframe refs: ${cli.keyframes.map((ref) => ref.slice(0, 12)).join(', ')}`);
+    context.logger.detail(`Keyframe refs: ${cli.keyframes.map(formatKeyframeRef).join(', ')}`);
     context.logger.detail(
       providers.extractor.provenance.kind === 'fixture'
         ? 'Source summaries: deterministic fixture summaries'
@@ -215,7 +215,7 @@ function sourceRefFromEpisode(content: string): string {
 function progressLogger(logger: DemoScenarioContext['logger']): HistoryProgress {
   return {
     start(event) {
-      logger.detail(`Resolved ${String(event.keyframeCount)} keyframe commit(s) from ${event.repoPath}`);
+      logger.detail(`Resolved ${String(event.keyframeCount)} keyframe ref(s) from ${event.repoPath}`);
     },
     keyframeStart(event) {
       logger.detail(
@@ -226,4 +226,8 @@ function progressLogger(logger: DemoScenarioContext['logger']): HistoryProgress 
       logger.detail(`  ${event.cached ? 'Reused cached summary for' : 'Completed source bundle'} ${event.sourceRef}`);
     },
   };
+}
+
+function formatKeyframeRef(ref: string): string {
+  return /^[0-9a-f]{20,}$/i.test(ref) ? ref.slice(0, 12) : ref;
 }

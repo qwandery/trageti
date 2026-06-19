@@ -2,10 +2,10 @@
 
 _A repository-history demo that can explain how a codebase evolved._
 
-By default, this demo ingests this repository's own default Trageti keyframe
-commits. Source documents, episodes, citation sources, fixture extraction, and
-fixture vectors are derived at runtime from git. You can also point it at
-another repo with an explicit keyframe list when live providers are configured.
+By default, this demo ingests this repository's own default Trageti keyframes.
+Source documents, episodes, citation sources, fixture extraction, and fixture
+vectors are derived at runtime from git. You can also point it at another repo
+with an explicit keyframe list when live providers are configured.
 
 ## Run
 
@@ -19,11 +19,14 @@ Run against another repository:
 npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456,789abcd
 ```
 
+`--keyframes` accepts any Git ref that resolves to a commit, including tag names
+and commit hashes.
+
 Replace the default query suite with one custom user query:
 
 ```sh
 npx tsx demos/know-thyself/index.ts --query "What changed about persistence?"
-npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes abc123,def456 --query "What changed about persistence?"
+npx tsx demos/know-thyself/index.ts --repo ../some-repo --keyframes v0.1,v0.2 --query "What changed about persistence?"
 ```
 
 Custom-query mode prints one retrieval result and one assembled-context answer.

@@ -1,8 +1,10 @@
 // Hand-curated keyframe manifest: moments of significant architectural change
 // in trageti's history. Source documents and episodes are derived from these
-// commits; the manifest is the only manual selection step.
+// Git refs; the manifest is the only manual selection step. Refs may be tag
+// names or commit hashes.
 
 export interface Keyframe {
+  ref: string;
   hash: string;
   position: number;
   label: string;

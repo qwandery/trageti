@@ -239,7 +239,7 @@ export const keyframes: Keyframe[] = [
 ];
 ```
 
-Adding or supplying keyframe commits is the only manual curation required. Everything else is derived from git at runtime.
+Adding or supplying keyframe Git refs is the only manual curation required. Refs may be tag names or commit hashes. Everything else is derived from git at runtime.
 
 ### Ingestion: The generate-episodes Script
 
@@ -283,7 +283,7 @@ Only the default keyframe list is committed as configuration. Everything else is
 
 ```
 data/
-└── keyframes.ts          - default keyframe commit list
+└── keyframes.ts          - default keyframe Git ref list
 ```
 
 Runtime DBs live under `demos/.local/know-thyself/<run-hash>.db`. The run hash includes the absolute repo path, resolved commits, provider provenance, mode, and query text set so different repo/keyframe/provider inputs do not collide.

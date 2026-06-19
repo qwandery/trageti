@@ -92,6 +92,26 @@ describe('deriveHistoryData', () => {
     expect(data.citationSources['sources/kf-1..kf-2.md']).toContain('Date: 2026-05-19T17:36:01-06:00');
   });
 
+  it('accepts tag names as keyframe refs and resolves them to commits', async () => {
+    const repo = createRepo();
+    const first = commit(repo, 'initial architecture', { 'README.md': '# Demo\n\nInitial architecture\n' });
+    const second = commit(repo, 'add persistence', { 'src/store.ts': 'export const persistence = true;\n' });
+    tag(repo, 'trageti-demo-v1', first);
+    tag(repo, 'trageti-demo-v2', second);
+
+    const data = await deriveHistoryData({
+      repoPath: repo,
+      keyframeRefs: ['trageti-demo-v1', 'trageti-demo-v2'],
+      summarizer: createDeterministicSummarizer(),
+      tokenBudget: 2048,
+    });
+
+    expect(data.keyframes.map((k) => k.ref)).toEqual(['trageti-demo-v1', 'trageti-demo-v2']);
+    expect(data.keyframes.map((k) => k.hash)).toEqual([first, second]);
+    expect(data.keyframes.map((k) => k.label)).toEqual(['initial architecture', 'add persistence']);
+    expect(data.citationSources['sources/kf-1..kf-2.md']).toContain(`Current commit: ${second}`);
+  });
+
   it('summarizes selected repository content one file at a time', async () => {
     const repo = createRepo();
     const first = commit(repo, 'initial architecture', {
@@ -398,6 +418,10 @@ function commit(repo: string, message: string, files: Record<string, string>, da
     date === undefined ? undefined : { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
   );
   return git(repo, ['rev-parse', 'HEAD']).trim();
+}
+
+function tag(repo: string, name: string, ref: string): void {
+  git(repo, ['tag', '-a', name, ref, '-m', name]);
 }
 
 function git(repo: string, args: readonly string[], env?: NodeJS.ProcessEnv): string {
