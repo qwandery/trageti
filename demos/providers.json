@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "runtimeDefaults": {
+    "rateLimitSeconds": 5,
+    "retry": {
+      "maxAttempts": 6,
+      "contentlessMaxAttempts": 2,
+      "baseDelayMs": 1000,
+      "maxDelayMs": 30000,
+      "timeoutMs": 60000
+    }
+  },
+  "providers": [
+    {
+      "id": "fixture",
+      "label": "Fixture",
+      "supports": ["extract", "embed", "vision"],
+      "kind": "fixture",
+      "extract": {
+        "model": "committed-fixtures"
+      },
+      "embed": {
+        "model": "committed-vectors"
+      },
+      "vision": {
+        "model": "committed-fixtures"
+      }
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "supports": ["extract", "vision"],
+      "kind": "openai-compatible",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "extract": {
+        "model": "gpt-4o-mini",
+        "maxTokens": 8192,
+        "responseFormat": "json_schema",
+        "extraBody": {
+          "reasoning": {
+            "effort": "none",
+            "exclude": true
+          }
+        }
+      },
+      "vision": {
+        "model": "gpt-4o-mini",
+        "maxTokens": 8192,
+        "extraBody": {
+          "reasoning": {
+            "effort": "none",
+            "exclude": true
+          }
+        }
+      }
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "supports": ["extract", "embed", "vision"],
+      "kind": "openai-compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "extract": {
+        "model": "gpt-4o-mini",
+        "maxTokens": 8192,
+        "responseFormat": "json_schema"
+      },
+      "embed": {
+        "model": "text-embedding-3-small",
+        "dimension": 768,
+        "extraBody": {
+          "response_format": {
+            "type": "float"
+          }
+        }
+      },
+      "vision": {
+        "model": "gpt-4o-mini",
+        "maxTokens": 8192
+      }
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "supports": ["extract", "vision"],
+      "kind": "anthropic",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "extract": {
+        "model": "claude-sonnet-4-20250514",
+        "maxTokens": 8192
+      },
+      "vision": {
+        "model": "claude-sonnet-4-20250514",
+        "maxTokens": 8192
+      }
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama",
+      "supports": ["extract", "embed"],
+      "kind": "ollama-native",
+      "host": "http://127.0.0.1:11434",
+      "extract": {
+        "kind": "openai-compatible",
+        "baseUrl": "http://127.0.0.1:11434/v1",
+        "apiKey": "ollama",
+        "model": "llama3.1",
+        "maxTokens": 8192,
+        "responseFormat": "json_object"
+      },
+      "embed": {
+        "kind": "ollama-native",
+        "model": "nomic-embed-text",
+        "dimension": 768
+      }
+    }
+  ]
+}
