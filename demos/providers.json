@@ -8,10 +8,10 @@
     "maxDelayMs": 30000,
     "timeoutMs": 60000
   },
-  "defaultProvider": {
-    "model": "openrouter-gpt-mini",
-    "vision": {
-      "model": "ollama-vision"
+  "default": {
+    "provider": "openrouter-gpt-mini",
+    "embed": {
+      "provider": "ollama-embed"
     }
   },
   "providers": [
@@ -36,13 +36,20 @@
       "maxTokens": 8192,
       "rateLimitSeconds": 30,
       "responseFormat": "json_schema",
+      "extraBody": {
+        "reasoning": {
+          "effort": "none",
+          "exclude": true
+        }
+      },
       "embed": {
         "model": "text-embedding-3-small",
         "dimensions": 768,
         "extraBody": {
-          "reasoning": {
-            "effort": "none",
-            "exclude": true
+          "extraBody": {
+            "response_format": {
+              "type": "float"
+            }
           }
         }
       },
