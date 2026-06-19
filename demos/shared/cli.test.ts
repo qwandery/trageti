@@ -218,5 +218,8 @@ function fakeLogger(logs: string[]) {
     success(message: string) {
       logs.push(`success:${message}`);
     },
+    warn(message: string) {
+      logs.push(`warn:${message}`);
+    },
   };
 }

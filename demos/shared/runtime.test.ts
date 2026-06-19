@@ -359,6 +359,9 @@ function captureLogger(details: string[]) {
     success(message: string) {
       details.push(message);
     },
+    warn(message: string) {
+      details.push(message);
+    },
   };
 }
 

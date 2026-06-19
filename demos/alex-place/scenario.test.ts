@@ -45,5 +45,6 @@ function noopLogger() {
     step() {},
     detail() {},
     success() {},
+    warn() {},
   };
 }

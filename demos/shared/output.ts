@@ -65,6 +65,9 @@ export function createDemoLogger(): DemoRunLogger {
     success(message) {
       console.log(`    ${runPrefix()} OK ${message}`);
     },
+    warn(message) {
+      console.warn(`    ${runPrefix()} !! WARNING: ${message}`);
+    },
   };
 }
 

@@ -14,6 +14,7 @@ export interface DemoRunLogger {
   step(message: string): void;
   detail(message: string): void;
   success(message: string): void;
+  warn(message: string): void;
 }
 
 interface RuntimeSanitizerContext {
