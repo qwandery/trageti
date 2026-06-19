@@ -114,9 +114,7 @@ async function liveSynthesisOrNull(
     try {
       const text = (await extractor.extract(prompt, { responseFormat: 'text' })).trim();
       if (text.length > 0) return text;
-      logger?.warn(
-        `${label} attempt ${String(attempt)}/${String(SYNTHESIS_MAX_ATTEMPTS)} returned empty output`,
-      );
+      logger?.warn(`${label} attempt ${String(attempt)}/${String(SYNTHESIS_MAX_ATTEMPTS)} returned empty output`);
     } catch (err) {
       logger?.warn(
         `${label} attempt ${String(attempt)}/${String(SYNTHESIS_MAX_ATTEMPTS)} failed: ${

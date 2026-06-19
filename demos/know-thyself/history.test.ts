@@ -1,15 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseExtraction } from '../shared/parse.js';
+import type { ExtractionProvider } from '../shared/providers.js';
 import {
   assertFixtureAllowedForOptions,
   createCachedLiveSummarizer,
   createDeterministicFixtures,
   createDeterministicSummarizer,
   createFixtureProviders,
+  createLiveSummarizer,
   dataVersion,
   defaultQueryTexts,
   deriveHistoryData,
@@ -396,6 +398,89 @@ describe('deriveHistoryData', () => {
     expect(calls).toBe(2);
   });
 });
+
+describe('source summary resilience', () => {
+  it('falls back to a deterministic summary when live output is empty', async () => {
+    const warnings: string[] = [];
+    const summarizer = createLiveSummarizer(
+      stubExtractor(() => ''),
+      {
+        maxAttempts: 1,
+        logger: { warn: (m) => warnings.push(m) },
+      },
+    );
+
+    const text = await summarizer.summarize('Commit message: add feature\n### src/index.ts', {
+      sourceRef: 'kf-1.md',
+      current: { ref: 'kf-1', label: 'Add feature' } as never,
+    });
+
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).toContain('deterministically');
+    expect(warnings.join('\n')).toContain('using deterministic summary');
+  });
+
+  it('does not cache a degraded summary', async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'trageti-summary-degraded-'));
+    tempDirs.push(cacheDir);
+    let calls = 0;
+    const extractor = stubExtractor(() => {
+      calls += 1;
+      return '';
+    });
+    const summarizer = createCachedLiveSummarizer({
+      extractor,
+      repoPath: 'repo',
+      cacheDir,
+      resilience: { maxAttempts: 1 },
+    });
+
+    await summarizer.summarize('prompt', { sourceRef: 'kf-1.md', current: { ref: 'kf-1' } as never });
+    await summarizer.summarize('prompt', { sourceRef: 'kf-1.md', current: { ref: 'kf-1' } as never });
+
+    // Degraded results are never cached, so the extractor is consulted both times.
+    expect(calls).toBe(2);
+  });
+
+  it('ignores a corrupt summary cache and re-extracts', async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'trageti-summary-corrupt-'));
+    tempDirs.push(cacheDir);
+    const warnings: string[] = [];
+    let calls = 0;
+    const extractor = stubExtractor(() => {
+      calls += 1;
+      return `live summary ${String(calls)}`;
+    });
+    const summarizer = createCachedLiveSummarizer({
+      extractor,
+      repoPath: 'repo',
+      cacheDir,
+      resilience: { logger: { warn: (m) => warnings.push(m) } },
+    });
+    const context = { sourceRef: 'kf-1.md', current: { ref: 'kf-1' } as never };
+
+    await summarizer.summarize('prompt', { ...context });
+    expect(calls).toBe(1);
+
+    for (const file of readdirSync(cacheDir)) writeFileSync(join(cacheDir, file), '{ not valid json');
+
+    const text = await summarizer.summarize('prompt', { ...context });
+    expect(calls).toBe(2);
+    expect(text).toBe('live summary 2');
+    expect(warnings.join('\n')).toContain('ignoring corrupt source-summary cache');
+  });
+});
+
+function stubExtractor(text: () => string): ExtractionProvider {
+  return {
+    name: 'stub',
+    label: 'stub',
+    provenance: { kind: 'openai-compatible', model: 'm', configHash: 'stub' },
+    extract() {
+      return Promise.resolve(text());
+    },
+  };
+}
 
 function createRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'trageti-history-test-'));

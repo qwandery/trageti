@@ -77,10 +77,20 @@ export function printDemoStageFailure(info: {
   console.error('');
   console.error('Details:');
   console.error(error instanceof Error && error.stack ? error.stack : String(error));
-  const nested = error instanceof Error ? (error.cause as unknown) : undefined;
+  const nested = error instanceof Error ? error.cause : undefined;
   if (nested !== undefined && nested !== null) {
     console.error('Caused by:');
-    console.error(nested instanceof Error && nested.stack ? nested.stack : String(nested));
+    if (nested instanceof Error) console.error(nested.stack ?? nested.message);
+    else if (typeof nested === 'string') console.error(nested);
+    else console.error(safeStringify(nested));
+  }
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? '[uncapturable cause]';
+  } catch {
+    return '[uncapturable cause]';
   }
 }
 

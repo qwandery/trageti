@@ -179,7 +179,13 @@ async function retrieveKnowThyself(
       relevance: { maxResults: 10 },
     });
     printAssembledAnswer(
-      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+      await generateAssembledAnswer({
+        store,
+        extractor: providers.extractor,
+        annotation,
+        query,
+        logger: context.logger,
+      }),
     );
     return;
   }
@@ -194,7 +200,13 @@ async function retrieveKnowThyself(
       relevance: { maxResults: 10 },
     });
     printAssembledAnswer(
-      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+      await generateAssembledAnswer({
+        store,
+        extractor: providers.extractor,
+        annotation,
+        query,
+        logger: context.logger,
+      }),
     );
   }
 

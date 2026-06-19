@@ -160,7 +160,13 @@ async function retrieveAlexPlace(
       relevance: { maxResults: 14 },
     });
     printAssembledAnswer(
-      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+      await generateAssembledAnswer({
+        store,
+        extractor: providers.extractor,
+        annotation,
+        query,
+        logger: context.logger,
+      }),
     );
     return;
   }
@@ -175,7 +181,13 @@ async function retrieveAlexPlace(
       relevance: { maxResults: 14 },
     });
     printAssembledAnswer(
-      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+      await generateAssembledAnswer({
+        store,
+        extractor: providers.extractor,
+        annotation,
+        query,
+        logger: context.logger,
+      }),
     );
   }
 

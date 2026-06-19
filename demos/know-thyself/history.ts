@@ -306,7 +306,10 @@ async function fallbackSummary(
   return { text: `Summary unavailable for ${ref} (${reason}).`, degraded: true };
 }
 
-export function createLiveSummarizer(extractor: ExtractionProvider, opts: SummaryResilienceOptions = {}): SourceSummarizer {
+export function createLiveSummarizer(
+  extractor: ExtractionProvider,
+  opts: SummaryResilienceOptions = {},
+): SourceSummarizer {
   return {
     async summarize(prompt, context) {
       const outcome = await summarizeWithResilience(extractor, prompt, context, opts);

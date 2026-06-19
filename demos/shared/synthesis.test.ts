@@ -92,6 +92,42 @@ describe('generateAssembledAnswer', () => {
     expect(extract.mock.calls[0]?.[0]).toContain('Context claim.');
     expect(extract.mock.calls[0]?.[0]).toContain('Retrieval mode: trajectory');
   });
+
+  it('falls back to the template answer when live synthesis keeps returning empty output', async () => {
+    const extract = vi.fn<(prompt: string) => Promise<string>>(() => Promise.resolve('   '));
+    const warnings: string[] = [];
+    const ctx = contextWithAssertions([assertion('a', 'A supported claim from context.', 1, 1)]);
+
+    const result = await generateAssembledAnswer({
+      store: storeWithContext(ctx),
+      extractor: liveExtractor(extract),
+      annotation: '"degraded"',
+      query: { namespace: 'demo', queryText: 'degraded', temporalAnchor: 1 },
+      logger: { warn: (m) => warnings.push(m) },
+    });
+
+    expect(result.mode).toBe('template');
+    expect(result.text).toContain('A supported claim from context');
+    expect(extract).toHaveBeenCalledTimes(2);
+    expect(warnings.join('\n')).toContain('falling back to template synthesis');
+  });
+
+  it('falls back to template synthesis when the live extractor throws', async () => {
+    const extract = vi.fn<(prompt: string) => Promise<string>>(() => Promise.reject(new Error('provider down')));
+    const warnings: string[] = [];
+    const ctx = contextWithAssertions([assertion('a', 'Another supported claim.', 1, 1)]);
+
+    const result = await generateAssembledAnswer({
+      store: storeWithContext(ctx),
+      extractor: liveExtractor(extract),
+      annotation: '"errored"',
+      query: { namespace: 'demo', queryText: 'errored', temporalAnchor: 1 },
+      logger: { warn: (m) => warnings.push(m) },
+    });
+
+    expect(result.mode).toBe('template');
+    expect(warnings.join('\n')).toContain('failed: provider down');
+  });
 });
 
 function storeWithContext(ctx: AssembledContext): Pick<TragetiStore, 'assembleContext'> {

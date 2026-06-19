@@ -91,8 +91,7 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
   } = options;
   const existing = existingAssertions ?? [];
   const basePrompt =
-    promptOverride ??
-    buildExtractionPrompt(document, existing, episode, namespace, citationSources, imageSources);
+    promptOverride ?? buildExtractionPrompt(document, existing, episode, namespace, citationSources, imageSources);
   const extractOptions = {
     episodeId: episode.id,
     responseFormat: 'json' as const,
@@ -351,9 +350,7 @@ function degradeCitations(parsed: ExtractionResult, ctx: DegradeContext): Extrac
     }
     if (kept.length === 0) {
       droppedAssertions += 1;
-      ctx.logger?.warn(
-        `dropped assertion "${a.id}" for episode "${ctx.episode.id}": no citations could be salvaged`,
-      );
+      ctx.logger?.warn(`dropped assertion "${a.id}" for episode "${ctx.episode.id}": no citations could be salvaged`);
       continue;
     }
     assertions.push({ ...a, citations: kept });
