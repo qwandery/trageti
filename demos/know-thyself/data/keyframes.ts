@@ -12,16 +12,10 @@ export interface Keyframe {
 }
 
 export const defaultKeyframes: readonly string[] = [
-  'fac4ada',
-  '5695df6',
-  '24dc5e7',
-  'bd973d5',
-  '1924f45',
-  'b73f7c6',
-  '8350531',
-  'cfeb3ac',
-  '608f13e',
-  'ba34a58',
+  'v0.1.0-alpha.0',
+  'v0.2.0-alpha.0',
+  'v0.3.0-alpha.0',
+  'v0.3.0-alpha.2'
 ];
 
 // export const keyframes: readonly Keyframe[] = [
