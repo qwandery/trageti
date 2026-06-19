@@ -155,7 +155,9 @@ async function retrieveBigBrother(
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
     return;
   }
 
@@ -168,11 +170,13 @@ async function retrieveBigBrother(
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
   }
 
   context.logger.step('Assembling context and generating activity narrative');
-  printNarrative(await generateNarrative(store, providers.extractor, metadata.latestPosition));
+  printNarrative(await generateNarrative(store, providers.extractor, metadata.latestPosition, context.logger));
 }
 
 function emptyWarmupArtifact(): PreparedDemoArtifact {

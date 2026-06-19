@@ -23,6 +23,10 @@ export interface SynthesisResult {
   context: SynthesisContextMeta;
 }
 
+export interface SynthesisWarnLogger {
+  warn(message: string): void;
+}
+
 export interface GenerateAssembledAnswerOptions {
   store: Pick<TragetiStore, 'assembleContext'>;
   extractor: ExtractionProvider;
@@ -30,6 +34,7 @@ export interface GenerateAssembledAnswerOptions {
   annotation: string;
   tokenBudget?: number;
   live?: boolean;
+  logger?: SynthesisWarnLogger;
 }
 
 export interface GenerateNarrativeSynthesisOptions {
@@ -43,19 +48,21 @@ export interface GenerateNarrativeSynthesisOptions {
   live?: boolean;
   liveInstruction: string;
   fixtureText?: string;
+  logger?: SynthesisWarnLogger;
 }
 
 export async function generateAssembledAnswer(options: GenerateAssembledAnswerOptions): Promise<SynthesisResult> {
   const ctx = await options.store.assembleContext(contextOptionsFromQuery(options.query, options.tokenBudget));
   const live = shouldUseLiveExtractor(options.extractor, options.live);
   if (live) {
-    return {
-      text: await options.extractor.extract(answerPrompt(options.annotation, options.query, ctx), {
-        responseFormat: 'text',
-      }),
-      mode: 'live',
-      context: contextMeta(ctx),
-    };
+    const text = await liveSynthesisOrNull(
+      options.extractor,
+      answerPrompt(options.annotation, options.query, ctx),
+      'assembled answer',
+      options.logger,
+    );
+    if (text !== null) return { text, mode: 'live', context: contextMeta(ctx) };
+    options.logger?.warn('falling back to template synthesis for assembled answer');
   }
   return {
     text: templateAnswer(options.query, ctx),
@@ -74,17 +81,51 @@ export async function generateNarrativeSynthesis(options: GenerateNarrativeSynth
   });
   const live = shouldUseLiveExtractor(options.extractor, options.live);
   if (live) {
-    return {
-      text: await options.extractor.extract(narrativePrompt(options.liveInstruction, ctx), { responseFormat: 'text' }),
-      mode: 'live',
-      context: contextMeta(ctx),
-    };
+    const text = await liveSynthesisOrNull(
+      options.extractor,
+      narrativePrompt(options.liveInstruction, ctx),
+      'narrative synthesis',
+      options.logger,
+    );
+    if (text !== null) return { text, mode: 'live', context: contextMeta(ctx) };
+    options.logger?.warn('falling back to template synthesis for narrative synthesis');
   }
   return {
     text: options.fixtureText ?? templateAnswer({ queryText: options.queryText }, ctx),
     mode: 'template',
     context: contextMeta(ctx),
   };
+}
+
+const SYNTHESIS_MAX_ATTEMPTS = 2;
+
+/**
+ * Run a live synthesis extraction, re-attempting on empty or failed output.
+ * Returns null when every attempt fails so the caller can fall back to the
+ * deterministic template path instead of surfacing an empty answer.
+ */
+async function liveSynthesisOrNull(
+  extractor: ExtractionProvider,
+  prompt: string,
+  label: string,
+  logger?: SynthesisWarnLogger,
+): Promise<string | null> {
+  for (let attempt = 1; attempt <= SYNTHESIS_MAX_ATTEMPTS; attempt++) {
+    try {
+      const text = (await extractor.extract(prompt, { responseFormat: 'text' })).trim();
+      if (text.length > 0) return text;
+      logger?.warn(
+        `${label} attempt ${String(attempt)}/${String(SYNTHESIS_MAX_ATTEMPTS)} returned empty output`,
+      );
+    } catch (err) {
+      logger?.warn(
+        `${label} attempt ${String(attempt)}/${String(SYNTHESIS_MAX_ATTEMPTS)} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+  return null;
 }
 
 function contextOptionsFromQuery(query: RetrievalQuery, tokenBudget?: number): ContextAssemblyOptions {

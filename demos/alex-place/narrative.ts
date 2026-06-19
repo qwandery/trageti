@@ -5,7 +5,7 @@
 
 import type { TragetiStore } from 'trageti';
 import type { ExtractionProvider } from '../shared/providers.js';
-import { generateNarrativeSynthesis } from '../shared/synthesis.js';
+import { generateNarrativeSynthesis, type SynthesisWarnLogger } from '../shared/synthesis.js';
 import { NAMESPACE } from './data/episodes.js';
 
 const PRE_WRITTEN =
@@ -18,7 +18,11 @@ const PRE_WRITTEN =
   "feedback, Mrs. Park's kimchi advice, knife-practice notes, and the gluten-free dinner show " +
   'Alex turning constraints and scattered observations into repeatable technique without treating every question as solved.';
 
-export async function generateNarrative(store: TragetiStore, extractor: ExtractionProvider): Promise<string> {
+export async function generateNarrative(
+  store: TragetiStore,
+  extractor: ExtractionProvider,
+  logger?: SynthesisWarnLogger,
+): Promise<string> {
   const result = await generateNarrativeSynthesis({
     store,
     extractor,
@@ -28,6 +32,7 @@ export async function generateNarrative(store: TragetiStore, extractor: Extracti
     liveInstruction:
       "Below is a context window summarising the current state of a home cook's culinary journal. Write a single grounded paragraph (3-5 sentences) synthesising what the stored context supports right now. Do not invent family backstory, emotional history, memories, trauma, mastery, or conclusions that are not directly supported by the context.",
     fixtureText: PRE_WRITTEN,
+    ...(logger ? { logger } : {}),
   });
   return result.text;
 }

@@ -159,7 +159,9 @@ async function retrieveAlexPlace(
       order: 'temporal',
       relevance: { maxResults: 14 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
     return;
   }
 
@@ -172,7 +174,9 @@ async function retrieveAlexPlace(
       order: 'temporal',
       relevance: { maxResults: 14 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
   }
 
   context.logger.step('Running graph-expanded literature query');
@@ -189,6 +193,7 @@ async function retrieveAlexPlace(
       extractor: providers.extractor,
       annotation: literatureSemanticQuery.annotation,
       query: literatureSemanticQuery.query,
+      logger: context.logger,
     }),
   );
 
@@ -206,6 +211,7 @@ async function retrieveAlexPlace(
       extractor: providers.extractor,
       annotation: dadSemanticQuery.annotation,
       query: dadSemanticQuery.query,
+      logger: context.logger,
     }),
   );
 
@@ -225,7 +231,7 @@ async function retrieveAlexPlace(
   }
 
   context.logger.step('Assembling context and generating narrative');
-  printNarrative(await generateNarrative(store, providers.extractor));
+  printNarrative(await generateNarrative(store, providers.extractor, context.logger));
 }
 
 function firstEntityId(results: readonly RetrievedAssertion[], preferredEntityId?: string): string | null {

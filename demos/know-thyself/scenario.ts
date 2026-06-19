@@ -178,7 +178,9 @@ async function retrieveKnowThyself(
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
     return;
   }
 
@@ -191,7 +193,9 @@ async function retrieveKnowThyself(
       order: 'temporal',
       relevance: { maxResults: 10 },
     });
-    printAssembledAnswer(await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query }));
+    printAssembledAnswer(
+      await generateAssembledAnswer({ store, extractor: providers.extractor, annotation, query, logger: context.logger }),
+    );
   }
 
   context.logger.step('Running temporal snapshot query');
@@ -200,7 +204,7 @@ async function retrieveKnowThyself(
   printSnapshot(`Query ${snapshotAtInitial.annotation}`, snapshot, { timeline });
 
   context.logger.step('Assembling context and generating narrative');
-  printNarrative(await generateNarrative(store, providers.extractor, metadata.latestPosition));
+  printNarrative(await generateNarrative(store, providers.extractor, metadata.latestPosition, context.logger));
 }
 
 function knowMetadata(artifact: PreparedDemoArtifact): KnowArtifactMetadata {
