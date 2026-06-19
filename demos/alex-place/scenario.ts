@@ -65,8 +65,8 @@ export const alexPlaceScenario: DemoScenario = {
     if (cli.query) assertCustomQuerySupported(providers.embedder);
     return providers;
   },
-  databasePath() {
-    return runtimeDbPath('alex-place');
+  databasePath(_context, artifact, providers) {
+    return runtimeDbPath(`alex-place/${alexRunHash(artifact, providers)}`);
   },
   expectedFixtureAssertionIds(_artifact, providers) {
     return providers.extractor.provenance.kind === 'fixture' ? expectedFixtureAssertionIds(fixtures) : undefined;
@@ -131,6 +131,20 @@ function alexPreparedDataVersion(units: readonly PreparedIngestionUnit[]): strin
         assertionEmbeddings,
         queryEmbeddings,
         queryTexts: QUERY_TEXTS,
+      }),
+    )
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function alexRunHash(artifact: PreparedDemoArtifact, providers: ResolvedDemoProviders): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        dataVersion: artifact.dataVersion,
+        extraction: providers.provenance.extraction,
+        embedding: providers.provenance.embedding,
+        queryTexts: (artifact.metadata as { queryTexts?: unknown }).queryTexts,
       }),
     )
     .digest('hex')

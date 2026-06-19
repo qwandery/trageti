@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Assertion, NewEpisodeInput } from 'trageti';
 import { RawVectorProvider } from 'trageti';
@@ -30,6 +30,7 @@ import {
   type DemoProviderSelection,
 } from '../shared/cli.js';
 import { defaultKeyframes } from './data/keyframes.js';
+import { atomicWriteJson, readJsonOrNull } from '../shared/state.js';
 
 export const NAMESPACE = 'repository-history';
 export const EMBEDDING_DIMENSION = 768;
@@ -348,21 +349,28 @@ export function createCachedLiveSummarizer(options: {
       if (context) context.cacheHit = false;
       // Never cache a degraded summary: a transient failure must not poison
       // future runs that could succeed live.
-      if (!outcome.degraded) writeFileSync(path, JSON.stringify({ summary: outcome.text }, null, 2));
+      if (!outcome.degraded) atomicWriteJson(path, { summary: outcome.text });
       return outcome.text;
     },
   };
 }
 
 function readCachedSummary(path: string, logger?: { warn(message: string): void }): string | null {
-  try {
-    const cached = JSON.parse(readFileSync(path, 'utf8')) as { summary?: unknown };
-    if (typeof cached.summary === 'string' && cached.summary.trim().length > 0) return cached.summary;
-    return null;
-  } catch (err) {
-    logger?.warn(`ignoring corrupt source-summary cache ${path}: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+  const cached = readJsonOrNull(path, validateCachedSummary);
+  if (cached === null) logger?.warn(`ignoring corrupt source-summary cache ${path}`);
+  return cached?.summary ?? null;
+}
+
+function validateCachedSummary(value: unknown, path: string): { summary: string } {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    typeof (value as { summary?: unknown }).summary !== 'string' ||
+    (value as { summary: string }).summary.trim().length === 0
+  ) {
+    throw new Error(`${path} is not a valid source-summary cache entry`);
   }
+  return { summary: (value as { summary: string }).summary };
 }
 
 export async function deriveHistoryData(options: {

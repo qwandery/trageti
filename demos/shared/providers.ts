@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { EmbeddingProvider, EmbedOptions } from 'trageti';
 import { RawVectorProvider } from 'trageti';
 import type { DemoProviderCapability, DemoProviderSelection } from './cli.js';
 import { parseExtraction } from './parse.js';
+import { atomicWriteJson, readJsonOrNull } from './state.js';
 
 export type ProviderKind = 'fixture' | 'anthropic' | 'openai-compatible' | 'ollama-native';
 
@@ -1315,13 +1316,18 @@ function enforceProviderSession(
     return;
   }
   session.providers[capability] = { providerId, configHash };
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(session, null, 2));
+  atomicWriteJson(path, session);
 }
 
 function readProviderSession(path: string, sessionName: string): ProviderSessionFile {
-  if (!existsSync(path)) return { version: 1, scenario: sessionName, providers: {} };
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  return readJsonOrNull(path, (parsed) => validateProviderSession(parsed, path, sessionName)) ?? {
+    version: 1,
+    scenario: sessionName,
+    providers: {},
+  };
+}
+
+function validateProviderSession(parsed: unknown, path: string, sessionName: string): ProviderSessionFile {
   if (
     !isRecord(parsed) ||
     parsed['version'] !== 1 ||

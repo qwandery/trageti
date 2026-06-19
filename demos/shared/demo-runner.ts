@@ -8,7 +8,7 @@ import {
 } from './artifacts.js';
 import { createDemoLogger, createLlmTraceOptions, printBanner, printResolvedProviderSummary } from './output.js';
 import type { ResolvedDemoProviders } from './providers.js';
-import { ingestPreparedUnits, prepareDemoStore, type DemoRunLogger } from './runtime.js';
+import { ingestPreparedUnits, prepareDemoStore, validateDemoMetadata, type DemoRunLogger } from './runtime.js';
 import { warmupDemoProviders } from './cli.js';
 import type { ExtractionResult } from './ingest.js';
 import type { Assertion, NewEpisodeInput } from 'trageti';
@@ -184,6 +184,9 @@ async function ingestPhase(scenario: DemoScenario, context: DemoScenarioContext)
       logger: context.logger,
       trace: context.trace,
       artifactPath: context.artifactPath,
+      demoName: scenario.name,
+      dataVersion: artifact.dataVersion,
+      database,
       ...(expectedFixtureAssertionIds !== undefined ? { expectedFixtureAssertionIds } : {}),
       ...(sanitizeParsedExtractionResult ? { sanitizeParsedExtractionResult } : {}),
       ...(sanitizeExtractionResult ? { sanitizeExtractionResult } : {}),
@@ -211,6 +214,12 @@ async function retrievePhase(scenario: DemoScenario, context: DemoScenarioContex
     rateLimitSeconds: rateLimitFromArgv(context.argv),
   });
   if (context.argv.includes('--warmup')) await warmupDemoProviders({ providers, logger: context.logger });
+  validateDemoMetadata({
+    database,
+    demoName: scenario.name,
+    dataVersion: artifact.dataVersion,
+    providers,
+  });
   context.logger.step('Opening TragetiStore for retrieval');
   const store = await TragetiStore.create({
     database,

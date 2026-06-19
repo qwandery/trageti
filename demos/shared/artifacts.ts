@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { NewEpisodeInput } from 'trageti';
+import { atomicWriteJson, readJsonStrict } from './state.js';
 
 export const PREPARED_ARTIFACT_VERSION = 1;
 
@@ -33,13 +33,11 @@ export function preparedArtifactPath(scenario: string): string {
 }
 
 export function writePreparedArtifact(path: string, artifact: PreparedDemoArtifact): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(artifact, null, 2));
+  atomicWriteJson(path, validatePreparedArtifact(artifact, path));
 }
 
 export function readPreparedArtifact(path: string): PreparedDemoArtifact {
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  return validatePreparedArtifact(parsed, path);
+  return readJsonStrict(path, validatePreparedArtifact);
 }
 
 export function validatePreparedArtifact(value: unknown, path = 'prepared artifact'): PreparedDemoArtifact {

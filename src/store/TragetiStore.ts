@@ -17,6 +17,8 @@ import type {
   AssertionCitation,
   NewAssertionInput,
   NewEpisodeInput,
+  NewEpisodeBundleInput,
+  EpisodeBundleWriteResult,
   NewAssertionLinkInput,
   NormalizedNewAssertion,
   NewLateCitation,
@@ -135,6 +137,11 @@ function validateEpisodeInput(episode: NewEpisodeInput): void {
  */
 function validateLinkInput(link: NewAssertionLinkInput): void {
   const errors: string[] = [];
+  validateLinkFields(link, errors);
+  if (errors.length > 0) throw new ValidationError(errors, 'Link');
+}
+
+function validateLinkFields(link: NewAssertionLinkInput, errors: string[]): void {
   if (!isNonEmptyString(link.id)) errors.push('link.id is required');
   if (!isNonEmptyString(link.fromId)) errors.push('link.fromId is required');
   if (!isNonEmptyString(link.toId)) errors.push('link.toId is required');
@@ -145,7 +152,6 @@ function validateLinkInput(link: NewAssertionLinkInput): void {
     errors.push(`link.validUntil must be null or a finite number, got ${String(link.validUntil)}`);
   if (link.validUntil !== null && Number.isFinite(link.validUntil) && link.validUntil <= link.validFrom)
     errors.push('link.validUntil must be greater than link.validFrom');
-  if (errors.length > 0) throw new ValidationError(errors, 'Link');
 }
 
 export class TragetiStore {
@@ -352,6 +358,78 @@ export class TragetiStore {
       }
     }
     return this.episodeRepo.insert(episode);
+  }
+
+  async writeEpisodeBundle(input: NewEpisodeBundleInput): Promise<EpisodeBundleWriteResult> {
+    this.requireNamespaceInit(input.episode.namespace);
+    validateEpisodeInput(input.episode);
+    const assertions = input.assertions.map((assertion) => this.normalizeAssertionInput(assertion));
+    const links = input.links ?? [];
+
+    const assertionIds = new Set<string>();
+    const citationIds = new Set<string>();
+    const errors: string[] = [];
+    for (const assertion of assertions) {
+      if (assertion.namespace !== input.episode.namespace) {
+        errors.push(`assertion "${assertion.id}" namespace must match episode namespace "${input.episode.namespace}"`);
+      }
+      if (assertion.sourceEpisodeId !== input.episode.id) {
+        errors.push(`assertion "${assertion.id}" sourceEpisodeId must be "${input.episode.id}"`);
+      }
+      if (assertionIds.has(assertion.id)) errors.push(`duplicate assertion id "${assertion.id}" in episode bundle`);
+      assertionIds.add(assertion.id);
+      for (const citation of assertion.citations) {
+        if (citationIds.has(citation.id)) errors.push(`duplicate citation id "${citation.id}" in episode bundle`);
+        citationIds.add(citation.id);
+      }
+      this.enforceStructuralInvariants(assertion, {
+        inFlightEpisodeIds: new Set([input.episode.id]),
+        collectErrors: errors,
+      });
+      this.enforceCitationExcerptPolicy(assertion);
+    }
+
+    const linkIds = new Set<string>();
+    for (const link of links) {
+      if (linkIds.has(link.id)) errors.push(`duplicate link id "${link.id}" in episode bundle`);
+      linkIds.add(link.id);
+      if (link.namespace !== input.episode.namespace) {
+        errors.push(`link "${link.id}" namespace must match episode namespace "${input.episode.namespace}"`);
+      }
+      if (link.sourceEpisodeId !== input.episode.id) {
+        errors.push(`link "${link.id}" sourceEpisodeId must be "${input.episode.id}"`);
+      }
+      validateLinkFields(link, errors);
+      for (const [endpoint, label] of [
+        [link.fromId, 'fromId'],
+        [link.toId, 'toId'],
+      ] as const) {
+        if (!assertionIds.has(endpoint) && !this.assertionRepo.getById(endpoint)) {
+          errors.push(`link.${label} "${endpoint}" does not reference an existing or bundled assertion`);
+        }
+      }
+    }
+
+    if (errors.length > 0) throw new ValidationError(errors, 'EpisodeBundle');
+
+    return this.db.transaction(() => {
+      const episode = this.episodeRepo.insert(input.episode);
+      const storedAssertions: Assertion[] = [];
+      for (const assertion of assertions) {
+        this.assertionRepo.insert(assertion);
+        const citations = this.citationRepo.insertMany(assertion.id, assertion.citations);
+        if (assertion.supersedesId !== null) {
+          this.assertionRepo.supersedeAssertion(assertion.supersedesId, assertion.validFrom);
+        }
+        const inserted = this.assertionRepo.getById(assertion.id);
+        if (!inserted) {
+          throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Assertion "${assertion.id}" not found after insert`);
+        }
+        storedAssertions.push({ ...inserted, citations });
+      }
+      const storedLinks = links.map((link) => this.linkRepo.insert(link));
+      return { episode, assertions: storedAssertions, links: storedLinks };
+    })();
   }
 
   async writeAssertion(input: NewAssertionInput): Promise<Assertion> {
@@ -992,6 +1070,25 @@ export class TragetiStore {
     return this.assertionRepo.getEntityTrajectory(namespace, entityId);
   }
 
+  async getLinksByIds(ids: readonly string[]): Promise<AssertionLink[]> {
+    this.requireInit();
+    return this.linkRepo.getByIds(ids);
+  }
+
+  async getMissingIndexing(namespace: string, assertionIds: readonly string[]): Promise<Array<{ id: string; content: string }>> {
+    this.requireNamespaceInit(namespace);
+    if (assertionIds.length === 0) return [];
+    const table = this.ensureVectorReadable(namespace);
+    const missingIds =
+      table === null ? [...assertionIds] : this.embeddingRepo.getMissingIndexingByIds(table, assertionIds);
+    if (missingIds.length === 0) return [];
+    const assertionsById = new Map(this.assertionRepo.getByIds(missingIds).map((assertion) => [assertion.id, assertion]));
+    return missingIds.flatMap((id) => {
+      const assertion = assertionsById.get(id);
+      return assertion ? [{ id, content: assertion.content }] : [];
+    });
+  }
+
   async getEpisode(id: string): Promise<Episode | null> {
     this.requireInit();
     return this.episodeRepo.getById(id);
@@ -1348,8 +1445,11 @@ export class TragetiStore {
    * Structural invariants (decision §2). These are enforced by TragetiStore
    * directly so that replacing the validators array cannot bypass them.
    */
-  private enforceStructuralInvariants(assertion: NormalizedNewAssertion): void {
-    const errors: string[] = [];
+  private enforceStructuralInvariants(
+    assertion: NormalizedNewAssertion,
+    options: { inFlightEpisodeIds?: ReadonlySet<string>; collectErrors?: string[] } = {},
+  ): void {
+    const errors = options.collectErrors ?? [];
 
     for (const [value, label] of [
       [assertion.id, 'id'],
@@ -1378,7 +1478,11 @@ export class TragetiStore {
     if (!Number.isFinite(assertion.confidence) || assertion.confidence < 0 || assertion.confidence > 1) {
       errors.push('confidence must be a number in [0.0, 1.0]');
     }
-    if (isNonEmptyString(assertion.sourceEpisodeId) && isNonEmptyString(assertion.namespace)) {
+    if (
+      isNonEmptyString(assertion.sourceEpisodeId) &&
+      isNonEmptyString(assertion.namespace) &&
+      !options.inFlightEpisodeIds?.has(assertion.sourceEpisodeId)
+    ) {
       const sourceEpisode = this.db
         .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
         .get(assertion.sourceEpisodeId, assertion.namespace);
@@ -1398,7 +1502,7 @@ export class TragetiStore {
         if (!isNonEmptyString(cit.sourceRef)) errors.push(`citation "${cit.id}" sourceRef is required`);
         if (!isNonEmptyString(cit.episodeId)) {
           errors.push(`citation "${cit.id}" episodeId is required`);
-        } else {
+        } else if (!options.inFlightEpisodeIds?.has(cit.episodeId)) {
           const ep = this.db
             .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
             .get(cit.episodeId, assertion.namespace);
@@ -1433,7 +1537,7 @@ export class TragetiStore {
       }
     }
 
-    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
+    if (options.collectErrors === undefined && errors.length > 0) throw new ValidationError(errors, 'Assertion');
   }
 
   /**

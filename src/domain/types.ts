@@ -148,6 +148,18 @@ export interface AssertionLink {
  * `AssertionLink.extensions`. */
 export type NewAssertionLinkInput = Omit<AssertionLink, 'createdAt' | 'extensions'>;
 
+export interface NewEpisodeBundleInput {
+  episode: NewEpisodeInput;
+  assertions: NewAssertionInput[];
+  links?: NewAssertionLinkInput[];
+}
+
+export interface EpisodeBundleWriteResult {
+  episode: Episode;
+  assertions: Assertion[];
+  links: AssertionLink[];
+}
+
 /** Link shape returned by graph adapters. The store hydrates public
  * `AssertionLink.extensions` for built-in repository-backed links, so custom
  * adapters may omit the extensions bag. */

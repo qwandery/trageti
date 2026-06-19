@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { quoteIdent } from '../../internal/sql-ident.js';
+import { buildCandidateJson } from '../candidates.js';
 
 export class EmbeddingRepository {
   private readonly db: Database;
@@ -105,5 +106,16 @@ export class EmbeddingRepository {
     `;
     const row = this.db.prepare<[string], { cnt: number }>(sql).get(namespace);
     return row?.cnt ?? 0;
+  }
+
+  getMissingIndexingByIds(tableName: string, assertionIds: readonly string[]): string[] {
+    if (assertionIds.length === 0) return [];
+    const sql = `
+      SELECT value AS id
+      FROM json_each(?)
+      LEFT JOIN ${quoteIdent(tableName)} e ON value = e.assertion_id
+      WHERE e.assertion_id IS NULL
+    `;
+    return this.db.prepare<[string], { id: string }>(sql).all(buildCandidateJson(assertionIds)).map((row) => row.id);
   }
 }

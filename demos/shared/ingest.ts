@@ -77,8 +77,23 @@ type CitationInput = NewAssertionInput['citations'][number];
 const DEFAULT_VALIDATION_ATTEMPTS = 1;
 
 export async function ingest(options: IngestOptions): Promise<ExtractionResult> {
+  const normalized = await extractIngestionResult(options);
+  if ('writeEpisodeBundle' in options.store && typeof options.store.writeEpisodeBundle === 'function') {
+    await options.store.writeEpisodeBundle({
+      episode: options.episode,
+      assertions: normalized.assertions,
+      links: normalized.links,
+    });
+  } else {
+    await options.store.writeEpisode(options.episode);
+    for (const assertion of normalized.assertions) await options.store.writeAssertion(assertion);
+    for (const link of normalized.links) await options.store.writeLink(link);
+  }
+  return normalized;
+}
+
+export async function extractIngestionResult(options: IngestOptions): Promise<ExtractionResult> {
   const {
-    store,
     episode,
     document,
     citationSources,
@@ -159,13 +174,6 @@ export async function ingest(options: IngestOptions): Promise<ExtractionResult> 
   }
 
   const normalized = normalizeExtractionResult(cited, namespace, episode);
-  await store.writeEpisode(episode);
-  for (const a of normalized.assertions) {
-    await store.writeAssertion(a);
-  }
-  for (const l of normalized.links) {
-    await store.writeLink(l);
-  }
   return normalized;
 }
 

@@ -10,6 +10,8 @@ export type {
   NewAssertion,
   NewAssertionInput,
   NewEpisodeInput,
+  NewEpisodeBundleInput,
+  EpisodeBundleWriteResult,
   NewAssertionLinkInput,
   NormalizedNewAssertion,
   NewAssertionCitation,

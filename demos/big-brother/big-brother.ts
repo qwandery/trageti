@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Assertion, NewEpisodeInput } from 'trageti';
 import { RawVectorProvider } from 'trageti';
@@ -32,6 +32,7 @@ import {
   type ProviderProvenance,
   type ResolvedDemoProviders,
 } from '../shared/providers.js';
+import { atomicWriteJson, hashFile, hashJson, readJsonOrNull } from '../shared/state.js';
 
 export const NAMESPACE = 'screen-activity';
 export const EMBEDDING_DIMENSION = 768;
@@ -72,6 +73,14 @@ export interface CaptureProgress {
   captureDone?(event: { index: number; total: number; path: string }): void;
   describeStart?(event: { id: string; path: string }): void;
   describeDone?(event: { id: string; path: string }): void;
+}
+
+interface BigBrotherPrepareManifest {
+  version: 1;
+  key: string;
+  captures: CaptureRecord[];
+  descriptions: Record<string, { imageHash: string; providerHash: string; text: string }>;
+  updatedAt: string;
 }
 
 const SYNTHETIC_DESCRIPTIONS: readonly string[] = [
@@ -180,11 +189,13 @@ export async function prepareBigBrotherArtifact(options: {
   }
 
   await confirmCapture(options.cli);
+  const manifest = loadPrepareManifest(options.cli, queryTexts);
   const captureOptions = {
     count: options.cli.captures,
     durationMinutes: options.cli.durationMinutes,
     outputDir: runtimeDir(),
     ...(options.progress !== undefined ? { progress: options.progress } : {}),
+    manifest,
   };
   const captures = await captureScreenshots(captureOptions);
   const vision = !options.cli.multimodal
@@ -199,7 +210,7 @@ export async function prepareBigBrotherArtifact(options: {
   if (vision) {
     for (const capture of captures) {
       options.progress?.describeStart?.({ id: capture.id, path: capture.path });
-      descriptions.push(await describeCapture(vision, capture));
+      descriptions.push(await describeCaptureWithCache(vision, capture, manifest));
       options.progress?.describeDone?.({ id: capture.id, path: capture.path });
     }
   }
@@ -355,6 +366,7 @@ async function captureScreenshots(options: {
   durationMinutes: number;
   outputDir: string;
   progress?: CaptureProgress;
+  manifest?: BigBrotherPrepareManifest;
 }): Promise<CaptureRecord[]> {
   mkdirSync(options.outputDir, { recursive: true });
   const screenshot = await import('screenshot-desktop');
@@ -362,16 +374,42 @@ async function captureScreenshots(options: {
   const intervalMs = options.count <= 1 ? 0 : (options.durationMinutes * 60_000) / (options.count - 1);
   const records: CaptureRecord[] = [];
   for (let i = 0; i < options.count; i++) {
+    const existing = options.manifest?.captures.find((record) => record.position === i + 1);
+    if (existing && existsSync(existing.path)) {
+      records.push(existing);
+      continue;
+    }
     if (i > 0 && intervalMs > 0) await sleep(intervalMs);
     const capturedAt = new Date().toISOString();
     const id = `screen-${String(i + 1).padStart(2, '0')}`;
     const path = join(options.outputDir, `${id}-${capturedAt.replace(/[:.]/g, '-')}.png`);
     options.progress?.captureStart?.({ index: i + 1, total: options.count, path });
     await capture({ filename: path });
-    records.push({ id, path, mimeType: 'image/png', capturedAt, position: i + 1 });
+    const record = { id, path, mimeType: 'image/png', capturedAt, position: i + 1 };
+    records.push(record);
+    if (options.manifest) {
+      options.manifest.captures = [...options.manifest.captures.filter((item) => item.position !== record.position), record]
+        .sort((a, b) => a.position - b.position);
+      writePrepareManifest(options.manifest);
+    }
     options.progress?.captureDone?.({ index: i + 1, total: options.count, path });
   }
   return records;
+}
+
+async function describeCaptureWithCache(
+  provider: ExtractionProvider,
+  capture: CaptureRecord,
+  manifest: BigBrotherPrepareManifest,
+): Promise<string> {
+  const imageHash = hashFile(capture.path);
+  const providerHash = provider.provenance.configHash;
+  const cached = manifest.descriptions[capture.id];
+  if (cached?.imageHash === imageHash && cached.providerHash === providerHash) return cached.text;
+  const text = await describeCapture(provider, capture);
+  manifest.descriptions[capture.id] = { imageHash, providerHash, text };
+  writePrepareManifest(manifest);
+  return text;
 }
 
 async function describeCapture(provider: ExtractionProvider, capture: CaptureRecord): Promise<string> {
@@ -549,6 +587,53 @@ function runtimeDir(): string {
   const dir = join('demos', '.local', 'big-brother');
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function loadPrepareManifest(cli: BigBrotherCliOptions, queryTexts: readonly string[]): BigBrotherPrepareManifest {
+  const key = hashJson({
+    version: 1,
+    captures: cli.captures,
+    durationMinutes: cli.durationMinutes,
+    multimodal: cli.multimodal,
+    providerSelection: cli.providerSelection,
+    queryTexts,
+  }).slice(0, 16);
+  const path = prepareManifestPath(key);
+  const existing = readJsonOrNull(path, validatePrepareManifest);
+  if (existing !== null) return existing;
+  const manifest: BigBrotherPrepareManifest = {
+    version: 1,
+    key,
+    captures: [],
+    descriptions: {},
+    updatedAt: new Date().toISOString(),
+  };
+  writePrepareManifest(manifest);
+  return manifest;
+}
+
+function writePrepareManifest(manifest: BigBrotherPrepareManifest): void {
+  manifest.updatedAt = new Date().toISOString();
+  atomicWriteJson(prepareManifestPath(manifest.key), manifest);
+}
+
+function prepareManifestPath(key: string): string {
+  return join(runtimeDir(), 'prepare-runs', key, 'manifest.json');
+}
+
+function validatePrepareManifest(value: unknown, path: string): BigBrotherPrepareManifest {
+  if (value === null || typeof value !== 'object') throw new Error(`${path} is not a manifest object`);
+  const row = value as Partial<BigBrotherPrepareManifest>;
+  if (row.version !== 1 || !row.key || !Array.isArray(row.captures)) {
+    throw new Error(`${path} is not a valid Big Brother prepare manifest`);
+  }
+  return {
+    version: 1,
+    key: row.key,
+    captures: row.captures,
+    descriptions: row.descriptions ?? {},
+    updatedAt: row.updatedAt ?? new Date().toISOString(),
+  };
 }
 
 function dataVersion(units: readonly PreparedIngestionUnit[], metadata: BigBrotherArtifactMetadata): string {
