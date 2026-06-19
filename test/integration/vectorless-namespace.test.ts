@@ -1,9 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
+import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import { IndexingError, ReferencedExtensionTableError, RetrievalInputError } from '../../src/errors/index.js';
 
 const NS = 'vectorless-ns';
+const tmpDirs: string[] = [];
+
+function tmpDbPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'trageti-vectorless-e2e-'));
+  tmpDirs.push(dir);
+  return join(dir, 'store.db');
+}
+
+afterEach(() => {
+  while (tmpDirs.length > 0) {
+    const dir = tmpDirs.pop();
+    if (!dir) continue;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* temp dir - safe to leak on Windows handle races */
+    }
+  }
+});
 
 describe('TragetiStore vectorless namespace state', () => {
   it('registers vectorless namespaces without creating vec0 tables', async () => {
@@ -66,6 +89,77 @@ describe('TragetiStore vectorless namespace state', () => {
     await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     expect((await store.getStats(NS)).vectorReady).toBe(true);
     expect((await store.getStats(NS)).indexedCount).toBe(1);
+  });
+
+  it('supports a file-backed vectorless-to-vector consumer journey across reopen and reindex', async () => {
+    const database = tmpDbPath();
+    const provider = new MockEmbeddingProvider({ dimension: 4 });
+    const vectorless = await TragetiStore.create({ database, namespace: 'vl-e2e' });
+    await vectorless.writeEpisode({
+      id: 'ep-1',
+      namespace: 'vl-e2e',
+      position: 1,
+      occurredAt: '2024-01-01T00:00:00Z',
+      type: 'document',
+      content: 'episode about searchable vectorless content',
+    });
+    await vectorless.writeAssertion({
+      id: 'a-1',
+      namespace: 'vl-e2e',
+      type: 'fact',
+      content: 'Vectorless content can be searched with BM25 first.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: 'e-1',
+      entityType: 'concept',
+      citations: [{ id: 'a-1:c0', episodeId: 'ep-1', sourceRef: 'chunk:1', excerpt: 'Vectorless content' }],
+    });
+
+    expect(
+      (
+        await vectorless.retrieve({
+          namespace: 'vl-e2e',
+          queryText: 'BM25',
+          retrievalStrategy: 'bm25',
+          temporalAnchor: 1,
+        })
+      ).results.map((result) => result.id),
+    ).toEqual(['a-1']);
+    expect(await vectorless.getPendingIndexing('vl-e2e')).toEqual([]);
+
+    await vectorless.upgradeNamespaceToVector('vl-e2e', { embeddingProvider: provider });
+    expect((await vectorless.getStats('vl-e2e')).embeddingDimension).toBe(4);
+    expect((await vectorless.getPendingIndexing('vl-e2e')).map((row) => row.id)).toEqual(['a-1']);
+
+    const indexed = await vectorless.indexBatch([{ assertionId: 'a-1' }]);
+    expect(indexed).toEqual({ indexed: 1, skipped: [] });
+    expect(await vectorless.getPendingIndexing('vl-e2e')).toEqual([]);
+    expect(
+      (
+        await vectorless.retrieve({
+          namespace: 'vl-e2e',
+          queryText: 'content',
+          retrievalStrategy: 'hybrid',
+          temporalAnchor: 1,
+        })
+      ).meta.vectorApplied,
+    ).toBe(true);
+    await vectorless.close();
+
+    const reopened = await TragetiStore.create({
+      database,
+      namespace: 'vl-e2e',
+      embeddingProvider: provider,
+    });
+    expect((await reopened.getStats('vl-e2e')).vectorReady).toBe(true);
+    expect(await reopened.getPendingIndexing('vl-e2e')).toEqual([]);
+    const reindexed = await reopened.reindexNamespace('vl-e2e');
+    expect(reindexed.reindexed).toBe(1);
+    expect((await reopened.getStats('vl-e2e')).indexedCount).toBe(1);
+    await reopened.close();
   });
 });
 

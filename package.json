@@ -39,6 +39,7 @@
     "test": "vitest run --passWithNoTests",
     "test:unit": "vitest run test/unit --passWithNoTests",
     "test:integration": "vitest run test/integration --passWithNoTests",
+    "test:e2e": "vitest run test/e2e --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "trageti-demo": "tsx demos/trageti-demo.ts",
