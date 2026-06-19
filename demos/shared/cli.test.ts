@@ -15,6 +15,7 @@ describe('parseDemoCliOptions', () => {
       query: 'Who taught Alex knife skills?',
       rateLimitSeconds: null,
       warmup: false,
+      providerSelection: {},
     });
   });
 
@@ -33,6 +34,7 @@ describe('parseDemoCliOptions', () => {
       query: 'How did retrieval improve?',
       rateLimitSeconds: 60,
       warmup: true,
+      providerSelection: {},
     });
   });
 
@@ -41,6 +43,25 @@ describe('parseDemoCliOptions', () => {
       query: null,
       rateLimitSeconds: 2.5,
       warmup: false,
+      providerSelection: {},
+    });
+  });
+
+  it('parses provider shortcut and typed provider overrides', () => {
+    expect(
+      parseDemoCliOptions([
+        'node',
+        'index.ts',
+        '--provider',
+        'openrouter-gpt-mini',
+        '--provider:embed=ollama-embed',
+        '--provider:vision',
+        'ollama',
+      ]).providerSelection,
+    ).toEqual({
+      provider: 'openrouter-gpt-mini',
+      embed: 'ollama-embed',
+      vision: 'ollama',
     });
   });
 
@@ -54,6 +75,14 @@ describe('parseDemoCliOptions', () => {
     expect(() => parseDemoCliOptions(['node', 'index.ts', '--limit'])).toThrow('--limit requires');
     expect(() => parseDemoCliOptions(['node', 'index.ts', '--limit=-1'])).toThrow('--limit requires');
     expect(() => parseDemoCliOptions(['node', 'index.ts', '--limit=nope'])).toThrow('--limit requires');
+  });
+
+  it('rejects invalid provider flag values', () => {
+    expect(() => parseDemoCliOptions(['node', 'index.ts', '--provider'])).toThrow('--provider requires');
+    expect(() => parseDemoCliOptions(['node', 'index.ts', '--provider=one,two'])).toThrow('one provider id');
+    expect(() =>
+      parseDemoCliOptions(['node', 'index.ts', '--provider:extract=openai', '--provider:extract=anthropic']),
+    ).toThrow('specified more than once');
   });
 });
 

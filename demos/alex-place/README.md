@@ -30,9 +30,15 @@ When using live providers, throttle calls with `--limit <seconds>`:
 npx tsx demos/alex-place/index.ts --limit 60
 ```
 
-With no provider env vars, the demo runs fully offline using committed fixtures,
-deterministic vectors, deterministic assembled-context query answers, and a
-pre-written final narrative synthesis.
+For a fully offline run, select the fixture provider:
+
+```sh
+npx tsx demos/alex-place/index.ts --provider fixture
+```
+
+Fixture mode uses committed extraction fixtures, deterministic vectors,
+deterministic assembled-context query answers, and a pre-written final narrative
+synthesis.
 
 Runtime databases are written to `demos/.local/`. Each DB records demo data and
 provider provenance. If you change extraction provider, embedding provider,
@@ -41,8 +47,18 @@ rerun.
 
 ## Provider Configuration
 
-The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
-configuration. Extraction and embedding are separate capabilities:
+Provider presets live in `demos/providers.json`; copy `.env.example` to `.env`
+for local secrets such as `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, and
+`ANTHROPIC_API_KEY`. Use `--provider <id>` to select one configured provider for
+every needed capability, or typed overrides when extraction and embedding differ:
+
+```sh
+npx tsx demos/alex-place/index.ts --provider openai
+npx tsx demos/alex-place/index.ts --provider:extract anthropic --provider:embed openai
+```
+
+Legacy `.env` overrides are still supported. Extraction and embedding are
+separate capabilities:
 
 | Variable                                        | Meaning                                                                 |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |
@@ -56,12 +72,11 @@ configuration. Extraction and embedding are separate capabilities:
 | `DEMO_EMBED_DIMENSION`                          | Embedding dimension; inferred from fixture vectors unless overridden    |
 | `DEMO_RATE_LIMIT`                               | Seconds between live provider requests; defaults to `5`                 |
 
-Configure explicit `DEMO_*` provider settings for live runs. `OLLAMA_HOST` can
-still supply the local Ollama base URL, but remote provider credentials should
-use the purpose-specific demo API key variables. The demo does not infer that
-any named service supports both extraction and embedding. Configure both
-capabilities for live runs. Live provider calls are serialized through the
-shared rate limiter and retry retryable HTTP failures.
+Configure explicit `DEMO_*` provider settings only when you need the legacy
+environment fallback. `OLLAMA_HOST` can still supply the local Ollama base URL,
+but remote provider credentials should use purpose-specific API key variables.
+Live provider calls are serialized through the shared rate limiter and retry
+retryable HTTP failures.
 
 To inspect model boundaries while running the demo, set
 `DEMO_LLM_TRACE=summary`. To print full prompts, raw streamed response frames,

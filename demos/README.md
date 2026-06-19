@@ -13,14 +13,16 @@ workflows.
 | `know-thyself` | Git-derived keyframe history for this repo or another repo | Ingestion, indexing, hybrid retrieval, trajectory-style evolution, score display, temporal snapshots, query answers, final narrative synthesis |
 | `big-brother`  | Desktop screenshots or synthetic screen fixtures           | Multimodal preparation, image-derived ingestion, activity retrieval, goal inference, query answers, final narrative synthesis                  |
 
-The demos share provider handling from `demos/shared/`. Extraction, vision, and
-embedding are configured independently:
+The demos share provider handling from `demos/shared/`. Provider presets live in
+`demos/providers.json`; `.env` supplies secrets through entries such as
+`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY`. Extraction,
+vision, and embedding are configured independently:
 
-| Capability | Providers                                       |
-| ---------- | ----------------------------------------------- |
-| Extraction | `fixture`, `anthropic`, `openai-compatible`     |
-| Vision     | `fixture`, `anthropic`, `openai-compatible`     |
-| Embedding  | `fixture`, `openai-compatible`, `ollama-native` |
+| Capability | Built-in provider ids                                             |
+| ---------- | ----------------------------------------------------------------- |
+| Extraction | `fixture`, `openrouter-gpt-mini`, `openai`, `anthropic`, `ollama` |
+| Vision     | `fixture`, `openrouter-gpt-mini`, `openai`, `anthropic`, `ollama` |
+| Embedding  | `fixture`, `openrouter-gpt-mini`, `openai`, `ollama-embed`        |
 
 The demos distinguish source documents from episodes. Source documents are the
 verbatim text that citations quote. Episodes are dated ingestion units and may
@@ -82,22 +84,23 @@ custom query.
 
 ## Offline mode
 
-With no provider environment variables, the demos run offline. Alex uses
-committed extraction fixtures and committed raw vectors. Know Thyself derives
-its default repo/keyframe source docs, extraction fixtures, and hash vectors at
-runtime. Big Brother uses committed synthetic screen fixtures, deterministic
-extraction fixtures, and hash vectors. Offline mode is deterministic, requires no API keys, and is suitable
-for smoke tests and quick orientation. It still writes a real SQLite database
-and exercises the normal `TragetiStore`, schema, ingestion, indexing, and
-retrieval paths. It is not intended to demonstrate real semantic embedding
-quality. Know Thyself custom repo/keyframe runs require live providers.
-
-If `.env` contains live provider settings, the demos use live mode. To force
-Know Thyself's default repo/keyframes through deterministic fixture mode:
+Use the `fixture` provider for offline deterministic runs:
 
 ```sh
-DEMO_EXTRACT_PROVIDER=fixture DEMO_EMBED_PROVIDER=fixture npx tsx demos/know-thyself/index.ts
+npm run trageti-demo -- alex-place run --provider fixture
+npm run trageti-demo -- know-thyself run --provider fixture
+npm run trageti-demo -- big-brother run --provider fixture
 ```
+
+Alex uses committed extraction fixtures and committed raw vectors. Know Thyself
+derives its default repo/keyframe source docs, extraction fixtures, and hash
+vectors at runtime. Big Brother uses committed synthetic screen fixtures,
+deterministic extraction fixtures, and hash vectors. Offline mode is
+deterministic, requires no API keys, and is suitable for smoke tests and quick
+orientation. It still writes a real SQLite database and exercises the normal
+`TragetiStore`, schema, ingestion, indexing, and retrieval paths. It is not
+intended to demonstrate real semantic embedding quality. Know Thyself custom
+repo/keyframe runs require live providers.
 
 ## Runtime databases
 
@@ -107,7 +110,10 @@ fixture/live mode. Know Thyself uses run-specific DB files under
 `demos/.local/know-thyself/<run-hash>.db`, so different repo/keyframe/provider
 inputs do not collide.
 Big Brother writes screenshots and run-specific DB files under
-`demos/.local/big-brother/`.
+`demos/.local/big-brother/`. Provider choices are locked per scenario under
+`demos/.local/provider-sessions/` the first time a capability is used. Reusing a
+scenario with a different provider for extraction, embedding, or vision exits
+immediately instead of mixing incompatible provider output.
 
 ```sh
 rm -f demos/.local/alex-place.db
@@ -117,11 +123,38 @@ rm -rf demos/.local/big-brother
 
 ## Provider configuration
 
-Copy `.env.example` to `.env` and configure extraction and embedding separately.
+Provider presets are configured in `demos/providers.json`. The top-level
+`default.provider` applies to any supported capability, and capability-specific
+defaults such as `default.embed.provider` override it. Provider-level settings
+propagate to capability blocks, and fields are consumed only by capabilities
+that use them. For example, provider-level `maxTokens` affects extraction and
+vision requests, while embedding ignores it.
+
+Use `--provider <id>` to choose one provider for every needed capability. Use
+typed overrides when extraction, embedding, and vision need different providers:
+
+```sh
+npm run trageti-demo -- alex-place run --provider openai
+npm run trageti-demo -- alex-place run --provider:extract anthropic --provider:embed openai
+npm run trageti-demo -- big-brother run --provider:vision openrouter-gpt-mini --provider:extract openai --provider:embed ollama-embed
+```
+
 Extraction produces structured assertions and links from source text. Embedding
 turns assertion/query text into fixed-length vectors for semantic retrieval.
 Vision produces detailed text descriptions from screenshots for Big Brother's
 default prepare flow.
+
+Keep real secrets out of `demos/providers.json`. Use `apiKeyEnv` in the JSON and
+put the corresponding secret in `.env`, for example:
+
+```sh
+OPENROUTER_API_KEY=sk-or-...
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The older `DEMO_EXTRACT_*`, `DEMO_EMBED_*`, and `DEMO_VISION_*` environment
+variables remain supported as a fallback and take precedence when present.
 
 Big Brother asks before live desktop capture unless `--capture` is supplied:
 
@@ -132,20 +165,20 @@ npm run trageti-demo -- big-brother run --capture --multimodal
 ```
 
 By default, Big Brother captures screenshots during `prepare`, describes each
-image with `DEMO_VISION_*`, and ingests those descriptions. With `--multimodal`,
+image with the configured vision provider, and ingests those descriptions. With `--multimodal`,
 `prepare` only captures the images and `ingest` sends the image files directly
-to the extraction model; configure `DEMO_EXTRACT_PROVIDER` with a model that
+to the extraction model; configure the extraction provider with a model that
 accepts image inputs. Operating systems may require screen-recording permission
 for the terminal or shell running the demo.
 
-`DEMO_EMBED_DIMENSION` must match the embedding model response size requested
-from the provider. For OpenAI `text-embedding-3-small`, `768` is valid when the
-request includes `dimensions: 768`, which the demo does. Local models such as
-Ollama or llama-server may use a different dimension; check the model card,
-server startup output, embedding endpoint metadata, or probe the embedding
-endpoint once and count the returned vector length. Do not guess this value:
-SQLite vector tables are created with a fixed dimension, and every inserted
-embedding must match it.
+The configured embedding dimension must match the embedding model response size
+requested from the provider. For OpenAI `text-embedding-3-small`, `768` is valid
+when the request includes `dimensions: 768`, which the default JSON presets do.
+Local models such as Ollama or llama-server may use a different dimension; check
+the model card, server startup output, embedding endpoint metadata, or probe the
+embedding endpoint once and count the returned vector length. Do not guess this
+value: SQLite vector tables are created with a fixed dimension, and every
+inserted embedding must match it.
 
 Live demo provider calls are serialized in-process at one request per 5 seconds
 by default, measured from completion of one live provider request to the start of
@@ -339,10 +372,11 @@ Each demo DB stores metadata for:
 - embedding dimension
 - fixture vs. live mode
 
-If the stored metadata does not match the current `.env` and committed demo
-data, the demo exits with guidance to delete the DB or use a different path.
-That is intentional: mixing embeddings or extracted assertions from different
-providers would make retrieval results misleading.
+If the stored metadata does not match the current provider config, selection,
+environment fallback, or committed demo data, the demo exits with guidance to
+delete the DB or use a different path. That is intentional: mixing embeddings or
+extracted assertions from different providers would make retrieval results
+misleading.
 
 Know Thyself also caches live-derived source summaries under
 `demos/.local/know-thyself/`, keyed by repo, commits, provider provenance, and
@@ -373,4 +407,5 @@ Full raw vectors are intentionally hidden because they dominate the log. Set
 
 - `demos/alex-place/README.md` explains the cooking-journal demo.
 - `demos/know-thyself/README.md` explains the self-history demo.
-- `.env.example` lists every supported provider variable.
+- `.env.example` lists supported secret variables and legacy provider fallback
+  variables.

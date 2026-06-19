@@ -59,6 +59,8 @@ export const alexPlaceScenario: DemoScenario = {
       queryTexts: QUERY_TEXTS,
       env: envWithDemoRateLimit(context.env, cli.rateLimitSeconds),
       trace: context.trace,
+      providerSelection: cli.providerSelection,
+      sessionName: 'alex-place',
     });
     if (cli.query) assertCustomQuerySupported(providers.embedder);
     return providers;

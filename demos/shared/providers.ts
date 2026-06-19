@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { EmbeddingProvider, EmbedOptions } from 'trageti';
 import { RawVectorProvider } from 'trageti';
+import type { DemoProviderCapability, DemoProviderSelection } from './cli.js';
 import { parseExtraction } from './parse.js';
 
 export type ProviderKind = 'fixture' | 'anthropic' | 'openai-compatible' | 'ollama-native';
@@ -130,17 +132,84 @@ export interface ResolveDemoProvidersOptions {
   embeddingDimension?: number;
   env?: NodeJS.ProcessEnv;
   trace?: LlmTraceOptions;
+  providerSelection?: DemoProviderSelection;
+  sessionName?: string;
 }
 
 export interface ResolveLiveProvidersOptions {
   embeddingDimension?: number;
   env?: NodeJS.ProcessEnv;
   trace?: LlmTraceOptions;
+  providerSelection?: DemoProviderSelection;
+  sessionName?: string;
 }
 
 export interface ResolveVisionProviderOptions {
   env?: NodeJS.ProcessEnv;
   trace?: LlmTraceOptions;
+  providerSelection?: DemoProviderSelection;
+  sessionName?: string;
+}
+
+interface DemoProvidersConfig {
+  version: 1;
+  runtimeDefaults: DemoProviderSettings;
+  default?: DemoProviderDefault;
+  providers: DemoProviderConfig[];
+}
+
+interface DemoProviderDefault {
+  provider?: string;
+  extract?: { provider?: string };
+  embed?: { provider?: string };
+  vision?: { provider?: string };
+}
+
+interface DemoProviderConfig extends DemoProviderSettings {
+  id: string;
+  label: string;
+  kind: ProviderKind;
+  supports: DemoProviderCapability[];
+  extract?: DemoProviderSettings;
+  embed?: DemoProviderSettings;
+  vision?: DemoProviderSettings;
+}
+
+interface DemoProviderSettings {
+  kind?: ProviderKind;
+  baseUrl?: string;
+  host?: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  model?: string;
+  maxTokens?: number;
+  dimensions?: number;
+  dimension?: number;
+  responseFormat?: string | Record<string, unknown> | null;
+  streamJson?: boolean;
+  extraBody?: Record<string, unknown>;
+  rateLimitSeconds?: number;
+  maxAttempts?: number;
+  contentlessMaxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  timeoutMs?: number;
+}
+
+interface ResolvedProviderConfig {
+  provider: DemoProviderConfig;
+  settings: DemoProviderSettings;
+}
+
+interface ProviderSessionFile {
+  version: 1;
+  scenario: string;
+  providers: Partial<Record<DemoProviderCapability, ProviderSessionEntry>>;
+}
+
+interface ProviderSessionEntry {
+  providerId: string;
+  configHash: string;
 }
 
 export function createFixtureExtractionProvider(fixtures: Record<string, string>): ExtractionProvider {
@@ -526,6 +595,10 @@ export function createOllamaNativeEmbeddingProvider(options: {
 
 export function resolveDemoProviders(options: ResolveDemoProvidersOptions): ResolvedDemoProviders {
   const env = options.env ?? process.env;
+  if (!hasLegacyDemoProviderHints(env)) {
+    const configured = resolveConfiguredDemoProviders(options);
+    if (configured) return configured;
+  }
   const retry = retryOptionsFromEnv(env, options.trace);
   const explicitExtract = env['DEMO_EXTRACT_PROVIDER'];
   const explicitEmbed = env['DEMO_EMBED_PROVIDER'];
@@ -567,6 +640,18 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
     extractor = traceExtractionProvider(extractor, options.trace);
     embedder = traceEmbeddingProvider(embedder, options.trace);
   }
+  enforceProviderSession(
+    options.sessionName,
+    'extract',
+    legacyProviderSessionId('extract', extractor),
+    extractor.provenance.configHash,
+  );
+  enforceProviderSession(
+    options.sessionName,
+    'embed',
+    legacyProviderSessionId('embed', embedder),
+    embedder.provenance.configHash,
+  );
 
   const isLive = extractor.provenance.kind !== 'fixture' || embedder.provenance.kind !== 'fixture';
   return {
@@ -579,19 +664,56 @@ export function resolveDemoProviders(options: ResolveDemoProvidersOptions): Reso
 }
 
 export function resolveLiveExtractionProvider(
-  envOrOptions: NodeJS.ProcessEnv | { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions } = process.env,
+  envOrOptions:
+    | NodeJS.ProcessEnv
+    | {
+        env?: NodeJS.ProcessEnv;
+        trace?: LlmTraceOptions;
+        providerSelection?: DemoProviderSelection;
+        sessionName?: string;
+      } = process.env,
 ): ExtractionProvider {
   const options = isLiveExtractionOptions(envOrOptions) ? envOrOptions : undefined;
   const env: NodeJS.ProcessEnv = options?.env ?? (options ? process.env : (envOrOptions as NodeJS.ProcessEnv));
   const trace = options?.trace;
+  if (!hasLegacyExtractionProviderHints(env)) {
+    const configured = resolveConfiguredExtractionProvider({
+      env,
+      trace,
+      providerSelection: options?.providerSelection,
+      sessionName: options?.sessionName,
+      liveOnly: true,
+      fixtures: {},
+    });
+    if (configured) return configured;
+  }
   const provider = env['DEMO_EXTRACT_PROVIDER'] ?? inferExtractionProvider(env, true);
   if (provider === 'fixture') throw new Error('A live extraction provider is required; set DEMO_EXTRACT_PROVIDER.');
-  const extractor = resolveExtractionProvider(provider, env, retryOptionsFromEnv(env, trace));
-  return trace?.enabled ? traceExtractionProvider(extractor, trace) : extractor;
+  let extractor = resolveExtractionProvider(provider, env, retryOptionsFromEnv(env, trace));
+  if (trace?.enabled) extractor = traceExtractionProvider(extractor, trace);
+  enforceProviderSession(
+    options?.sessionName,
+    'extract',
+    legacyProviderSessionId('extract', extractor),
+    extractor.provenance.configHash,
+  );
+  return extractor;
 }
 
 export function resolveVisionProvider(options: ResolveVisionProviderOptions = {}): ExtractionProvider {
   const env = options.env ?? process.env;
+  if (!hasLegacyVisionProviderHints(env)) {
+    const configured = resolveConfiguredExtractionProvider({
+      env,
+      trace: options.trace,
+      providerSelection: options.providerSelection,
+      sessionName: options.sessionName,
+      liveOnly: false,
+      fixtures: {},
+      capability: 'vision',
+    });
+    if (configured) return configured;
+  }
   const retry = retryOptionsFromEnv(env, options.trace);
   const provider = env['DEMO_VISION_PROVIDER'] ?? inferVisionProvider(env);
   let resolved: ExtractionProvider;
@@ -620,19 +742,48 @@ export function resolveVisionProvider(options: ResolveVisionProviderOptions = {}
   } else {
     throw new Error(`Unsupported DEMO_VISION_PROVIDER "${provider}". Use fixture, anthropic, or openai-compatible.`);
   }
-  return options.trace?.enabled ? traceExtractionProvider(resolved, options.trace) : resolved;
+  if (options.trace?.enabled) resolved = traceExtractionProvider(resolved, options.trace);
+  enforceProviderSession(
+    options.sessionName,
+    'vision',
+    legacyProviderSessionId('vision', resolved),
+    resolved.provenance.configHash,
+  );
+  return resolved;
 }
 
 export function resolveLiveEmbeddingProvider(options: ResolveLiveProvidersOptions): DemoEmbeddingProvider {
   const env = options.env ?? process.env;
+  if (!hasLegacyEmbeddingProviderHints(env)) {
+    const configured = resolveConfiguredEmbeddingProvider({
+      env,
+      trace: options.trace,
+      providerSelection: options.providerSelection,
+      sessionName: options.sessionName,
+      liveOnly: true,
+      embeddingDimension: options.embeddingDimension,
+      fixtures: {},
+      assertionEmbeddings: {},
+      queryEmbeddings: {},
+      queryTexts: [],
+    });
+    if (configured) return configured;
+  }
   const provider = env['DEMO_EMBED_PROVIDER'] ?? inferEmbeddingProvider(env, true);
   if (provider === 'fixture') throw new Error('A live embedding provider is required; set DEMO_EMBED_PROVIDER.');
   const embeddingDimension = options.embeddingDimension ?? embeddingDimensionFromEnv(env);
   if (embeddingDimension === null || embeddingDimension === undefined) {
     throw new Error('Live embedding provider resolution requires DEMO_EMBED_DIMENSION.');
   }
-  const embedder = resolveEmbeddingProvider(provider, env, embeddingDimension, retryOptionsFromEnv(env, options.trace));
-  return options.trace?.enabled ? traceEmbeddingProvider(embedder, options.trace) : embedder;
+  let embedder = resolveEmbeddingProvider(provider, env, embeddingDimension, retryOptionsFromEnv(env, options.trace));
+  if (options.trace?.enabled) embedder = traceEmbeddingProvider(embedder, options.trace);
+  enforceProviderSession(
+    options.sessionName,
+    'embed',
+    legacyProviderSessionId('embed', embedder),
+    embedder.provenance.configHash,
+  );
+  return embedder;
 }
 
 export function inferEmbeddingDimensionFromVectors(options: {
@@ -711,6 +862,518 @@ export function traceEmbeddingProvider(embedder: DemoEmbeddingProvider, trace: L
   };
 }
 
+export function hasConfiguredLiveDemoProvider(
+  capabilities: readonly DemoProviderCapability[],
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (hasLegacyDemoProviderHints(env)) return false;
+  const config = loadDemoProvidersConfig();
+  if (!config) return false;
+  return capabilities.some((capability) => {
+    const resolved = selectConfiguredProvider(config, capability, {}, false);
+    return resolved !== null && (resolved.settings.kind ?? resolved.provider.kind) !== 'fixture';
+  });
+}
+
+function resolveConfiguredDemoProviders(options: ResolveDemoProvidersOptions): ResolvedDemoProviders | null {
+  const config = loadDemoProvidersConfig();
+  if (!config) return null;
+  const env = options.env ?? process.env;
+  const extractor = resolveConfiguredExtractionProvider({
+    env,
+    trace: options.trace,
+    providerSelection: options.providerSelection,
+    sessionName: options.sessionName,
+    fixtures: options.fixtures,
+    liveOnly: false,
+    capability: 'extract',
+    config,
+  });
+  const embedder = resolveConfiguredEmbeddingProvider({
+    env,
+    trace: options.trace,
+    providerSelection: options.providerSelection,
+    sessionName: options.sessionName,
+    liveOnly: false,
+    embeddingDimension: options.embeddingDimension,
+    fixtures: options.fixtures,
+    assertionEmbeddings: options.assertionEmbeddings,
+    queryEmbeddings: options.queryEmbeddings,
+    queryTexts: options.queryTexts,
+    config,
+  });
+  if (!extractor || !embedder) return null;
+
+  if (extractor.provenance.kind !== 'fixture' && embedder.provenance.kind === 'fixture') {
+    throw new Error(
+      'Live extraction requires a live embedding provider.\n' +
+        'Select a configured embedding provider with --provider:embed, or use fixture extraction.',
+    );
+  }
+  const isLive = extractor.provenance.kind !== 'fixture' || embedder.provenance.kind !== 'fixture';
+  return {
+    modeLabel: isLive ? `live (${extractor.label} + ${embedder.label})` : 'fixture / raw-vector',
+    isLive,
+    extractor,
+    embedder,
+    provenance: { extraction: extractor.provenance, embedding: embedder.provenance },
+  };
+}
+
+function resolveConfiguredExtractionProvider(options: {
+  env: NodeJS.ProcessEnv;
+  trace?: LlmTraceOptions | undefined;
+  providerSelection?: DemoProviderSelection | undefined;
+  sessionName?: string | undefined;
+  fixtures: Record<string, string>;
+  liveOnly: boolean;
+  capability?: 'extract' | 'vision' | undefined;
+  config?: DemoProvidersConfig | undefined;
+}): ExtractionProvider | null {
+  const capability = options.capability ?? 'extract';
+  const config = options.config ?? loadDemoProvidersConfig();
+  if (!config) return null;
+  const selected = selectConfiguredProvider(config, capability, options.providerSelection, options.liveOnly);
+  if (!selected) return null;
+  const kind = selected.settings.kind ?? selected.provider.kind;
+  if (options.liveOnly && kind === 'fixture') {
+    throw new Error(
+      `A live ${capability} provider is required; configured provider "${selected.provider.id}" is fixture.`,
+    );
+  }
+  let resolved: ExtractionProvider;
+  if (kind === 'fixture') {
+    resolved = createFixtureExtractionProvider(options.fixtures);
+  } else if (kind === 'anthropic') {
+    resolved = createAnthropicExtractionProvider(
+      configuredApiKey(selected.settings, options.env, selected.provider.id),
+      configuredModel(selected.settings, 'claude-sonnet-4-20250514'),
+      retryOptionsFromConfig(config, selected.settings, options.env, options.trace),
+      configuredMaxTokens(selected.settings),
+    );
+  } else if (kind === 'openai-compatible') {
+    const extraBody = configuredExtraBody(selected.settings);
+    resolved = createOpenAICompatibleExtractionProvider({
+      baseUrl: configuredBaseUrl(selected.settings, selected.provider.id),
+      apiKey: configuredApiKey(selected.settings, options.env, selected.provider.id, 'sk-no-key'),
+      model: configuredModel(selected.settings, 'gpt-4o-mini'),
+      maxTokens: configuredMaxTokens(selected.settings),
+      label: capability === 'vision' ? `${selected.provider.label}:vision` : selected.provider.label,
+      responseFormat: capability === 'vision' ? null : configuredResponseFormat(selected.settings),
+      streamJson: capability === 'extract' && selected.settings.streamJson === true,
+      ...(extraBody ? { extraBody } : {}),
+      retry: retryOptionsFromConfig(config, selected.settings, options.env, options.trace),
+    });
+  } else {
+    throw new Error(`Configured provider "${selected.provider.id}" cannot provide ${capability}.`);
+  }
+  if (options.trace?.enabled) resolved = traceExtractionProvider(resolved, options.trace);
+  enforceProviderSession(options.sessionName, capability, selected.provider.id, resolved.provenance.configHash);
+  return resolved;
+}
+
+function resolveConfiguredEmbeddingProvider(options: {
+  env: NodeJS.ProcessEnv;
+  trace?: LlmTraceOptions | undefined;
+  providerSelection?: DemoProviderSelection | undefined;
+  sessionName?: string | undefined;
+  liveOnly: boolean;
+  embeddingDimension?: number | undefined;
+  fixtures: Record<string, string>;
+  assertionEmbeddings: Record<string, number[]>;
+  queryEmbeddings: Record<string, number[]>;
+  queryTexts: readonly string[];
+  config?: DemoProvidersConfig | undefined;
+}): DemoEmbeddingProvider | null {
+  const config = options.config ?? loadDemoProvidersConfig();
+  if (!config) return null;
+  const selected = selectConfiguredProvider(config, 'embed', options.providerSelection, options.liveOnly);
+  if (!selected) return null;
+  const kind = selected.settings.kind ?? selected.provider.kind;
+  const dimension = configuredEmbeddingDimension(selected.settings, options);
+  let embedder: DemoEmbeddingProvider;
+  if (kind === 'fixture') {
+    if (options.liveOnly) {
+      throw new Error(
+        `A live embedding provider is required; configured provider "${selected.provider.id}" is fixture.`,
+      );
+    }
+    embedder = createRawVectorEmbeddingProvider({
+      fixtures: options.fixtures,
+      assertionEmbeddings: options.assertionEmbeddings,
+      queryEmbeddings: options.queryEmbeddings,
+      queryTexts: options.queryTexts,
+      dimension,
+    });
+  } else if (kind === 'openai-compatible') {
+    const extraBody = configuredExtraBody(selected.settings);
+    embedder = createOpenAICompatibleEmbeddingProvider({
+      baseUrl: configuredBaseUrl(selected.settings, selected.provider.id),
+      apiKey: configuredApiKey(selected.settings, options.env, selected.provider.id, 'sk-no-key'),
+      model: configuredModel(selected.settings, 'text-embedding-3-small'),
+      dimension,
+      label: selected.provider.label,
+      ...(extraBody ? { extraBody } : {}),
+      retry: retryOptionsFromConfig(config, selected.settings, options.env, options.trace),
+    });
+  } else if (kind === 'ollama-native') {
+    embedder = createOllamaNativeEmbeddingProvider({
+      host:
+        selected.settings.host ??
+        selected.settings.baseUrl ??
+        configuredBaseUrl(selected.settings, selected.provider.id),
+      model: configuredModel(selected.settings, 'nomic-embed-text'),
+      dimension,
+      retry: retryOptionsFromConfig(config, selected.settings, options.env, options.trace),
+    });
+  } else {
+    throw new Error(`Configured provider "${selected.provider.id}" cannot provide embeddings.`);
+  }
+  if (options.trace?.enabled) embedder = traceEmbeddingProvider(embedder, options.trace);
+  enforceProviderSession(options.sessionName, 'embed', selected.provider.id, embedder.provenance.configHash);
+  return embedder;
+}
+
+function loadDemoProvidersConfig(): DemoProvidersConfig | null {
+  const path = join('demos', 'providers.json');
+  if (!existsSync(path)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${path} is not valid JSON (${message})`);
+  }
+  return validateDemoProvidersConfig(parsed, path);
+}
+
+function validateDemoProvidersConfig(value: unknown, path: string): DemoProvidersConfig {
+  if (!isRecord(value)) throw new Error(`${path} must be a JSON object`);
+  if (value['version'] !== 1) throw new Error(`${path} must have version 1`);
+  const providers = value['providers'];
+  if (!Array.isArray(providers) || providers.length === 0) throw new Error(`${path} must define providers[]`);
+  const config: DemoProvidersConfig = {
+    version: 1,
+    runtimeDefaults: providerSettings(value['runtimeDefaults'], `${path}.runtimeDefaults`),
+    ...(value['default'] !== undefined ? { default: providerDefault(value['default'], `${path}.default`) } : {}),
+    providers: providers.map((provider, index) => providerConfig(provider, `${path}.providers[${String(index)}]`)),
+  };
+  const ids = new Set<string>();
+  for (const provider of config.providers) {
+    if (ids.has(provider.id)) throw new Error(`${path} contains duplicate provider id "${provider.id}"`);
+    ids.add(provider.id);
+  }
+  validateDefaultProviderRef(config, 'extract');
+  validateDefaultProviderRef(config, 'embed');
+  validateDefaultProviderRef(config, 'vision');
+  return config;
+}
+
+function providerConfig(value: unknown, path: string): DemoProviderConfig {
+  if (!isRecord(value)) throw new Error(`${path} must be a JSON object`);
+  const id = stringField(value, 'id', path);
+  const label = stringField(value, 'label', path);
+  const kind = providerKind(stringField(value, 'kind', path), `${path}.kind`);
+  const rawSupports = value['supports'];
+  if (!Array.isArray(rawSupports) || rawSupports.length === 0)
+    throw new Error(`${path}.supports must be a non-empty array`);
+  const supports = rawSupports.map((item, index) => providerCapability(item, `${path}.supports[${String(index)}]`));
+  const settings = providerSettings(value, path);
+  return {
+    ...settings,
+    id,
+    label,
+    kind,
+    supports: [...new Set(supports)],
+    ...(value['extract'] !== undefined ? { extract: providerSettings(value['extract'], `${path}.extract`) } : {}),
+    ...(value['embed'] !== undefined ? { embed: providerSettings(value['embed'], `${path}.embed`) } : {}),
+    ...(value['vision'] !== undefined ? { vision: providerSettings(value['vision'], `${path}.vision`) } : {}),
+  };
+}
+
+function providerSettings(value: unknown, path: string): DemoProviderSettings {
+  if (value === undefined) return {};
+  if (!isRecord(value)) throw new Error(`${path} must be a JSON object`);
+  const settings: DemoProviderSettings = {};
+  copyStringSetting(value, settings, 'baseUrl', path);
+  copyStringSetting(value, settings, 'host', path);
+  copyStringSetting(value, settings, 'apiKey', path);
+  copyStringSetting(value, settings, 'apiKeyEnv', path);
+  copyStringSetting(value, settings, 'model', path);
+  copyNumberSetting(value, settings, 'maxTokens', path);
+  copyNumberSetting(value, settings, 'dimensions', path);
+  copyNumberSetting(value, settings, 'dimension', path);
+  copyNumberSetting(value, settings, 'rateLimitSeconds', path);
+  copyNumberSetting(value, settings, 'maxAttempts', path);
+  copyNumberSetting(value, settings, 'contentlessMaxAttempts', path);
+  copyNumberSetting(value, settings, 'baseDelayMs', path);
+  copyNumberSetting(value, settings, 'maxDelayMs', path);
+  copyNumberSetting(value, settings, 'timeoutMs', path);
+  if (value['kind'] !== undefined) settings.kind = providerKind(value['kind'], `${path}.kind`);
+  if (value['streamJson'] !== undefined) {
+    if (typeof value['streamJson'] !== 'boolean') throw new Error(`${path}.streamJson must be boolean`);
+    settings.streamJson = value['streamJson'];
+  }
+  if (value['responseFormat'] !== undefined) {
+    const responseFormat = value['responseFormat'];
+    if (responseFormat !== null && typeof responseFormat !== 'string' && !isRecord(responseFormat)) {
+      throw new Error(`${path}.responseFormat must be a string, object, or null`);
+    }
+    settings.responseFormat = responseFormat;
+  }
+  if (value['extraBody'] !== undefined) {
+    if (!isRecord(value['extraBody'])) throw new Error(`${path}.extraBody must be a JSON object`);
+    settings.extraBody = value['extraBody'];
+  }
+  return settings;
+}
+
+function providerDefault(value: unknown, path: string): DemoProviderDefault {
+  if (!isRecord(value)) throw new Error(`${path} must be a JSON object`);
+  const result: DemoProviderDefault = {};
+  if (value['provider'] !== undefined) result.provider = stringValue(value['provider'], `${path}.provider`);
+  for (const capability of ['extract', 'embed', 'vision'] as const) {
+    if (value[capability] === undefined) continue;
+    if (!isRecord(value[capability])) throw new Error(`${path}.${capability} must be a JSON object`);
+    const provider = value[capability]['provider'];
+    if (provider !== undefined)
+      result[capability] = { provider: stringValue(provider, `${path}.${capability}.provider`) };
+  }
+  return result;
+}
+
+function selectConfiguredProvider(
+  config: DemoProvidersConfig,
+  capability: DemoProviderCapability,
+  selection: DemoProviderSelection | undefined,
+  liveOnly: boolean,
+): ResolvedProviderConfig | null {
+  const providerId =
+    selection?.[capability] ??
+    selection?.provider ??
+    config.default?.[capability]?.provider ??
+    (defaultProviderSupports(config, capability) ? config.default?.provider : undefined);
+  const provider =
+    providerId !== undefined
+      ? providerById(config, providerId, capability)
+      : config.providers.find(
+          (candidate) => candidate.supports.includes(capability) && (!liveOnly || candidate.kind !== 'fixture'),
+        );
+  if (!provider) return null;
+  if (liveOnly && provider.kind === 'fixture') {
+    const fallback =
+      providerId === undefined
+        ? config.providers.find((candidate) => candidate.supports.includes(capability) && candidate.kind !== 'fixture')
+        : undefined;
+    if (fallback) return { provider: fallback, settings: effectiveProviderSettings(fallback, capability) };
+  }
+  return { provider, settings: effectiveProviderSettings(provider, capability) };
+}
+
+function defaultProviderSupports(config: DemoProvidersConfig, capability: DemoProviderCapability): boolean {
+  const provider = config.default?.provider;
+  return (
+    provider !== undefined &&
+    config.providers.some((candidate) => candidate.id === provider && candidate.supports.includes(capability))
+  );
+}
+
+function providerById(
+  config: DemoProvidersConfig,
+  providerId: string,
+  capability: DemoProviderCapability,
+): DemoProviderConfig {
+  const provider = config.providers.find((candidate) => candidate.id === providerId);
+  if (!provider) throw new Error(`Configured provider "${providerId}" does not exist`);
+  if (!provider.supports.includes(capability))
+    throw new Error(`Configured provider "${providerId}" does not support ${capability}`);
+  return provider;
+}
+
+function effectiveProviderSettings(
+  provider: DemoProviderConfig,
+  capability: DemoProviderCapability,
+): DemoProviderSettings {
+  const {
+    extract: _extract,
+    embed: _embed,
+    vision: _vision,
+    supports: _supports,
+    id: _id,
+    label: _label,
+    ...base
+  } = provider;
+  return { ...base, ...(provider[capability] ?? {}) };
+}
+
+function validateDefaultProviderRef(config: DemoProvidersConfig, capability: DemoProviderCapability): void {
+  const providerId = config.default?.[capability]?.provider;
+  if (providerId !== undefined) providerById(config, providerId, capability);
+}
+
+function configuredApiKey(
+  settings: DemoProviderSettings,
+  env: NodeJS.ProcessEnv,
+  providerId: string,
+  fallback?: string,
+): string {
+  if (settings.apiKey !== undefined) return settings.apiKey;
+  if (settings.apiKeyEnv !== undefined) return required(env[settings.apiKeyEnv], settings.apiKeyEnv);
+  if (fallback !== undefined) return fallback;
+  throw new Error(`Missing required provider config for "${providerId}": apiKey or apiKeyEnv`);
+}
+
+function configuredBaseUrl(settings: DemoProviderSettings, providerId: string): string {
+  return required(settings.baseUrl ?? settings.host, `${providerId}.baseUrl`);
+}
+
+function configuredModel(settings: DemoProviderSettings, fallback: string): string {
+  return settings.model ?? fallback;
+}
+
+function configuredMaxTokens(settings: DemoProviderSettings): number {
+  return positiveIntNumber(settings.maxTokens, DEFAULT_EXTRACT_MAX_TOKENS, 'maxTokens');
+}
+
+function configuredExtraBody(settings: DemoProviderSettings): Record<string, unknown> | undefined {
+  return settings.extraBody;
+}
+
+function configuredResponseFormat(settings: DemoProviderSettings): OpenAICompatibleResponseFormat | null {
+  const raw = settings.responseFormat;
+  if (raw === null) return null;
+  if (typeof raw === 'object') return raw;
+  const preset = raw?.trim().toLowerCase();
+  if (preset === 'none' || preset === 'off' || preset === '0' || preset === 'false') return null;
+  if (preset === 'json_schema' || preset === 'schema' || preset === 'strict')
+    return extractionJsonSchemaResponseFormat();
+  if (preset === undefined || preset === '' || preset === 'json_object' || preset === 'json')
+    return { type: 'json_object' };
+  throw new Error(`Unsupported configured responseFormat "${raw}"`);
+}
+
+function configuredEmbeddingDimension(
+  settings: DemoProviderSettings,
+  options: {
+    embeddingDimension?: number | undefined;
+    assertionEmbeddings: Record<string, number[]>;
+    queryEmbeddings: Record<string, number[]>;
+    queryTexts: readonly string[];
+  },
+): number {
+  const dimension = settings.dimensions ?? settings.dimension ?? options.embeddingDimension;
+  if (dimension !== undefined) return positiveIntNumber(dimension, 0, 'dimensions');
+  return inferEmbeddingDimensionFromVectors(options);
+}
+
+function retryOptionsFromConfig(
+  config: DemoProvidersConfig,
+  settings: DemoProviderSettings,
+  env: NodeJS.ProcessEnv,
+  trace?: LlmTraceOptions,
+): ProviderRetryOptions {
+  const fallback = { ...config.runtimeDefaults, ...settings };
+  const options = retryOptionsFromEnv(env, trace);
+  if (!env['DEMO_PROVIDER_MAX_ATTEMPTS']) {
+    options.maxAttempts = positiveIntNumber(fallback.maxAttempts, 6, 'maxAttempts');
+  }
+  if (!env['DEMO_PROVIDER_CONTENTLESS_MAX_ATTEMPTS']) {
+    options.contentlessMaxAttempts = positiveIntNumber(fallback.contentlessMaxAttempts, 2, 'contentlessMaxAttempts');
+  }
+  if (!env['DEMO_PROVIDER_BASE_DELAY_MS']) {
+    options.baseDelayMs = positiveIntNumber(fallback.baseDelayMs, 1000, 'baseDelayMs');
+  }
+  if (!env['DEMO_PROVIDER_MAX_DELAY_MS']) {
+    options.maxDelayMs = positiveIntNumber(fallback.maxDelayMs, 30000, 'maxDelayMs');
+  }
+  if (!env['DEMO_PROVIDER_TIMEOUT_MS']) {
+    options.timeoutMs = positiveIntNumber(fallback.timeoutMs, 60000, 'timeoutMs');
+  }
+  if (!env['DEMO_RATE_LIMIT']) {
+    options.rateLimitMs = nonNegativeMsNumber(fallback.rateLimitSeconds, 5, 'rateLimitSeconds');
+  }
+  return options;
+}
+
+function enforceProviderSession(
+  sessionName: string | undefined,
+  capability: DemoProviderCapability,
+  providerId: string,
+  configHash: string,
+): void {
+  if (!sessionName) return;
+  const path = providerSessionPath(sessionName);
+  const session = readProviderSession(path, sessionName);
+  const existing = session.providers[capability];
+  if (existing !== undefined) {
+    if (existing.providerId !== providerId || existing.configHash !== configHash) {
+      throw new Error(
+        `Provider session mismatch for ${capability}: session "${sessionName}" already uses ${existing.providerId} ` +
+          `(${existing.configHash}); requested ${providerId} (${configHash}).`,
+      );
+    }
+    return;
+  }
+  session.providers[capability] = { providerId, configHash };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(session, null, 2));
+}
+
+function readProviderSession(path: string, sessionName: string): ProviderSessionFile {
+  if (!existsSync(path)) return { version: 1, scenario: sessionName, providers: {} };
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  if (
+    !isRecord(parsed) ||
+    parsed['version'] !== 1 ||
+    parsed['scenario'] !== sessionName ||
+    !isRecord(parsed['providers'])
+  ) {
+    throw new Error(`${path} is not a valid provider session file`);
+  }
+  const providers: Partial<Record<DemoProviderCapability, ProviderSessionEntry>> = {};
+  for (const capability of ['extract', 'embed', 'vision'] as const) {
+    const entry = parsed['providers'][capability];
+    if (entry === undefined) continue;
+    if (!isRecord(entry)) throw new Error(`${path} has invalid ${capability} provider session`);
+    providers[capability] = {
+      providerId: stringValue(entry['providerId'], `${path}.${capability}.providerId`),
+      configHash: stringValue(entry['configHash'], `${path}.${capability}.configHash`),
+    };
+  }
+  return { version: 1, scenario: sessionName, providers };
+}
+
+function providerSessionPath(sessionName: string): string {
+  return join('demos', '.local', 'provider-sessions', `${sessionName}.json`);
+}
+
+function legacyProviderSessionId(
+  capability: DemoProviderCapability,
+  provider: ExtractionProvider | DemoEmbeddingProvider,
+): string {
+  return `env:${capability}:${provider.provenance.kind}`;
+}
+
+function hasLegacyDemoProviderHints(env: NodeJS.ProcessEnv): boolean {
+  return (
+    hasLegacyExtractionProviderHints(env) || hasLegacyEmbeddingProviderHints(env) || hasLegacyVisionProviderHints(env)
+  );
+}
+
+function hasLegacyExtractionProviderHints(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env['DEMO_EXTRACT_PROVIDER'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['OLLAMA_HOST']);
+}
+
+function hasLegacyEmbeddingProviderHints(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env['DEMO_EMBED_PROVIDER'] ?? env['DEMO_EMBED_BASE_URL'] ?? env['OLLAMA_HOST']);
+}
+
+function hasLegacyVisionProviderHints(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(
+    env['DEMO_VISION_PROVIDER'] ?? env['DEMO_VISION_BASE_URL'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['OLLAMA_HOST'],
+  );
+}
+
 function inferExtractionProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean): string {
   if (!hasAnyLiveHint) return 'fixture';
   if (env['OLLAMA_HOST'] || env['DEMO_EXTRACT_BASE_URL']) {
@@ -720,8 +1383,20 @@ function inferExtractionProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean
 }
 
 function isLiveExtractionOptions(
-  value: NodeJS.ProcessEnv | { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions },
-): value is { env?: NodeJS.ProcessEnv; trace?: LlmTraceOptions } {
+  value:
+    | NodeJS.ProcessEnv
+    | {
+        env?: NodeJS.ProcessEnv;
+        trace?: LlmTraceOptions;
+        providerSelection?: DemoProviderSelection;
+        sessionName?: string;
+      },
+): value is {
+  env?: NodeJS.ProcessEnv;
+  trace?: LlmTraceOptions;
+  providerSelection?: DemoProviderSelection;
+  sessionName?: string;
+} {
   return Object.prototype.hasOwnProperty.call(value, 'env') || Object.prototype.hasOwnProperty.call(value, 'trace');
 }
 
@@ -1760,8 +2435,76 @@ function nonNegativeMs(rateLimitSeconds: string | undefined): number {
   return 5000;
 }
 
+function positiveIntNumber(value: number | undefined, fallback: number, label: string): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${label} must be a positive integer`);
+  return value;
+}
+
+function nonNegativeMsNumber(value: number | undefined, fallbackSeconds: number, label: string): number {
+  const seconds = value ?? fallbackSeconds;
+  if (!Number.isFinite(seconds) || seconds < 0) throw new Error(`${label} must be a non-negative number`);
+  return Math.round(seconds * 1000);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringField(value: Record<string, unknown>, key: string, path: string): string {
+  return stringValue(value[key], `${path}.${key}`);
+}
+
+function stringValue(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${path} must be a non-empty string`);
+  return value;
+}
+
+function copyStringSetting(
+  value: Record<string, unknown>,
+  settings: DemoProviderSettings,
+  key: 'baseUrl' | 'host' | 'apiKey' | 'apiKeyEnv' | 'model',
+  path: string,
+): void {
+  if (value[key] === undefined) return;
+  settings[key] = stringValue(value[key], `${path}.${key}`);
+}
+
+function copyNumberSetting(
+  value: Record<string, unknown>,
+  settings: DemoProviderSettings,
+  key:
+    | 'maxTokens'
+    | 'dimensions'
+    | 'dimension'
+    | 'rateLimitSeconds'
+    | 'maxAttempts'
+    | 'contentlessMaxAttempts'
+    | 'baseDelayMs'
+    | 'maxDelayMs'
+    | 'timeoutMs',
+  path: string,
+): void {
+  if (value[key] === undefined) return;
+  const raw = value[key];
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) throw new Error(`${path}.${key} must be a finite number`);
+  settings[key] = raw;
+}
+
+function providerKind(value: unknown, path: string): ProviderKind {
+  if (value === 'fixture' || value === 'anthropic' || value === 'openai-compatible' || value === 'ollama-native') {
+    return value;
+  }
+  throw new Error(`${path} must be fixture, anthropic, openai-compatible, or ollama-native`);
+}
+
+function providerCapability(value: unknown, path: string): DemoProviderCapability {
+  if (value === 'extract' || value === 'embed' || value === 'vision') return value;
+  throw new Error(`${path} must be extract, embed, or vision`);
 }
 
 function dataValue(value: unknown, path: Array<string | number>): unknown {

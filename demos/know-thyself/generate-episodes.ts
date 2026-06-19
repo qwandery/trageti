@@ -9,7 +9,7 @@ import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { createLlmTraceOptions } from '../shared/output.js';
-import { resolveLiveExtractionProvider } from '../shared/providers.js';
+import { hasConfiguredLiveDemoProvider, resolveLiveExtractionProvider } from '../shared/providers.js';
 import {
   createDeterministicSummarizer,
   createLiveSummarizer,
@@ -47,7 +47,10 @@ function reviewHash(repoPath: string, keyframes: readonly string[]): string {
 }
 
 function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env['DEMO_EXTRACT_PROVIDER'] ?? env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL']);
+  return (
+    Boolean(env['DEMO_EXTRACT_PROVIDER'] ?? env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL']) ||
+    hasConfiguredLiveDemoProvider(['extract'], env)
+  );
 }
 
 main().catch((err: unknown) => {

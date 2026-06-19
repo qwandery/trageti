@@ -1,3 +1,5 @@
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Episode, NewAssertionInput, NewAssertionLinkInput, NewEpisodeInput, TragetiStore } from 'trageti';
 import { ingest } from './ingest.js';
@@ -44,11 +46,15 @@ const fixture = JSON.stringify({
   ],
 });
 
+const PROVIDER_SESSION_TEST = 'provider-session-test';
+const PROVIDER_SESSION_TEST_PATH = join('demos', '.local', 'provider-sessions', `${PROVIDER_SESSION_TEST}.json`);
+
 describe('demo providers', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     resetDemoProviderRateLimitForTests();
+    rmSync(PROVIDER_SESSION_TEST_PATH, { force: true });
   });
 
   it('fixture extraction is keyed by episode id', async () => {
@@ -57,7 +63,7 @@ describe('demo providers', () => {
     await expect(provider.extract('', { episodeId: 'missing' })).rejects.toThrow('missing');
   });
 
-  it('defaults to fixture extraction and embedding with no live env', () => {
+  it('uses fixture extraction and embedding when fixture is selected', () => {
     const providers = resolveDemoProviders({
       fixtures: { ep: fixture },
       assertionEmbeddings: { 'a-1': [0, 1] },
@@ -65,10 +71,58 @@ describe('demo providers', () => {
       queryTexts: ['q'],
       embeddingDimension: 2,
       env: {},
+      providerSelection: { provider: 'fixture' },
     });
     expect(providers.isLive).toBe(false);
     expect(providers.extractor.provenance.kind).toBe('fixture');
     expect(providers.embedder.provenance.kind).toBe('fixture');
+  });
+
+  it('resolves providers.json defaults when no legacy provider env is supplied', () => {
+    const providers = resolveDemoProviders({
+      fixtures: { ep: fixture },
+      assertionEmbeddings: { 'a-1': [0, 1] },
+      queryEmbeddings: { q: [1, 0] },
+      queryTexts: ['q'],
+      embeddingDimension: 2,
+      env: { OPENROUTER_API_KEY: 'sk-test' },
+    });
+
+    expect(providers.isLive).toBe(true);
+    expect(providers.extractor.label).toBe('OpenRouter (GPT-4o-Mini)');
+    expect(providers.embedder.label).toBe('Ollama (Nomic Embedding)');
+    expect(providers.embedder.provider.dimension).toBe(1024);
+  });
+
+  it('records configured providers in the scenario session and rejects later mismatches', () => {
+    const providers = resolveDemoProviders({
+      fixtures: { ep: fixture },
+      assertionEmbeddings: { 'a-1': [0, 1] },
+      queryEmbeddings: { q: [1, 0] },
+      queryTexts: ['q'],
+      embeddingDimension: 2,
+      env: { OPENROUTER_API_KEY: 'sk-test' },
+      sessionName: PROVIDER_SESSION_TEST,
+    });
+    const session = JSON.parse(readFileSync(PROVIDER_SESSION_TEST_PATH, 'utf8')) as {
+      providers: { extract: { providerId: string }; embed: { providerId: string } };
+    };
+
+    expect(providers.extractor.label).toBe('OpenRouter (GPT-4o-Mini)');
+    expect(session.providers.extract.providerId).toBe('openrouter-gpt-mini');
+    expect(session.providers.embed.providerId).toBe('ollama-embed');
+    expect(() =>
+      resolveDemoProviders({
+        fixtures: { ep: fixture },
+        assertionEmbeddings: { 'a-1': [0, 1] },
+        queryEmbeddings: { q: [1, 0] },
+        queryTexts: ['q'],
+        embeddingDimension: 2,
+        env: { OPENAI_API_KEY: 'sk-test' },
+        providerSelection: { provider: 'openai' },
+        sessionName: PROVIDER_SESSION_TEST,
+      }),
+    ).toThrow('Provider session mismatch for extract');
   });
 
   it('maps extraction and embedding providers independently', () => {

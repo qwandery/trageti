@@ -37,17 +37,22 @@ When using live providers, throttle calls with `--limit <seconds>`:
 npx tsx demos/know-thyself/index.ts --limit 60
 ```
 
-With no provider env vars, the default run works offline. Fixture mode derives
-source summaries, extraction output, and hash vectors deterministically from the
-default repo/keyframes. Fixture mode is not supported when `--repo` or
-`--keyframes` is supplied; custom repo/keyframe runs require live extraction and
-live embedding providers.
-
-When live provider env vars are present, the no-arg run uses live mode. To force
-offline fixture mode in that environment:
+Select the fixture provider for an offline default run:
 
 ```sh
-DEMO_EXTRACT_PROVIDER=fixture DEMO_EMBED_PROVIDER=fixture npx tsx demos/know-thyself/index.ts
+npx tsx demos/know-thyself/index.ts --provider fixture
+```
+
+Fixture mode derives source summaries, extraction output, and hash vectors
+deterministically from the default repo/keyframes. Fixture mode is not supported
+when `--repo` or `--keyframes` is supplied; custom repo/keyframe runs require
+live extraction and live embedding providers.
+
+To force offline fixture mode while legacy live provider environment variables
+are present:
+
+```sh
+npx tsx demos/know-thyself/index.ts --provider fixture
 ```
 
 Runtime databases are written to `demos/.local/know-thyself/<run-hash>.db`.
@@ -60,8 +65,18 @@ can reuse completed summary work.
 
 ## Provider Configuration
 
-The demos load `.env` via `dotenv`; copy `.env.example` to `.env` for local
-configuration. Extraction and embedding are separate capabilities:
+Provider presets live in `demos/providers.json`; copy `.env.example` to `.env`
+for local secrets such as `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, and
+`ANTHROPIC_API_KEY`. Use `--provider <id>` to select one configured provider for
+every needed capability, or typed overrides when extraction and embedding differ:
+
+```sh
+npx tsx demos/know-thyself/index.ts --provider openai
+npx tsx demos/know-thyself/index.ts --provider:extract anthropic --provider:embed openai
+```
+
+Legacy `.env` overrides are still supported. Extraction and embedding are
+separate capabilities:
 
 | Variable                                                     | Meaning                                                                 |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
@@ -77,14 +92,12 @@ configuration. Extraction and embedding are separate capabilities:
 | `DEMO_PROVIDER_MAX_ATTEMPTS`                                 | Retry attempts for live HTTP provider calls                             |
 | `DEMO_PROVIDER_BASE_DELAY_MS` / `DEMO_PROVIDER_MAX_DELAY_MS` | Retry backoff bounds                                                    |
 
-Configure explicit `DEMO_*` provider settings for live custom repo/keyframe
-runs. `OLLAMA_HOST` can still supply the local Ollama base URL, but remote
-provider credentials should use the purpose-specific demo API key variables.
-The demo does not infer that any named service supports both extraction and
-embedding. Configure both capabilities for live custom repo/keyframe runs. Live
-provider calls are serialized through the shared rate limiter and retry `429`,
-`408`, and `5xx` responses with backoff. Waits are printed without exposing
-prompts or credentials.
+Configure explicit `DEMO_*` provider settings only when you need the legacy
+environment fallback. `OLLAMA_HOST` can still supply the local Ollama base URL,
+but remote provider credentials should use purpose-specific API key variables.
+Live provider calls are serialized through the shared rate limiter and retry
+`429`, `408`, and `5xx` responses with backoff. Waits are printed without
+exposing prompts or credentials.
 
 ## What It Shows
 

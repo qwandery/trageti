@@ -49,7 +49,7 @@ describe('big-brother demo', () => {
 
   it('creates an offline synthetic prepared artifact', async () => {
     const artifact = await prepareBigBrotherArtifact({
-      cli: parseBigBrotherCliOptions(['node', 'index.ts']),
+      cli: parseBigBrotherCliOptions(['node', 'index.ts', '--provider', 'fixture']),
       env: {},
       trace,
     });
@@ -62,12 +62,26 @@ describe('big-brother demo', () => {
 
   it('resolves synthetic fixture providers with query vectors', async () => {
     const artifact = await prepareBigBrotherArtifact({
-      cli: parseBigBrotherCliOptions(['node', 'index.ts', '--query', 'What should I do next?']),
+      cli: parseBigBrotherCliOptions([
+        'node',
+        'index.ts',
+        '--provider',
+        'fixture',
+        '--query',
+        'What should I do next?',
+      ]),
       env: {},
       trace,
     });
     const providers = resolveBigBrotherProviders({
-      cli: parseBigBrotherCliOptions(['node', 'index.ts', '--query', 'What should I do next?']),
+      cli: parseBigBrotherCliOptions([
+        'node',
+        'index.ts',
+        '--provider',
+        'fixture',
+        '--query',
+        'What should I do next?',
+      ]),
       artifact,
       env: {},
       trace,

@@ -10,11 +10,19 @@ import {
   type PreparedDemoArtifact,
   type PreparedIngestionUnit,
 } from '../shared/artifacts.js';
-import { envWithDemoRateLimit, isWarmupArg } from '../shared/cli.js';
+import {
+  envWithDemoRateLimit,
+  isWarmupArg,
+  parseProviderCliSelection,
+  providerCliArgLength,
+  selectsOnlyFixtureProviders,
+  type DemoProviderSelection,
+} from '../shared/cli.js';
 import { resolveCitationExcerpts, validateExtractionResult, type ExtractionResult } from '../shared/ingest.js';
 import { parseExtraction } from '../shared/parse.js';
 import {
   createFixtureExtractionProvider,
+  hasConfiguredLiveDemoProvider,
   inferEmbeddingDimensionFromVectors,
   resolveLiveEmbeddingProvider,
   resolveLiveExtractionProvider,
@@ -39,6 +47,7 @@ export interface BigBrotherCliOptions {
   captures: number;
   durationMinutes: number;
   multimodal: boolean;
+  providerSelection: DemoProviderSelection;
 }
 
 export interface BigBrotherArtifactMetadata {
@@ -78,10 +87,16 @@ export function parseBigBrotherCliOptions(argv = process.argv): BigBrotherCliOpt
   let captures = 10;
   let durationMinutes = 5;
   let multimodal = false;
+  const providerSelection = parseProviderCliSelection(argv);
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
+    const providerArg = providerCliArgLength(argv, i);
+    if (providerArg !== 0) {
+      i += providerArg - 1;
+      continue;
+    }
     if (isWarmupArg(arg)) {
       warmup = true;
       continue;
@@ -145,7 +160,7 @@ export function parseBigBrotherCliOptions(argv = process.argv): BigBrotherCliOpt
     );
   }
 
-  return { query, rateLimitSeconds, warmup, capture, captures, durationMinutes, multimodal };
+  return { query, rateLimitSeconds, warmup, capture, captures, durationMinutes, multimodal, providerSelection };
 }
 
 export async function prepareBigBrotherArtifact(options: {
@@ -157,7 +172,10 @@ export async function prepareBigBrotherArtifact(options: {
   const queryTexts = options.cli.query
     ? [...defaultQueryTexts(), NARRATIVE_QUERY_TEXT, options.cli.query]
     : [...defaultQueryTexts(), NARRATIVE_QUERY_TEXT];
-  if (!hasLiveProviderHints(options.env) && !options.cli.capture) {
+  if (
+    (selectsOnlyFixtureProviders(options.cli.providerSelection) || !hasLiveProviderHints(options.env)) &&
+    !options.cli.capture
+  ) {
     return syntheticArtifact(options.cli, queryTexts);
   }
 
@@ -173,6 +191,8 @@ export async function prepareBigBrotherArtifact(options: {
     ? resolveVisionProvider({
         env: envWithDemoRateLimit(options.env, options.cli.rateLimitSeconds),
         trace: options.trace,
+        providerSelection: options.cli.providerSelection,
+        sessionName: 'big-brother',
       })
     : null;
   const descriptions: string[] = [];
@@ -203,8 +223,18 @@ export function resolveBigBrotherProviders(options: {
     return createFixtureProviders({ ...metadata.fixtureData, queryTexts: metadata.queryTexts });
   }
   const env = envWithDemoRateLimit(options.env, options.cli.rateLimitSeconds);
-  const extractor = resolveLiveExtractionProvider({ env, trace: options.trace });
-  const embedder = resolveLiveEmbeddingProvider({ env, trace: options.trace });
+  const extractor = resolveLiveExtractionProvider({
+    env,
+    trace: options.trace,
+    providerSelection: options.cli.providerSelection,
+    sessionName: 'big-brother',
+  });
+  const embedder = resolveLiveEmbeddingProvider({
+    env,
+    trace: options.trace,
+    providerSelection: options.cli.providerSelection,
+    sessionName: 'big-brother',
+  });
   return {
     modeLabel: `live (${metadata.mode}; ${extractor.label} + ${embedder.label})`,
     isLive: true,
@@ -508,8 +538,10 @@ function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   if (explicitVision && explicitVision !== 'fixture') return true;
   if (explicitExtract && explicitExtract !== 'fixture') return true;
   if (explicitEmbed && explicitEmbed !== 'fixture') return true;
-  return Boolean(
-    env['OLLAMA_HOST'] ?? env['DEMO_VISION_BASE_URL'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['DEMO_EMBED_BASE_URL'],
+  return (
+    Boolean(
+      env['OLLAMA_HOST'] ?? env['DEMO_VISION_BASE_URL'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['DEMO_EMBED_BASE_URL'],
+    ) || hasConfiguredLiveDemoProvider(['vision', 'extract', 'embed'], env)
   );
 }
 

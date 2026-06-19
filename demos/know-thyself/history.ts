@@ -14,13 +14,21 @@ import type {
 } from '../shared/providers.js';
 import {
   createFixtureExtractionProvider,
+  hasConfiguredLiveDemoProvider,
   inferEmbeddingDimensionFromVectors,
   resolveLiveEmbeddingProvider,
   resolveLiveExtractionProvider,
 } from '../shared/providers.js';
 import type { ExtractionResult } from '../shared/ingest.js';
 import { resolveCitationExcerpts, validateExtractionResult } from '../shared/ingest.js';
-import { envWithDemoRateLimit, isWarmupArg } from '../shared/cli.js';
+import {
+  envWithDemoRateLimit,
+  isWarmupArg,
+  parseProviderCliSelection,
+  providerCliArgLength,
+  selectsOnlyFixtureProviders,
+  type DemoProviderSelection,
+} from '../shared/cli.js';
 import { defaultKeyframes } from './data/keyframes.js';
 
 export const NAMESPACE = 'repository-history';
@@ -42,6 +50,7 @@ export interface KnowThyselfCliOptions {
   keyframesProvided: boolean;
   rateLimitSeconds: number | null;
   warmup: boolean;
+  providerSelection: DemoProviderSelection;
 }
 
 export interface DerivedHistoryData {
@@ -89,10 +98,16 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
   let keyframesProvided = false;
   let rateLimitSeconds: number | null = null;
   let warmup = false;
+  const providerSelection = parseProviderCliSelection(argv);
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
+    const providerArg = providerCliArgLength(argv, i);
+    if (providerArg !== 0) {
+      i += providerArg - 1;
+      continue;
+    }
     if (isWarmupArg(arg)) {
       warmup = true;
       continue;
@@ -158,6 +173,7 @@ export function parseKnowThyselfCliOptions(argv = process.argv): KnowThyselfCliO
     keyframesProvided,
     rateLimitSeconds,
     warmup,
+    providerSelection,
   };
 }
 
@@ -405,6 +421,9 @@ export function createFixtureProviders(options: {
 
 export function resolveProvidersAndDataMode(cli: KnowThyselfCliOptions, trace: LlmTraceOptions): ResolvedDemoProviders {
   const env = envWithDemoRateLimit(process.env, cli.rateLimitSeconds);
+  if (isDefaultFixtureEligible(cli) && selectsOnlyFixtureProviders(cli.providerSelection)) {
+    return createPendingFixtureProviders();
+  }
   if (isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
     return createPendingFixtureProviders();
   }
@@ -412,12 +431,22 @@ export function resolveProvidersAndDataMode(cli: KnowThyselfCliOptions, trace: L
   if (!isDefaultFixtureEligible(cli) && !hasLiveProviderHints(env)) {
     throw new Error(
       'Custom --repo and --keyframes runs require live extraction and live embedding providers.\n' +
-        'Set DEMO_EXTRACT_PROVIDER and DEMO_EMBED_PROVIDER with their required model/base URL/key settings.',
+        'Select live providers with --provider or typed --provider:<type> flags, or configure the legacy DEMO_* fallback.',
     );
   }
 
-  const extractor = resolveLiveExtractionProvider({ env, trace });
-  const embedder = resolveLiveEmbeddingProvider({ env, trace });
+  const extractor = resolveLiveExtractionProvider({
+    env,
+    trace,
+    providerSelection: cli.providerSelection,
+    sessionName: 'know-thyself',
+  });
+  const embedder = resolveLiveEmbeddingProvider({
+    env,
+    trace,
+    providerSelection: cli.providerSelection,
+    sessionName: 'know-thyself',
+  });
   return {
     modeLabel: `live (${extractor.label} + ${embedder.label})`,
     isLive: true,
@@ -468,7 +497,10 @@ function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   if (explicitExtract === 'fixture' && explicitEmbed === 'fixture') return false;
   if (explicitExtract && explicitExtract !== 'fixture') return true;
   if (explicitEmbed && explicitEmbed !== 'fixture') return true;
-  return Boolean(env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['DEMO_EMBED_BASE_URL']);
+  return (
+    Boolean(env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['DEMO_EMBED_BASE_URL']) ||
+    hasConfiguredLiveDemoProvider(['extract', 'embed'], env)
+  );
 }
 
 export function defaultQueryTexts(): readonly string[] {

@@ -189,6 +189,7 @@ describe('deriveHistoryData', () => {
           keyframesProvided: true,
           rateLimitSeconds: null,
           warmup: false,
+          providerSelection: {},
         },
         providers,
       );

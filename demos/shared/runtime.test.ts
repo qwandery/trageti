@@ -132,6 +132,7 @@ describe('ensureDemoMetadata', () => {
       queryTexts: BASE_QUERY_TEXTS,
       embeddingDimension: 2,
       env: {},
+      providerSelection: { provider: 'fixture' },
     });
 
     ensureDemoMetadata({ database, demoName: 'test-demo', dataVersion: version(), providers });
@@ -276,6 +277,7 @@ function fixtureProviders(): ResolvedDemoProviders {
     queryTexts: BASE_QUERY_TEXTS,
     embeddingDimension: 2,
     env: {},
+    providerSelection: { provider: 'fixture' },
   });
 }
 
@@ -312,6 +314,7 @@ function providersWithOneAssertion(): ResolvedDemoProviders {
     queryTexts: BASE_QUERY_TEXTS,
     embeddingDimension: 2,
     env: {},
+    providerSelection: { provider: 'fixture' },
   });
 }
 

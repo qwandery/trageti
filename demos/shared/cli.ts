@@ -6,12 +6,22 @@ export interface DemoCliOptions {
   query: string | null;
   rateLimitSeconds: number | null;
   warmup: boolean;
+  providerSelection: DemoProviderSelection;
 }
 
 export interface CustomQueryOptions {
   namespace: string;
   queryText: string;
   temporalAnchor: number;
+}
+
+export type DemoProviderCapability = 'extract' | 'embed' | 'vision';
+
+export interface DemoProviderSelection {
+  provider?: string;
+  extract?: string;
+  embed?: string;
+  vision?: string;
 }
 
 export function isWarmupArg(arg: string): boolean {
@@ -22,9 +32,15 @@ export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
   let query: string | null = null;
   let rateLimitSeconds: number | null = null;
   let warmup = false;
+  const providerSelection = parseProviderCliSelection(argv);
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === undefined) continue;
+    const providerArg = providerCliArgLength(argv, i);
+    if (providerArg !== 0) {
+      i += providerArg - 1;
+      continue;
+    }
     if (isWarmupArg(arg)) {
       warmup = true;
       continue;
@@ -51,7 +67,92 @@ export function parseDemoCliOptions(argv = process.argv): DemoCliOptions {
       rateLimitSeconds = normalizeLimitArg(arg.slice('--limit='.length));
     }
   }
-  return { query, rateLimitSeconds, warmup };
+  return { query, rateLimitSeconds, warmup, providerSelection };
+}
+
+export function parseProviderCliSelection(argv = process.argv): DemoProviderSelection {
+  const selection: DemoProviderSelection = {};
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === undefined) continue;
+    const parsed = parseProviderArg(argv, i);
+    if (parsed === null) continue;
+    setProviderSelection(selection, parsed.capability, parsed.value, parsed.flag);
+    i += parsed.consumed - 1;
+  }
+  return selection;
+}
+
+export function providerCliArgLength(argv: readonly string[], index: number): number {
+  return parseProviderArg(argv, index)?.consumed ?? 0;
+}
+
+export function selectsOnlyFixtureProviders(selection: DemoProviderSelection): boolean {
+  const values = [selection.provider, selection.extract, selection.embed, selection.vision].filter(
+    (value): value is string => value !== undefined,
+  );
+  return values.length > 0 && values.every((value) => value === 'fixture');
+}
+
+function parseProviderArg(
+  argv: readonly string[],
+  index: number,
+): { capability: DemoProviderCapability | 'provider'; value: string; flag: string; consumed: number } | null {
+  const arg = argv[index];
+  if (arg === undefined) return null;
+  if (arg === '--provider') return providerArgWithValue(argv, index, 'provider', '--provider');
+  if (arg.startsWith('--provider=')) {
+    return {
+      capability: 'provider',
+      value: normalizeProviderId(arg.slice('--provider='.length), '--provider'),
+      flag: '--provider',
+      consumed: 1,
+    };
+  }
+  for (const capability of ['extract', 'embed', 'vision'] as const) {
+    const flag = `--provider:${capability}`;
+    if (arg === flag) return providerArgWithValue(argv, index, capability, flag);
+    if (arg.startsWith(`${flag}=`)) {
+      return {
+        capability,
+        value: normalizeProviderId(arg.slice(flag.length + 1), flag),
+        flag,
+        consumed: 1,
+      };
+    }
+  }
+  return null;
+}
+
+function providerArgWithValue(
+  argv: readonly string[],
+  index: number,
+  capability: DemoProviderCapability | 'provider',
+  flag: string,
+): { capability: DemoProviderCapability | 'provider'; value: string; flag: string; consumed: number } {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith('--')) throw new Error(`${flag} requires a provider id`);
+  return { capability, value: normalizeProviderId(value, flag), flag, consumed: 2 };
+}
+
+function setProviderSelection(
+  selection: DemoProviderSelection,
+  capability: DemoProviderCapability | 'provider',
+  value: string,
+  flag: string,
+): void {
+  const previous = selection[capability];
+  if (previous !== undefined && previous !== value) {
+    throw new Error(`${flag} was specified more than once with different provider ids`);
+  }
+  selection[capability] = value;
+}
+
+function normalizeProviderId(value: string, flag: string): string {
+  const provider = value.trim();
+  if (!provider) throw new Error(`${flag} requires a provider id`);
+  if (provider.includes(',')) throw new Error(`${flag} accepts one provider id; use typed --provider:<type> overrides`);
+  return provider;
 }
 
 export function envWithDemoRateLimit(env: NodeJS.ProcessEnv, rateLimitSeconds: number | null): NodeJS.ProcessEnv {
@@ -63,7 +164,7 @@ export function assertCustomQuerySupported(embedder: DemoEmbeddingProvider): voi
   if (embedder.provenance.kind !== 'fixture') return;
   throw new Error(
     'Custom --query is not supported in deterministic fixture/raw-vector mode because committed fixture vectors only cover the built-in demo queries.\n' +
-      'Configure a live embedding provider with DEMO_EMBED_PROVIDER and its required model/base URL/key settings, then rerun the demo.',
+      'Select a live embedding provider with --provider:embed or configure the legacy DEMO_EMBED_PROVIDER fallback, then rerun the demo.',
   );
 }
 
