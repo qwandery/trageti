@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AssertionLink,
-  Episode,
-  NewAssertionInput,
-  NewAssertionLinkInput,
-  NewEpisodeInput,
-  TragetiStore,
-} from 'trageti';
+import type { Episode, NewAssertionInput, NewAssertionLinkInput, NewEpisodeInput, TragetiStore } from 'trageti';
 import { ingest } from './ingest.js';
 import { buildExtractionPrompt } from './prompt.js';
 import {

@@ -467,11 +467,7 @@ function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
   if (explicitExtract === 'fixture' && explicitEmbed === 'fixture') return false;
   if (explicitExtract && explicitExtract !== 'fixture') return true;
   if (explicitEmbed && explicitEmbed !== 'fixture') return true;
-  return Boolean(
-    env['OLLAMA_HOST'] ??
-    env['DEMO_EXTRACT_BASE_URL'] ??
-    env['DEMO_EMBED_BASE_URL'],
-  );
+  return Boolean(env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL'] ?? env['DEMO_EMBED_BASE_URL']);
 }
 
 export function defaultQueryTexts(): readonly string[] {
@@ -944,10 +940,7 @@ function cleanAssertionContent(text: string): string {
     .slice(0, 700);
 }
 
-function toPromptAssertion(
-  assertion: ExtractionResult['assertions'][number],
-  episode: NewEpisodeInput,
-): Assertion {
+function toPromptAssertion(assertion: ExtractionResult['assertions'][number], episode: NewEpisodeInput): Assertion {
   return {
     id: assertion.id,
     namespace: assertion.namespace,

@@ -2,6 +2,8 @@
 
 Temporally-aware retrieval-augmented generation over SQLite.
 
+Package `0.4.0-rev.0` is the beta remediation release that implements the v0.3 rev2 contract in `_docs/specs/trageti-spec-v0.3-rev2.md`.
+
 `trageti` stores, indexes, and retrieves _episodic assertions_ — discrete, typed claims with explicit validity windows — with retrieval that respects temporal position as a first-class constraint alongside semantic similarity and full-text matching.
 
 ## Features
@@ -11,7 +13,7 @@ Temporally-aware retrieval-augmented generation over SQLite.
 - **Vectorless mode** — register a namespace with no embedding dimension and run BM25-only retrieval without installing `sqlite-vec`
 - **Supersession chains** — replace a claim by writing its successor; history is preserved and queryable
 - **Graph traversal** — follow typed links between assertions with depth limits and temporal filtering
-- **Namespace isolation** — separate embedding tables per namespace, full data isolation
+- **Namespace-scoped storage** — namespace-aware core tables plus separate embedding tables per vector namespace; explicit cross-namespace links are permitted
 - **Schema extensions** — add custom columns or tables while keeping migration safety
 - **Pluggable everything** — swap out the scorer, formatter, graph adapter, validator, logger, metrics, or middleware
 
@@ -232,7 +234,7 @@ warnings }`.
 ### Retrieval strategies
 
 - `hybrid` (default) — use vector and BM25 signals when available.
-- `vector` — semantic only; requires `queryEmbedding`.
+- `vector` — semantic only; requires either `queryEmbedding` or `queryText` plus a configured `EmbeddingProvider`.
 - `bm25` — keyword only; requires `queryText`; never needs `sqlite-vec`.
 
 ### Query text modes
@@ -401,6 +403,9 @@ const path = await store.findPath({
 ```
 
 Links carry their own `validFrom` / `validUntil` — expired links are automatically excluded.
+Cross-namespace links are permitted when explicitly written; the store logs
+`TRGT_CROSS_NAMESPACE_LINK`, validates that both endpoints exist, and traversal
+can cross into the linked namespace.
 
 `maxDepth` is optional: it defaults to `3` for `getConnected` and `5` for `findPath`. `getConnected` returns its neighborhood in a deterministic order (traversal depth, then link `createdAt`, then `id`), so repeated calls are reproducible.
 
@@ -469,7 +474,9 @@ const store = await TragetiStore.create({
 });
 ```
 
-Extension column values appear on returned assertion objects under `assertion.extensions`.
+Extension column values appear under the returned object's `extensions` bag for
+assertions, episodes, and links. Missing extension columns are represented as
+an empty object, so read results always have a stable `extensions` shape.
 
 Constraints:
 

@@ -89,7 +89,10 @@ export function dropUnknownEndpointLinks(
   result: ExtractionResult,
   existingAssertions: readonly Assertion[],
 ): ExtractionResult {
-  const knownIds = new Set([...existingAssertions.map((assertion) => assertion.id), ...result.assertions.map((a) => a.id)]);
+  const knownIds = new Set([
+    ...existingAssertions.map((assertion) => assertion.id),
+    ...result.assertions.map((a) => a.id),
+  ]);
   return {
     assertions: result.assertions,
     links: result.links.filter((link) => knownIds.has(link.fromId) && knownIds.has(link.toId)),

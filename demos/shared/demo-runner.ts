@@ -26,14 +26,8 @@ export interface DemoScenario {
     artifact: PreparedDemoArtifact,
     providers: ResolvedDemoProviders,
   ): readonly string[] | undefined;
-  sanitizeExtractionResult?(
-    result: ExtractionResult,
-    context: DemoSanitizerContext,
-  ): ExtractionResult;
-  sanitizeParsedExtractionResult?(
-    result: ExtractionResult,
-    context: DemoSanitizerContext,
-  ): ExtractionResult;
+  sanitizeExtractionResult?(result: ExtractionResult, context: DemoSanitizerContext): ExtractionResult;
+  sanitizeParsedExtractionResult?(result: ExtractionResult, context: DemoSanitizerContext): ExtractionResult;
   retrieve(
     context: DemoScenarioContext,
     artifact: PreparedDemoArtifact,

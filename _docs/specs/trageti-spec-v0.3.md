@@ -1,5 +1,10 @@
 # trageti
 
+> Superseded for the first public beta by
+> [`trageti-spec-v0.3-rev2.md`](trageti-spec-v0.3-rev2.md), implemented by
+> package `0.4.0-rev.0`. This document is retained as historical design
+> context and should not be treated as the current public contract.
+
 ## Package Specification v0.3
 
 **Status:** Implemented v0.3 beta contract

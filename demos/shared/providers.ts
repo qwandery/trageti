@@ -734,11 +734,7 @@ function inferEmbeddingProvider(env: NodeJS.ProcessEnv, hasAnyLiveHint: boolean)
 
 function inferVisionProvider(env: NodeJS.ProcessEnv): string {
   if (env['DEMO_VISION_PROVIDER']) return env['DEMO_VISION_PROVIDER'];
-  if (
-    env['OLLAMA_HOST'] ||
-    env['DEMO_VISION_BASE_URL'] ||
-    env['DEMO_EXTRACT_BASE_URL']
-  ) {
+  if (env['OLLAMA_HOST'] || env['DEMO_VISION_BASE_URL'] || env['DEMO_EXTRACT_BASE_URL']) {
     return 'openai-compatible';
   }
   return 'fixture';

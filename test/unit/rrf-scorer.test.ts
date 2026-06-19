@@ -44,10 +44,7 @@ describe('RRFScorer', () => {
   it('omits null semantic and BM25 signals from their rankers', () => {
     const scorer = new RRFScorer({ includeRecency: false });
     const scores = scorer.scoreBatch(
-      [
-        candidate({ semanticDistance: 0.1, bm25Score: null }),
-        candidate({ semanticDistance: null, bm25Score: -10 }),
-      ],
+      [candidate({ semanticDistance: 0.1, bm25Score: null }), candidate({ semanticDistance: null, bm25Score: -10 })],
       ctx,
     );
 

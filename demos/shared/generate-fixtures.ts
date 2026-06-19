@@ -88,10 +88,7 @@ export async function generateFixtureFiles(options: GenerateFixtureFilesOptions)
   }
 }
 
-function toPromptAssertion(
-  assertion: ExtractionResult['assertions'][number],
-  episode: NewEpisodeInput,
-): Assertion {
+function toPromptAssertion(assertion: ExtractionResult['assertions'][number], episode: NewEpisodeInput): Assertion {
   return {
     id: assertion.id,
     namespace: assertion.namespace,

@@ -545,12 +545,12 @@ demos/
 
 Each demo supports three execution modes determined by environment:
 
-| Mode                  | Trigger                                          | Behavior                                                                 |
-| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| **Live (Anthropic)**         | Anthropic extraction provider configured explicitly | Anthropic Messages API. Highest quality.                                  |
+| Mode                         | Trigger                                             | Behavior                                                                   |
+| ---------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Live (Anthropic)**         | Anthropic extraction provider configured explicitly | Anthropic Messages API. Highest quality.                                   |
 | **Live (OpenAI-compatible)** | OpenAI-compatible base URL and model configured     | OpenAI-compatible endpoint such as OpenAI, OpenRouter, or a local gateway. |
 | **Live (Ollama)**            | `OLLAMA_HOST` set or Ollama running on localhost    | Local Ollama via its OpenAI-compatible endpoint. Free, variable quality.   |
-| **Fixture**                  | No live provider configured                         | Committed fixture files. Deterministic, offline, CI-safe.                 |
+| **Fixture**                  | No live provider configured                         | Committed fixture files. Deterministic, offline, CI-safe.                  |
 
 The fixture path is the default — demos must always work without any external dependency. The README for each demo documents all modes.
 

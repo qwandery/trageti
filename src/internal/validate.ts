@@ -19,12 +19,8 @@ export function nonNegativeIntegerOptionError(value: unknown, label: string): st
   return null;
 }
 
-export function literalOptionError<T extends string>(
-  value: unknown,
-  label: string,
-  allowed: readonly T[],
-): string | null {
-  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+export function literalOptionError(value: unknown, label: string, allowed: readonly string[]): string | null {
+  if (typeof value !== 'string' || !allowed.includes(value)) {
     return `${label} must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${String(value)}`;
   }
   return null;

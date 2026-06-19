@@ -2,19 +2,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  ErrorCode,
-  JsonFormatter,
-  MockEmbeddingProvider,
-  RRFScorer,
-  TragetiStore,
-  ValidationError,
-  prepareDatabase,
-} from '../../dist/index.js';
+import type * as PublicPackageModule from '../../src/index.js';
 
-const tmpDirs = [];
+type PublicPackage = typeof PublicPackageModule;
 
-function tmpDbPath() {
+const tmpDirs: string[] = [];
+
+async function loadPublicPackage(): Promise<PublicPackage> {
+  const entrypoint = '../../dist/index.js';
+  return (await import(entrypoint)) as PublicPackage;
+}
+
+function tmpDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), 'trageti-public-e2e-'));
   tmpDirs.push(dir);
   return join(dir, 'consumer.db');
@@ -23,6 +22,7 @@ function tmpDbPath() {
 afterEach(() => {
   while (tmpDirs.length > 0) {
     const dir = tmpDirs.pop();
+    if (dir === undefined) continue;
     try {
       rmSync(dir, { recursive: true, force: true });
     } catch {
@@ -32,7 +32,7 @@ afterEach(() => {
   }
 });
 
-function citation(assertionId, episodeId) {
+function citation(assertionId: string, episodeId: string) {
   return {
     id: `${assertionId}:c0`,
     episodeId,
@@ -43,6 +43,16 @@ function citation(assertionId, episodeId) {
 
 describe('public package E2E', () => {
   it('imports the built artifact and completes a file-backed consumer journey', async () => {
+    const {
+      ErrorCode,
+      JsonFormatter,
+      MockEmbeddingProvider,
+      RRFScorer,
+      TragetiStore,
+      ValidationError,
+      prepareDatabase,
+    } = await loadPublicPackage();
+
     expect(ErrorCode.VALIDATION_ERROR).toBe('VALIDATION_ERROR');
     expect(new ValidationError(['sample'])).toBeInstanceOf(Error);
     expect(new RRFScorer()).toBeTruthy();

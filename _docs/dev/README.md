@@ -1,4 +1,4 @@
-# Developer Guide
+﻿# Developer Guide
 
 This guide is for engineers working **on** trageti — extending the library, fixing bugs, writing tests, cutting releases. For consumer-facing API documentation, see the top-level [README](../../README.md). For the behavioural contract, see [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md).
 
@@ -383,10 +383,10 @@ npm run format              # Prettier write
 npm run format:check        # CI mirror
 
 # Before pushing — the green-only gate
-npm run lint && npm run format:check && npm run typecheck && npm run build && npm test
+npm run lint && npm run format:check && npm run typecheck && npm run test:coverage && npm run build && npm run test:e2e
 ```
 
-`prepublishOnly` runs `lint` + `typecheck` + `build` + `test:coverage`, so an accidental `npm publish` cannot ship code that fails the gate or the coverage thresholds.
+`prepublishOnly` runs `lint` + `typecheck` + `test:coverage` + `build` + `test:e2e`, so an accidental `npm publish` cannot ship code that fails the gate, coverage thresholds, or built-package E2E checks.
 
 ---
 
@@ -394,11 +394,11 @@ npm run lint && npm run format:check && npm run typecheck && npm run build && np
 
 ### Test taxonomy
 
-| Tier        | Location                       | Command                    | DB                        | Speed    |
-| ----------- | ------------------------------ | -------------------------- | ------------------------- | -------- |
-| Unit        | `test/unit/`                   | `npm run test:unit`        | none                      | <1s      |
-| Integration | `test/integration/`            | `npm run test:integration` | `:memory:` (+ sqlite-vec) | ~1s      |
-| E2E         | `test/integration/e2e.test.ts` | part of integration        | `:memory:` / file-backed  | included |
+| Tier        | Location            | Command                    | DB                        | Speed   |
+| ----------- | ------------------- | -------------------------- | ------------------------- | ------- |
+| Unit        | `test/unit/`        | `npm run test:unit`        | none                      | <1s     |
+| Integration | `test/integration/` | `npm run test:integration` | `:memory:` (+ sqlite-vec) | ~1s     |
+| E2E         | `test/e2e/`         | `npm run test:e2e`         | file-backed / built dist  | release |
 
 Every bug fix gets a regression test in the integration suite — there is no separate regression tier.
 
@@ -412,7 +412,7 @@ Every bug fix gets a regression test in the integration suite — there is no se
 
 ### Test against the public surface
 
-Prefer exercising the v0.3 primary surface — `TragetiStore.create()` / `prepareDatabase()` / `close()` — not just the low-level constructor. A test that only uses `new TragetiStore(db, …)` is not exercising the path consumers use.
+Prefer exercising the v0.3 primary surface - `TragetiStore.create()` / `prepareDatabase()` / `close()` - not just the low-level constructor. A test that only uses `new TragetiStore(db, ...)` is not exercising the path consumers use. E2E package-surface tests import from `dist`, so `npm run build` must run before `npm run test:e2e`.
 
 ### Coverage thresholds
 
@@ -550,9 +550,9 @@ Inject a `Logger` that ships to your observability stack, but remember `LogField
 
 ## Versioning and releases
 
-`package.json` is at `0.3.0`, set directly. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and is edited directly — log-code and contract changes must land there in the same change that makes them.
+`package.json` is at `0.4.0-rev.0`, the beta remediation release implementing the v0.3 rev2 contract. The npm dist-tag remains `beta`; `rev` is the semver prerelease identifier. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and must stay aligned with release-note-worthy changes.
 
-The `.changeset/` directory is configured, and Changesets is the intended mechanism for release-note-worthy changes, including pre-beta changes that alter public behavior. Keep changelog text aligned with the relevant changeset; do not rewrite already-published historical entries.
+The `.changeset/` directory is configured, and Changesets is the intended mechanism for release-note-worthy changes, including pre-beta changes that alter public behavior. Prerelease revisions use Changesets pre-mode with the `rev` identifier. Keep changelog text aligned with the relevant changeset; do not rewrite already-published historical entries.
 
 Pre-1.0 semver: breaking changes may ship as **minor** bumps; reserve a major bump for the 0→1 transition. Call out `BREAKING:` explicitly in the changelog entry regardless.
 
@@ -569,7 +569,7 @@ Pre-1.0 semver: breaking changes may ship as **minor** bumps; reserve a major bu
 
 ### Automated publish
 
-`publish.yml` runs on pushes to `main`: installs, builds, runs `changesets/action`, and on a merged "Version Packages" PR publishes to npm with `--provenance`. **Do not run `npm publish` from a laptop** — it bypasses provenance and CI gates.
+`publish.yml` runs on pushes to `main`: installs, runs `npm run prepublishOnly` (lint, typecheck, coverage, build, and E2E package tests), runs `changesets/action`, and on a merged "Version Packages" PR publishes to npm with `--provenance`. **Do not run `npm publish` from a laptop** - it bypasses provenance and CI gates.
 
 ### Manual fallback (only if the workflow is broken)
 
@@ -677,8 +677,8 @@ trageti assumes one writer at a time. WAL gives concurrent readers + one writer;
 
 ## Where to look next
 
-- [`_docs/specs/trageti-spec-v0.3.md`](../specs/trageti-spec-v0.3.md) — the source of truth for the public contract. v0.1 / v0.2 specs are retained alongside it for history only.
+- [`_docs/specs/trageti-spec-v0.3-rev2.md`](../specs/trageti-spec-v0.3-rev2.md) - the source of truth for the `0.4.0-rev.0` beta public contract. v0.1 / v0.2 / earlier v0.3 specs are retained alongside it for history only.
 - `src/store/TragetiStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
 - `src/pipeline/retrieve.ts` — the most algorithmically dense file. Step 0 is query routing; Step 7 is trajectory expansion.
 - `src/db/migrations/runner.ts` - baseline schema bootstrap and schema-version recording.
-- `test/integration/e2e.test.ts` — a tour of the full happy path.
+- `test/e2e/public-package.test.ts` - built-package public surface coverage.

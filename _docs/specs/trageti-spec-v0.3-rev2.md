@@ -2,7 +2,7 @@
 
 ## Package Specification v0.3 Rev2
 
-**Status:** v0.3 rev2 contract; scorer revision specified ahead of implementation
+**Status:** v0.3 rev2 contract; implemented by package `0.4.0-rev.0`
 **Date:** June 2026
 **License intent:** MIT
 **Target runtime:** Node.js 18+ / TypeScript 5+
@@ -21,6 +21,11 @@ Concretely: changing the shape of a typed interface, removing or renaming an
 error code or log code, weakening a documented invariant, or altering a
 schema-migration step is a breaking change. Adding new optional fields,
 introducing new log codes, or shipping new opt-in APIs is not.
+
+Package `0.4.0-rev.0` is the beta remediation release that implements this
+v0.3 rev2 contract. The version bump reflects source-level API additions and
+behavior tightening made during beta hardening; it does not replace this
+document as the technical baseline.
 
 ---
 
@@ -73,6 +78,17 @@ has not yet caught up. It supersedes earlier `RetrievalScorer` /
 `DefaultScorer` contract language. The canonical scorer interface is now
 `IRetrievalScorer`, the default scorer is `RRFScorer`, and the previous
 weighted-linear default is retained as `LinearScorer`.
+
+---
+
+### v0.3 Rev2 Remediation - 2026-06 - Package `0.4.0-rev.0`
+
+The first public beta ships as package `0.4.0-rev.0` while retaining this
+v0.3 rev2 document as its technical baseline. The remediation pass tightens
+runtime validation, makes baseline assertion integrity non-bypassable, hydrates
+episode/link schema-extension columns on reads, introduces `NewEpisodeInput`,
+`NewAssertionLinkInput`, and `GraphAdapterLink`, and documents that explicit
+cross-namespace links remain permitted and traversable.
 
 ---
 
@@ -531,7 +547,8 @@ out of Phase 1 because it is in fact API/behavior-changing:
 - `queryTextMode` default flipped to `'phrase'`.
 - `MissingPeerDependencyError` consolidation.
 - Coverage thresholds raised to 95/95/95/85.
-- Version, README, CHANGELOG, and changesets aligned at 0.3.0.
+- Version, README, CHANGELOG, and release metadata aligned at `0.4.0-rev.0`,
+  the beta package implementing this rev2 baseline.
 
 Phase 1 and Phase 2 are stable internal commit points before the full Phase 3
 redesign. They are not public release boundaries, and no partial v0.3 upgrade
@@ -731,7 +748,8 @@ a caller-defined `position` (the temporal anchor unit; consistent, comparable,
 and stable within a namespace), a display/audit timestamp, a type, content,
 and creation timestamp.
 
-v0.3 keeps the v0.2 episode shape:
+`0.4.0-rev.0` adds the same schema-extension read bag used by assertions to
+episodes:
 
 ```typescript
 interface Episode {
@@ -751,10 +769,12 @@ interface Episode {
   /** ISO 8601 â€” when the system recorded this episode. Filled by the
    *  store on write; the write-side input shape omits this field. */
   createdAt: string;
+  extensions: Record<string, unknown>;
 }
+type NewEpisodeInput = Omit<Episode, 'createdAt' | 'extensions'>;
 ```
 
-The write path is `store.writeEpisode(episode: Omit<Episode, 'createdAt'>)`.
+The write path is `store.writeEpisode(episode: NewEpisodeInput)`.
 It validates required fields and warns through the configured logger when
 content exceeds `maxEpisodeContentBytes`.
 
@@ -921,10 +941,12 @@ interface AssertionLink {
   sourceEpisodeId: string;
   /** ISO 8601 â€” filled by the store on write. */
   createdAt: string;
+  extensions: Record<string, unknown>;
 }
+type NewAssertionLinkInput = Omit<AssertionLink, 'createdAt' | 'extensions'>;
 ```
 
-The write path is `store.writeLink(link: Omit<AssertionLink, 'createdAt'>)`.
+The write path is `store.writeLink(link: NewAssertionLinkInput)`.
 
 Accumulation/linking remains distinct from supersession. If new information
 layers on an older assertion, callers should keep both assertions valid and
@@ -936,20 +958,30 @@ connect them with a link rather than reaching for `supersedesId`.
 
 ### GraphQueryAdapter
 
-The adapter contract remains, but `findPath()` must return the full ordered path
-or `null`.
+The adapter contract returns graph-edge rows for traversal. `findPath()` must
+return the full ordered adapter path or `null`.
 
 ```typescript
-interface GraphQueryAdapter {
-  findConnected(db: Database, namespace: string, fromIds: string[], options: TraversalOptions): AssertionLink[];
+type GraphAdapterLink = Omit<AssertionLink, 'extensions'> & {
+  extensions?: Record<string, unknown>;
+};
 
-  findPath(db: Database, namespace: string, fromId: string, toId: string, options: PathOptions): AssertionLink[] | null;
+interface GraphQueryAdapter {
+  findConnected(db: Database, namespace: string, fromIds: string[], options: TraversalOptions): GraphAdapterLink[];
+
+  findPath(
+    db: Database,
+    namespace: string,
+    fromId: string,
+    toId: string,
+    options: PathOptions,
+  ): GraphAdapterLink[] | null;
 }
 ```
 
 **Adapter / store boundary â€” explicit.** The `GraphQueryAdapter`
 operates over the **graph edge layer**: both methods return
-`AssertionLink[]` (the edges traversed). The store layer is responsible
+`GraphAdapterLink[]` (the edges traversed). The store layer is responsible
 for hydrating those edges into the assertion records callers actually
 see:
 
@@ -960,16 +992,15 @@ see:
   read path. Adapters never construct `Assertion` values themselves.
 - `store.findPath(options)` invokes
   `adapter.findPath(db, namespace, options.fromAssertionId, options.toAssertionId, options)`
-  and returns the result `AssertionLink[] | null` directly to the
-  caller â€” no per-link hydration is needed because the public
-  `findPath()` contract returns links, not assertions.
+  and returns `AssertionLink[] | null` to the caller after repository
+  hydration of extension columns. Adapter path order MUST be preserved.
 
 This split keeps custom adapters focused on traversal correctness (and
 free to use any in-database graph representation: CTE, recursive view,
 materialized closure, future ANN-graph hybrid) while the store owns
 hydration, citation joins, and result-envelope construction. Custom
 adapters MUST NOT return assertion data outside the documented
-`AssertionLink` fields; doing so violates the boundary and yields
+`GraphAdapterLink` fields; doing so violates the boundary and yields
 implementation-dependent behavior.
 
 The default CTE adapter must include cycle protection and tests for direct,
@@ -1227,6 +1258,12 @@ interface TableExtension {
   description?: string;
 }
 ```
+
+Column extensions registered on `trageti_assertions`, `trageti_episodes`, and
+`trageti_links` are surfaced on the corresponding read models under
+`Assertion.extensions`, `Episode.extensions`, and `AssertionLink.extensions`.
+The bag is always present; it is `{}` when no extension columns are configured
+or no extension values are present.
 
 **Validation at `init()` time** (not deferred to `deleteNamespace()`):
 
@@ -1901,10 +1938,10 @@ configuration.
 ### Writing
 
 ```typescript
-store.writeEpisode(episode: Omit<Episode, 'createdAt'>): Promise<Episode>
+store.writeEpisode(episode: NewEpisodeInput): Promise<Episode>
 store.writeAssertion(input: NewAssertionInput): Promise<Assertion>
 store.writeCitation(citation: NewLateCitation): Promise<AssertionCitation>
-store.writeLink(link: Omit<AssertionLink, 'createdAt'>): Promise<AssertionLink>
+store.writeLink(link: NewAssertionLinkInput): Promise<AssertionLink>
 ```
 
 `writeAssertion(input)` is the canonical supersession API. The first step
@@ -2968,7 +3005,9 @@ interface RetrievalStepInfo {
   step: RetrievalStep;
   candidateCount: number;
   tookMs: number;
-  notes?: Record<string, unknown>;
+  notes?: string[];
+  details?: Record<string, unknown>;
+  applied?: boolean;
 }
 ```
 
@@ -3012,6 +3051,11 @@ error type for "sqlite-vec not loaded" â€” there is no
 | `RETRIEVAL_DIMENSION_MISMATCH`      | supplied `queryEmbedding.length !== namespace.embeddingDimension`                                                                                                                                                        |
 | `RETRIEVAL_INVALID_LIMIT`           | `limit < 1` or non-integer                                                                                                                                                                                               |
 | `RETRIEVAL_INVALID_MAX_DEPTH`       | `maxDepth < 0` or non-integer                                                                                                                                                                                            |
+| `RETRIEVAL_INVALID_STRATEGY`        | `retrievalStrategy` is not one of `'hybrid'`, `'vector'`, or `'bm25'`.                                                                                                                                                   |
+| `RETRIEVAL_INVALID_MODE`            | `mode` is not one of `'snapshot'` or `'trajectory'`.                                                                                                                                                                     |
+| `RETRIEVAL_INVALID_QUERY_TEXT_MODE` | `queryTextMode` is not one of `'phrase'` or `'fts5'`.                                                                                                                                                                    |
+| `RETRIEVAL_INVALID_TEMPORAL_ANCHOR` | `temporalAnchor`, `validAt`, `atPosition`, or graph traversal temporal anchor is not finite.                                                                                                                             |
+| `RETRIEVAL_INVALID_FILTER`          | caller-supplied filter arrays such as `entityTypes`, `assertionTypes`, or `linkTypes` are not arrays of strings.                                                                                                         |
 | `RETRIEVAL_INVALID_TEMPORAL_WINDOW` | `temporalWindow.from > temporalWindow.to`. _(Added by the R9 amendment.)_                                                                                                                                                |
 | `RETRIEVAL_INVALID_CONFIDENCE`      | `minConfidence` outside `[0, 1]`. _(Added by the R9 amendment.)_                                                                                                                                                         |
 | `RETRIEVAL_INVALID_TOKEN_BUDGET`    | `assembleContext()` with a non-positive-integer `tokenBudget`. _(Added by the R9 amendment.)_                                                                                                                            |
@@ -3021,12 +3065,23 @@ error type for "sqlite-vec not loaded" â€” there is no
 
 `IndexingError` codes:
 
-| Code                            | Raised by                                                                                                                                                                                                                    |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INDEXING_NAMESPACE_VECTORLESS` | `indexAssertion`/`indexBatch` against a vectorless namespace                                                                                                                                                                 |
-| `ASSERTION_NOT_FOUND`           | `indexAssertion` (single-target) against an unknown `assertionId`. `indexBatch` records the same condition in `skipped[]` with `reason: 'ASSERTION_NOT_FOUND'` instead of throwing.                                          |
-| `EMBEDDING_DIMENSION_MISMATCH`  | `indexAssertion` (single-target) when the supplied `embedding.length` does not match the namespace's stored dimension. `indexBatch` records the same condition in `skipped[]` with `reason: 'EMBEDDING_DIMENSION_MISMATCH'`. |
-| `NO_EMBEDDING_AND_NO_PROVIDER`  | `indexAssertion` (single-target) when no `embedding` is supplied and no `EmbeddingProvider` is bound to the namespace. `indexBatch` records the same condition in `skipped[]` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. |
+| Code                                   | Raised by                                                                                                                                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INDEXING_NAMESPACE_VECTORLESS`        | `indexAssertion`/`indexBatch` against a vectorless namespace                                                                                                                                                                 |
+| `ASSERTION_NOT_FOUND`                  | `indexAssertion` (single-target) against an unknown `assertionId`. `indexBatch` records the same condition in `skipped[]` with `reason: 'ASSERTION_NOT_FOUND'` instead of throwing.                                          |
+| `EMBEDDING_DIMENSION_MISMATCH`         | `indexAssertion` (single-target) when the supplied `embedding.length` does not match the namespace's stored dimension. `indexBatch` records the same condition in `skipped[]` with `reason: 'EMBEDDING_DIMENSION_MISMATCH'`. |
+| `NO_EMBEDDING_AND_NO_PROVIDER`         | `indexAssertion` (single-target) when no `embedding` is supplied and no `EmbeddingProvider` is bound to the namespace. `indexBatch` records the same condition in `skipped[]` with `reason: 'NO_EMBEDDING_AND_NO_PROVIDER'`. |
+| `INDEXING_INVALID_PROVIDER_ERROR_MODE` | `indexBatch()` receives an `onProviderError` value other than `'fail-fast'` or `'skip'`.                                                                                                                                     |
+
+`ReindexError` codes:
+
+| Code                                  | Raised by                                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `REINDEX_ERROR`                       | generic reindex failure boundary.                                                              |
+| `REINDEX_ALREADY_RUNNING`             | `reindexNamespace()` when another reindex is already active for the same namespace.            |
+| `REINDEX_PARTIAL_REJECTED`            | staging-swap skip mode produced skipped items and `allowPartialSwap` was not enabled.          |
+| `REINDEX_INVALID_STRATEGY`            | `reindexNamespace()` receives a `strategy` value other than `'staging-swap'` or `'in-place'`.  |
+| `REINDEX_INVALID_PROVIDER_ERROR_MODE` | `reindexNamespace()` receives an `onProviderError` value other than `'fail-fast'` or `'skip'`. |
 
 All errors include stable `.code` values and structured fields where useful.
 Error messages must be actionable without exposing source content, query

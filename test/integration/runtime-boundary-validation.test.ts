@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
-import { ErrorCode, IndexingError, RetrievalInputError, ReindexError, ValidationError } from '../../src/errors/index.js';
+import {
+  ErrorCode,
+  IndexingError,
+  RetrievalInputError,
+  ReindexError,
+  ValidationError,
+} from '../../src/errors/index.js';
 import type { EmbeddingProvider } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
 

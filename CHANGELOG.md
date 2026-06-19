@@ -1,5 +1,34 @@
 # trageti Changelog
 
+## 0.4.0-rev.0
+
+Beta remediation release implementing the v0.3 rev2 contract.
+
+- Hardened public input validation across retrieval, explain, graph traversal,
+  temporal snapshots, assertion reads, indexing, and reindexing. Invalid enum,
+  temporal-anchor, filter-array, and provider-error-mode values now fail with
+  stable typed errors before SQLite/provider side effects.
+- Made baseline assertion integrity non-bypassable even when callers install
+  custom validators, including finite temporal windows, confidence range,
+  source-episode namespace integrity, citations, and supersession checks.
+- Added extension-column read hydration for episodes and links in addition to
+  assertions. `Episode` and `AssertionLink` now return a stable
+  `extensions: Record<string, unknown>` bag; write APIs use
+  `NewEpisodeInput` and `NewAssertionLinkInput` so callers do not supply
+  extension values through core writers.
+- Adjusted graph adapter typing: adapters return `GraphAdapterLink` values
+  with optional extension bags, while public `findPath()` results are
+  repository-hydrated `AssertionLink[]` values with extensions populated.
+- Wrapped single-assertion provider failures as `EmbeddingProviderError` and
+  added stable error codes for retrieval enum/filter validation plus indexing
+  and reindex provider-error-mode validation.
+- Fixed JSON and structured context formatter truncation accounting.
+- Expanded beta-readiness coverage with runtime boundary integration tests,
+  schema-extension read-surface integration tests, file-backed vectorless to
+  vector lifecycle coverage, and a built-package E2E public-surface test.
+- CI and publish now run the release gate with lint, typecheck, coverage,
+  build, and E2E package tests. The npm dist-tag remains `beta`.
+
 ## 0.3.0
 
 ### Major API redesign
@@ -13,8 +42,9 @@ async middleware and remote backends.
 **BREAKING — `RetrievalQuery.queryEmbedding` is now optional.** `retrieve()`
 requires one of `queryText`, `queryEmbedding`, or both, and routes by the
 new `retrievalStrategy` field (`'hybrid' | 'vector' | 'bm25'`, default
-`'hybrid'`). Strategy `'vector'` requires `queryEmbedding`; `'bm25'`
-requires `queryText`; `'hybrid'` uses whichever inputs are available.
+`'hybrid'`). Strategy `'vector'` requires either `queryEmbedding` or
+`queryText` plus a configured `EmbeddingProvider`; `'bm25'` requires
+`queryText`; `'hybrid'` uses whichever inputs are available.
 
 **BREAKING — default `queryTextMode` flipped to `'phrase'`.** User-supplied
 `queryText` is now wrapped in a literal FTS5 phrase by default (operators
@@ -257,6 +287,10 @@ true })` now returns every assertion with `validFrom <= atPosition` —
   normalisation across the candidate set. Custom scorers that don't implement it
   keep working via the per-candidate `score()` fallback. The retrieval pipeline
   validates the returned array length and throws on mismatch.
+
+  Historical note: this v0.2-era entry is superseded by the v0.3 rev2 /
+  `0.4.0-rev.0` contract. `RetrievalScorer` is now batch-only and must
+  implement `scoreBatch(candidates, context)`.
 
   **NEW: index `trl_idx_assertions_supersedes`**
 

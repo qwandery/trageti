@@ -1,6 +1,6 @@
 {
   "name": "trageti",
-  "version": "0.3.0-beta.0",
+  "version": "0.4.0-rev.0",
   "description": "Temporally-aware retrieval-augmented generation over SQLite — episodic assertions with explicit validity windows and hybrid vector + keyword retrieval. Supports vectorless namespaces (BM25-only) and pluggable embedding providers.",
   "type": "module",
   "license": "MIT",
@@ -41,14 +41,14 @@
     "test:integration": "vitest run test/integration --passWithNoTests",
     "test:e2e": "vitest run test/e2e --passWithNoTests",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "test:coverage": "vitest run test/unit test/integration --coverage --passWithNoTests",
     "trageti-demo": "tsx demos/trageti-demo.ts",
     "lint": "eslint src test demos",
     "lint:fix": "eslint src test demos --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "release": "changeset publish",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run build && npm run test:coverage"
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run test:e2e"
   },
   "peerDependencies": {
     "better-sqlite3": ">=9.0.0",

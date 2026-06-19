@@ -47,11 +47,7 @@ function reviewHash(repoPath: string, keyframes: readonly string[]): string {
 }
 
 function hasLiveProviderHints(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(
-    env['DEMO_EXTRACT_PROVIDER'] ??
-    env['OLLAMA_HOST'] ??
-    env['DEMO_EXTRACT_BASE_URL'],
-  );
+  return Boolean(env['DEMO_EXTRACT_PROVIDER'] ?? env['OLLAMA_HOST'] ?? env['DEMO_EXTRACT_BASE_URL']);
 }
 
 main().catch((err: unknown) => {
