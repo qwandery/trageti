@@ -51,6 +51,39 @@ export function printBanner(title: string): void {
   console.log(RULE);
 }
 
+/**
+ * Friendly, actionable report when a demo stage fails unrecoverably: a clear
+ * one-line summary, copy-paste resume instructions, then full details (error
+ * message and stacks) for debugging.
+ */
+export function printDemoStageFailure(info: {
+  demoTitle: string;
+  stageTitle: string;
+  scenarioName: string;
+  stageName: string;
+  error: unknown;
+}): void {
+  const { error } = info;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('');
+  console.error(RULE);
+  console.error(`${info.demoTitle} Demo failed during Stage ${info.stageTitle}.`);
+  console.error('');
+  console.error('To resume/try again from this point, start the current stage again with:');
+  console.error(`npm run trageti-demo -- ${info.scenarioName} ${info.stageName}`);
+  console.error(RULE);
+  console.error('');
+  console.error(`Reason: ${message}`);
+  console.error('');
+  console.error('Details:');
+  console.error(error instanceof Error && error.stack ? error.stack : String(error));
+  const nested = error instanceof Error ? (error.cause as unknown) : undefined;
+  if (nested !== undefined && nested !== null) {
+    console.error('Caused by:');
+    console.error(nested instanceof Error && nested.stack ? nested.stack : String(nested));
+  }
+}
+
 export function createDemoLogger(): DemoRunLogger {
   let stepNumber = 0;
   return {

@@ -15,6 +15,47 @@ import type { Assertion, NewEpisodeInput } from 'trageti';
 
 export type DemoPhase = 'prepare' | 'ingest' | 'retrieve' | 'run';
 
+/** Stages a run can be resumed from (every phase except the composite 'run'). */
+export type ResumeStage = 'prepare' | 'ingest' | 'retrieve';
+
+const STAGE_TITLES: Record<ResumeStage, string> = {
+  prepare: 'Prepare',
+  ingest: 'Ingest',
+  retrieve: 'Retrieve',
+};
+
+/**
+ * Wraps a failure with the concrete stage that failed so the entry point can
+ * print friendly resume instructions. During a `run`, the carried stage is the
+ * sub-phase that failed (e.g. ingest), so the resume command points there and
+ * not at `run`.
+ */
+export class DemoStageError extends Error {
+  readonly demoTitle: string;
+  readonly stageTitle: string;
+  readonly scenarioName: string;
+  readonly stageName: ResumeStage;
+
+  constructor(scenario: DemoScenario, stageName: ResumeStage, cause: unknown) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    super(message, { cause });
+    this.name = 'DemoStageError';
+    this.demoTitle = scenario.title;
+    this.stageTitle = STAGE_TITLES[stageName];
+    this.scenarioName = scenario.name;
+    this.stageName = stageName;
+  }
+}
+
+async function runStage(scenario: DemoScenario, stageName: ResumeStage, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof DemoStageError) throw err;
+    throw new DemoStageError(scenario, stageName, err);
+  }
+}
+
 export interface DemoScenario {
   name: string;
   title: string;
@@ -72,26 +113,26 @@ export async function runSharedDemoCli(options: {
   printBanner(`${scenario.title} - ${phase}`);
 
   if (phase === 'prepare') {
-    await preparePhase(scenario, context);
+    await runStage(scenario, 'prepare', () => preparePhase(scenario, context));
     logger.success('Demo preparation complete');
     return;
   }
 
   if (phase === 'run') {
-    await preparePhase(scenario, context);
-    await ingestPhase(scenario, context);
-    await retrievePhase(scenario, context);
+    await runStage(scenario, 'prepare', () => preparePhase(scenario, context));
+    await runStage(scenario, 'ingest', () => ingestPhase(scenario, context));
+    await runStage(scenario, 'retrieve', () => retrievePhase(scenario, context));
     logger.success('Demo complete');
     return;
   }
 
   if (phase === 'ingest') {
-    await ingestPhase(scenario, context);
+    await runStage(scenario, 'ingest', () => ingestPhase(scenario, context));
     logger.success('Demo ingestion complete');
     return;
   }
 
-  await retrievePhase(scenario, context);
+  await runStage(scenario, 'retrieve', () => retrievePhase(scenario, context));
   logger.success('Demo retrieval complete');
 }
 
