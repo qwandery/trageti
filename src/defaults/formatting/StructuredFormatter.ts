@@ -63,6 +63,7 @@ export class StructuredFormatter implements ContextFormatter {
         includedAssertions.push(item);
         tokenEstimate += bulletTokens;
       }
+      if (bullets.length === 0) break;
       tokenEstimate += headerTokens;
       sections.push(`${header}\n${bullets.join('\n')}`);
       if (truncated) break;

@@ -124,6 +124,17 @@ describe('StructuredFormatter', () => {
     expect(result.truncated).toBe(true);
   });
 
+  it('does not emit an empty section header when the first bullet does not fit', async () => {
+    const f = new StructuredFormatter(1);
+    const result = f.format([makeAssertion('a-1', 'This bullet is too long.', 'type-a')], {
+      ...baseOptions,
+      tokenBudget: '## type-a'.length,
+    });
+    expect(result.text).toBe('');
+    expect(result.includedCount).toBe(0);
+    expect(result.truncated).toBe(true);
+  });
+
   it('appends a compact citation marker per bullet', async () => {
     const f = new StructuredFormatter();
     const result = f.format(
@@ -147,6 +158,12 @@ describe('JsonFormatter', () => {
     const parsed = JSON.parse(result.text) as Array<{ id: string; content: string }>;
     expect(parsed[0]?.id).toBe('a-1');
     expect(parsed[0]?.content).toBe('Test claim.');
+  });
+
+  it('estimates tokens from the emitted pretty JSON payload', async () => {
+    const f = new JsonFormatter(1);
+    const result = f.format([makeAssertion('a-1', 'Test claim.')], baseOptions);
+    expect(result.tokenEstimate).toBe(result.text.length);
   });
 
   it('truncates when budget is exceeded', async () => {

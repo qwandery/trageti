@@ -34,25 +34,24 @@ export class JsonFormatter implements ContextFormatter {
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext {
     const budget = options.tokenBudget;
     const included: RetrievedAssertion[] = [];
+    const payloads: AssertionPayload[] = [];
     let tokenEstimate = 0;
     let truncated = false;
+    let text = '[]';
 
     for (const assertion of assertions) {
-      const itemJson = JSON.stringify(this.toRetrievedPayload(assertion));
-      const itemTokens = Math.ceil(itemJson.length * this.tokensPerChar);
-      if (tokenEstimate + itemTokens > budget) {
+      const payload = this.toRetrievedPayload(assertion);
+      const candidateText = JSON.stringify([...payloads, payload], null, 2);
+      const candidateTokens = Math.ceil(candidateText.length * this.tokensPerChar);
+      if (candidateTokens > budget) {
         truncated = true;
         break;
       }
       included.push(assertion);
-      tokenEstimate += itemTokens;
+      payloads.push(payload);
+      text = candidateText;
+      tokenEstimate = candidateTokens;
     }
-
-    const text = JSON.stringify(
-      included.map((a) => this.toRetrievedPayload(a)),
-      null,
-      2,
-    );
 
     return {
       text,
