@@ -46,17 +46,9 @@
         "model": "text-embedding-3-small",
         "dimensions": 768,
         "extraBody": {
-          "extraBody": {
-            "response_format": {
-              "type": "float"
-            }
+          "response_format": {
+            "type": "float"
           }
-        }
-      },
-      "vision": {
-        "extraBody": {
-          "effort": "none",
-          "exclude": true
         }
       }
     },
