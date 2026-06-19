@@ -198,7 +198,13 @@ export async function ingestPreparedUnits(options: {
   logger?: DemoRunLogger;
   trace?: LlmTraceOptions;
   artifactPath?: string;
+  /** Total extract+validate attempts per episode. Defaults from env (2). */
+  maxValidationAttempts?: number;
+  /** Salvage repairable citation failures instead of aborting. Defaults true. */
+  degradeCitationsOnFailure?: boolean;
 }): Promise<void> {
+  const maxValidationAttempts = options.maxValidationAttempts ?? validationAttemptsFromEnv();
+  const degradeCitationsOnFailure = options.degradeCitationsOnFailure ?? true;
   options.logger?.step('Ingesting episodes into TragetiStore');
   if (options.artifactPath) options.logger?.detail(`Prepared artifact: ${options.artifactPath}`);
   options.logger?.detail(
@@ -261,6 +267,9 @@ export async function ingestPreparedUnits(options: {
       document: unit.document,
       existingAssertions: accumulated,
       extractor: options.providers.extractor,
+      maxValidationAttempts,
+      degradeCitationsOnFailure,
+      ...(options.logger ? { logger: options.logger } : {}),
       ...(Object.keys(unit.citationSources).length > 0 ? { citationSources: unit.citationSources } : {}),
       ...(unit.imageSources !== undefined && Object.keys(unit.imageSources).length > 0
         ? { imageSources: unit.imageSources }
@@ -322,6 +331,15 @@ export async function ingestPreparedUnits(options: {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 3) + '...';
+}
+
+const DEFAULT_VALIDATION_ATTEMPTS = 2;
+
+function validationAttemptsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env['DEMO_EXTRACT_VALIDATION_MAX_ATTEMPTS'];
+  if (raw === undefined) return DEFAULT_VALIDATION_ATTEMPTS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : DEFAULT_VALIDATION_ATTEMPTS;
 }
 
 function extractionFailureError(
