@@ -10,7 +10,7 @@ Verdict: request changes before promoting this alpha.
 
 The current branch has addressed several v0.4.0 review issues: bundle validators now run, supersession closes are guarded, namespace-indexing leakage is fixed, tokenizer and custom PRAGMA inputs are validated, graph hydration is batched, context assembly forwards retrieval filters, and sqlite-vec probing is cached.
 
-The remaining highest-impact flaws are in graph temporal semantics and migration/version safety. Graph expansion and `getConnected()` filter links by time but hydrate linked assertions by ID with no assertion-validity predicate, so future or expired assertions can be returned as context for a temporal anchor where they are not valid. The migration runner also silently accepts databases whose recorded schema version is newer than this package understands.
+The remaining highest-impact flaws are in graph temporal semantics and migration/version safety. Graph expansion and `getConnected()` filter links by time but hydrate linked assertions by ID with no assertion-validity predicate, so future or expired assertions can be returned as context for a temporal anchor where they are not valid. The fix should keep the API strict by default rather than adding a new temporal-distance escape hatch: normal graph expansion should only attach assertions valid at the anchor, while intentional history/audit workflows can use existing historical surfaces. The migration runner also silently accepts databases whose recorded schema version is newer than this package understands.
 
 ## Findings
 
@@ -38,11 +38,15 @@ Primary fix:
 - Add an assertion temporal predicate during graph expansion hydration.
 - For same-namespace links, fetch target assertions with `valid_from <= temporalAnchor` and, unless `includeSuperseded`, `(valid_until IS NULL OR valid_until > temporalAnchor)`.
 - For permitted cross-namespace links, apply the same predicate in the target assertion's own namespace.
+- Treat `includeSuperseded: true` as a past/closed-data relaxation only: it may include links and target assertions whose `validUntil <= temporalAnchor`, but it must still exclude future target assertions where `validFrom > temporalAnchor`.
+- Do not add a "temporal distance" or "nearby validity" option for v0.4.1. Such an option would need to define distance across link windows, source assertion windows, target assertion windows, and every hop in a path; that ambiguity is too risky for prompt-context retrieval.
 - Add tests where a valid link points to a future target and an expired target; neither should appear under default graph expansion.
 
 Alternative A: enforce link windows at write time so a link cannot be valid outside both endpoint assertion windows. This prevents new bad edges and makes traversal cheaper, but it breaks existing data that has broad link windows and still does not protect against direct DB writes or legacy rows.
 
 Alternative B: keep returning the link but decorate it with no target assertion when the target is not valid. This preserves graph topology but makes `linkedAssertions` less surprising only if a separate `linkedEdges` surface is added.
+
+Alternative C: add a flag or depth-like temporal tolerance that allows linked targets outside their validity window. This is not recommended for the current release. The strong use cases are real, but they are history/audit/topology workflows rather than default RAG-context workflows. Existing API paths are better fits: use `includeSuperseded: true` for past/closed material, `mode: 'trajectory'` for replacement history, `getEntityHistory()` / `getEntityTrajectory()` for entity-level history, `findPath()` for link topology, or rerun retrieval at the temporal anchor where the linked target is valid.
 
 ### P1: `getConnected()` returns assertions without temporal validation
 
@@ -55,10 +59,13 @@ Primary fix:
 - Add a repository method such as `getByIdsValidAt(ids, anchor, { includeSuperseded })`.
 - Use it from `getConnected()` and retrieval graph expansion.
 - Preserve cross-namespace traversal by validating per assertion row, not by forcing `assertion.namespace === traversal.namespace`.
+- Keep future assertions excluded even when `includeSuperseded` is true; "superseded" should mean already-known historical material, not assertions that became true after the requested anchor.
 
 Alternative A: push assertion-validity joins into `CTEGraphAdapter`. This prunes invalid paths earlier and avoids returning links that traverse through invalid nodes. Trade-off: it expands the adapter contract from "edge traversal" toward "edge plus node validity", and third-party adapters need clearer requirements.
 
 Alternative B: document that graph traversal is link-temporal only. This is not recommended because the public options are named with `temporalAnchor`, and `expandLinks` is used to build LLM context where invalid assertions are high-impact.
+
+Alternative C: introduce a graph-specific `temporalTolerance` or `graphTemporalMode`. Defer this unless real callers cannot express their workflow through current APIs. A future design should be explicit, for example separating "strict context retrieval" from "historical graph inspection", rather than using numeric distance that can be interpreted multiple ways.
 
 ### P1: Future schema versions are accepted silently
 
@@ -162,6 +169,7 @@ Alternative A: never mutate config through `initNamespace()` to keep initializat
 
 - Retrieval graph expansion with valid links to future and expired assertions.
 - `getConnected()` with the same invalid target windows, plus a cross-namespace link whose target is valid and one whose target is not.
+- `includeSuperseded: true` includes past/closed graph targets but still excludes future targets.
 - Opening a DB whose `trageti_schema_version` is greater than the latest known migration.
 - Long-running reindex lock heartbeat/stale-lock behavior.
 - Non-finite vectors from caller input and provider output.
@@ -170,7 +178,7 @@ Alternative A: never mutate config through `initNamespace()` to keep initializat
 
 ## Suggested Implementation Order
 
-1. Fix graph target temporal filtering in `getConnected()` and retrieval expansion, then cover with regression tests.
+1. Fix graph target temporal filtering in `getConnected()` and retrieval expansion, keeping the existing API strict and documenting historical workarounds rather than adding a temporal-distance option.
 2. Add future-schema rejection to the migration runner.
 3. Harden vector validation at all input/provider boundaries.
 4. Replace acquisition-time stale lock cleanup with heartbeat-based recovery or explicit unlock.
