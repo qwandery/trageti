@@ -5,11 +5,12 @@ import { MigrationCompatibilityError, SchemaExtensionError } from '../errors/ind
  * FTS5 tokenizers trageti is willing to embed into `CREATE VIRTUAL TABLE`
  * DDL. The tokenizer name and its args are interpolated into a SQL string,
  * so they are validated against an allow-list and a strict character class
- * before any DDL is generated — unless the caller opts out with
- * `trustedCustomTokenizer: true`.
+ * before any DDL is generated. `trustedCustomTokenizer: true` permits a
+ * custom tokenizer name, but the name and args still must be safe SQL tokens.
  */
 const ALLOWED_TOKENIZERS = new Set(['unicode61', 'ascii', 'porter', 'trigram']);
 
+const SAFE_TOKENIZER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Tokenizer args may only contain word characters, `=`, and `-`. */
 const SAFE_ARG = /^[A-Za-z0-9_=-]+$/;
 
@@ -22,22 +23,23 @@ const SAFE_ARG = /^[A-Za-z0-9_=-]+$/;
 export type TokenizerValidationContext = 'init' | 'rebuild';
 
 /**
- * Validate an FTS5 tokenizer config before any DDL is generated. A
- * `trustedCustomTokenizer: true` config passes through unvalidated (the
- * caller's explicit opt-out). Otherwise the tokenizer name must be built-in
- * and each arg must match the safe character class.
+ * Validate an FTS5 tokenizer config before any DDL is generated. Trusted
+ * custom tokenizers bypass only the built-in name allow-list. Names and args
+ * are always constrained because they are interpolated into SQLite DDL.
  */
 export function validateTokenizer(config: FTS5TokenizerConfig, context: TokenizerValidationContext): void {
-  // Trusted custom tokenizer — the caller takes responsibility; no allow-list
-  // check, no arg validation.
-  if (config.trustedCustomTokenizer === true) return;
-
   const reject = (message: string, details: Record<string, unknown>): never => {
     if (context === 'init') throw new SchemaExtensionError([message]);
     throw new MigrationCompatibilityError('fts-tokenizer', message, details);
   };
 
-  if (!ALLOWED_TOKENIZERS.has(config.tokenizer)) {
+  if (!SAFE_TOKENIZER_NAME.test(config.tokenizer)) {
+    reject(`FTS5 tokenizer "${config.tokenizer}" is not a safe SQLite identifier.`, {
+      tokenizer: config.tokenizer,
+    });
+  }
+
+  if (config.trustedCustomTokenizer !== true && !ALLOWED_TOKENIZERS.has(config.tokenizer)) {
     reject(
       `FTS5 tokenizer "${config.tokenizer}" is not a built-in tokenizer. ` +
         `Allowed: ${[...ALLOWED_TOKENIZERS].join(', ')}. ` +

@@ -58,6 +58,12 @@ export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
   },
   {
     type: 'index',
+    name: 'trageti_idx_links_source_episode',
+    tableName: 'trageti_links',
+    sql: 'CREATE INDEX trageti_idx_links_source_episode ON trageti_links(source_episode_id)',
+  },
+  {
+    type: 'index',
     name: 'trageti_idx_links_to',
     tableName: 'trageti_links',
     sql: 'CREATE INDEX trageti_idx_links_to ON trageti_links(namespace, to_id, valid_until)',
@@ -91,6 +97,12 @@ export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
     name: 'trageti_links',
     tableName: 'trageti_links',
     sql: "CREATE TABLE trageti_links ( id TEXT PRIMARY KEY, namespace TEXT NOT NULL REFERENCES trageti_namespaces(namespace), from_id TEXT NOT NULL REFERENCES trageti_assertions(id), to_id TEXT NOT NULL REFERENCES trageti_assertions(id), link_type TEXT NOT NULL, valid_from REAL NOT NULL, valid_until REAL, source_episode_id TEXT NOT NULL REFERENCES trageti_episodes(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), CHECK (valid_until IS NULL OR valid_until > valid_from) )",
+  },
+  {
+    type: 'table',
+    name: 'trageti_namespace_locks',
+    tableName: 'trageti_namespace_locks',
+    sql: 'CREATE TABLE trageti_namespace_locks ( namespace TEXT PRIMARY KEY REFERENCES trageti_namespaces(namespace) ON DELETE CASCADE, operation TEXT NOT NULL, owner TEXT NOT NULL, acquired_at TEXT NOT NULL )',
   },
   {
     type: 'table',
@@ -161,6 +173,12 @@ export const EXPECTED_STEADY_STATE_COLUMNS: Readonly<Record<string, readonly Exp
     { name: 'valid_until', type: 'REAL', notnull: 0, defaultValue: null, pk: 0 },
     { name: 'source_episode_id', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
     { name: 'created_at', type: 'TEXT', notnull: 1, defaultValue: "datetime('now')", pk: 0 },
+  ],
+  trageti_namespace_locks: [
+    { name: 'namespace', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },
+    { name: 'operation', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'owner', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'acquired_at', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
   ],
   trageti_namespaces: [
     { name: 'namespace', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },

@@ -116,6 +116,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     await expect(store.retrieve({ namespace: 'ns', queryText: 'content', temporalAnchor: 5 })).rejects.toThrow(
       EmbeddingProviderError,
     );
@@ -131,6 +132,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     await expect(store.retrieve({ namespace: 'ns', queryText: 'content', temporalAnchor: 5 })).rejects.toThrow(
       EmbeddingProviderError,
     );
@@ -146,6 +148,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     await expect(
       store.retrieve({
         namespace: 'ns',
@@ -166,6 +169,7 @@ describe('Step-0 provider failures propagate as EmbeddingProviderError', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     await expect(
       store.retrieve({
         namespace: 'ns',
@@ -653,6 +657,7 @@ describe('provider error messages do not leak the raw cause', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     let thrown: unknown;
     try {
       await store.indexBatch([{ assertionId: 'a-1' }]);
@@ -673,6 +678,7 @@ describe('provider error messages do not leak the raw cause', () => {
     await store.init();
     await writeEpisode(store, 'ns');
     await writeAssertion(store, 'ns', 'a-1', 'content');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     let thrown: unknown;
     try {
       await store.retrieve({ namespace: 'ns', queryText: 'content', temporalAnchor: 5 });

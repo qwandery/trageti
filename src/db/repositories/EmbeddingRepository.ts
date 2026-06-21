@@ -108,14 +108,18 @@ export class EmbeddingRepository {
     return row?.cnt ?? 0;
   }
 
-  getMissingIndexingByIds(tableName: string, assertionIds: readonly string[]): string[] {
+  getMissingIndexingByIds(tableName: string, namespace: string, assertionIds: readonly string[]): string[] {
     if (assertionIds.length === 0) return [];
     const sql = `
       SELECT value AS id
       FROM json_each(?)
+      JOIN trageti_assertions a ON a.id = value AND a.namespace = ?
       LEFT JOIN ${quoteIdent(tableName)} e ON value = e.assertion_id
       WHERE e.assertion_id IS NULL
     `;
-    return this.db.prepare<[string], { id: string }>(sql).all(buildCandidateJson(assertionIds)).map((row) => row.id);
+    return this.db
+      .prepare<[string, string], { id: string }>(sql)
+      .all(buildCandidateJson(assertionIds), namespace)
+      .map((row) => row.id);
   }
 }

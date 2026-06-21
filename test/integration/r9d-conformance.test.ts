@@ -50,6 +50,7 @@ describe('RetrievalMeta.queryTextMode is null when the call carries no queryText
     await store.init();
     await seedEpisode(store, 'ns');
     await seedAssertion(store, 'ns', 'a-1');
+    await store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]));
     const { meta } = await store.retrieve({
       namespace: 'ns',
       queryEmbedding: new Float32Array([1, 0, 0, 0]),

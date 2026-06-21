@@ -1,12 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
-import type { RetrievalMiddleware, RetrievalQuery, RetrievedAssertion } from '../../src/domain/types.js';
+import type { EmbeddingProvider, RetrievalMiddleware, RetrievalQuery, RetrievedAssertion } from '../../src/domain/types.js';
 import { citationFor } from '../fixtures/scenario.js';
 
 const NS = 'test-ns';
 const DIM = 4;
 const VEC_A = new Float32Array([1, 0, 0, 0]);
+
+class RecordingProvider implements EmbeddingProvider {
+  readonly name = 'recording-provider';
+  readonly dimension = DIM;
+  readonly texts: string[] = [];
+
+  async embed(texts: readonly string[]): Promise<Float32Array[]> {
+    this.texts.push(...texts);
+    return texts.map((text) => (text === 'rewritten query' ? VEC_A : new Float32Array([0, 1, 0, 0])));
+  }
+}
 
 async function makeStoreWithMiddleware(middleware: RetrievalMiddleware[]): Promise<TragetiStore> {
   const db = openTestDb();
@@ -126,6 +137,49 @@ describe('TragetiStore — middleware', () => {
     });
     expect(Array.isArray(results)).toBe(true);
     expect(results.length).toBeLessThanOrEqual(1);
+  });
+
+  it('before middleware rewrites queryText before provider-derived query embedding', async () => {
+    const provider = new RecordingProvider();
+    const mw: RetrievalMiddleware = {
+      before: (q) => ({ ...q, queryText: 'rewritten query' }),
+    };
+    const db = openTestDb();
+    const store = new TragetiStore(db, {
+      namespace: NS,
+      embeddingDimension: DIM,
+      embeddingProvider: provider,
+      middleware: [mw],
+    });
+    await store.init();
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: NS,
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'c',
+    });
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: NS,
+      type: 'fact',
+      content: 'Test assertion alpha.',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [citationFor('a-1', 'ep-1')],
+    });
+    await store.indexAssertion('a-1', VEC_A);
+
+    await store.retrieve({ namespace: NS, queryText: 'original query', temporalAnchor: 1 });
+
+    expect(provider.texts).toContain('rewritten query');
+    expect(provider.texts).not.toContain('original query');
   });
 
   it('after middleware can filter results', async () => {

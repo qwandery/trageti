@@ -337,6 +337,9 @@ When adding an error: add the code to `ErrorCode`, throw the most specific subcl
 
 Log codes are stable `TRGT_*` strings passed as the first argument to `Logger` methods. They are part of the observable contract — renaming one is a breaking change and must be reflected in `CHANGELOG.md`. Notable codes: `TRGT_FOREIGN_KEYS_ENABLED`, `TRGT_RETRIEVE_VECTOR_SKIPPED`, `TRGT_PENDING_INDEXING_VECTORLESS`, `TRGT_STATS_VEC_NOT_INTROSPECTED`, `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`, `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`, `TRGT_DEPRECATED_USAGE`, `TRGT_REINDEX_STAGING_LEFTOVER`, `TRGT_CITATION_EXCERPT_MISSING`.
 
+`TRGT_NAMESPACE_LOCK_STALE_CLEARED` is emitted when startup/operation preflight
+removes namespace operation locks older than 24 hours.
+
 ---
 
 ## Tooling
@@ -668,6 +671,11 @@ sqlite-vec's `vec0` virtual table requires the dimension as a DDL literal, not a
 ### Reindex is staging-swap safe but cost-heavy
 
 `reindexNamespace()` keeps the live index serving queries until an atomic column repoint; a mid-run failure preserves the old index. It is not "cheap" though — it re-embeds every active assertion. See [reindex operational impact](#reindex-operational-impact).
+
+While reindexing, a row in `trageti_namespace_locks` blocks same-namespace
+writes, indexing, namespace deletion, and vector upgrades. Do not manually
+delete a lock row unless the owning process is known to be gone; rows older
+than 24 hours are cleared automatically with a warning.
 
 ### Single-process writes
 

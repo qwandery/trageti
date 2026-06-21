@@ -9,6 +9,7 @@ export interface LinearScorerWeights {
 
 export interface LinearScorerOptions {
   weights?: Partial<LinearScorerWeights>;
+  recencyMode?: 'namespace-position' | 'anchor-distance';
 }
 
 const DEFAULT_WEIGHTS: LinearScorerWeights = {
@@ -21,9 +22,13 @@ function semanticSimilarity(candidate: ScoredCandidate): number | null {
   return candidate.semanticDistance === null ? null : Math.max(0, Math.min(1, 1 - candidate.semanticDistance));
 }
 
-function recency(candidate: ScoredCandidate, context: ScoringContext): number {
+function namespaceRecency(candidate: ScoredCandidate, context: ScoringContext): number {
   const { min, max } = context.namespacePositionRange;
   return min !== null && max !== null && max > min ? (candidate.position - min) / (max - min) : 1;
+}
+
+function anchorDistanceRecency(candidate: ScoredCandidate, context: ScoringContext): number {
+  return 1 / (1 + Math.abs(context.temporalAnchor - candidate.position));
 }
 
 /**
@@ -40,6 +45,7 @@ export class LinearScorer implements IRetrievalScorer {
   } as const;
 
   private readonly weights: LinearScorerWeights;
+  private readonly recencyMode: 'namespace-position' | 'anchor-distance';
 
   constructor(options: LinearScorerOptions = {}) {
     this.weights = {
@@ -47,25 +53,22 @@ export class LinearScorer implements IRetrievalScorer {
       keyword: options.weights?.keyword ?? DEFAULT_WEIGHTS.keyword,
       recency: options.weights?.recency ?? DEFAULT_WEIGHTS.recency,
     };
+    this.recencyMode = options.recencyMode ?? 'namespace-position';
   }
 
   /**
-   * Convenience scorer for callers that want to score one candidate directly.
-   * The retrieval pipeline does not call this method.
+   * @deprecated Use scoreBatch(). Batch scoring is required for BM25
+   * normalization that matches the retrieval pipeline.
    */
   score(candidate: ScoredCandidate, context: ScoringContext): number {
-    const semantic = semanticSimilarity(candidate);
-    const time = recency(candidate, context);
-
     if (candidate.bm25Score !== null) {
-      // Raw FTS5 BM25 is negative; more-negative is better.
-      const keyword = 1 - 1 / (1 + Math.abs(candidate.bm25Score));
-      if (semantic === null) {
-        const w = this.weights.keyword + this.weights.recency;
-        return (this.weights.keyword / w) * keyword + (this.weights.recency / w) * time;
-      }
-      return this.weights.semantic * semantic + this.weights.keyword * keyword + this.weights.recency * time;
+      throw new TragetiError(
+        ErrorCode.SCORER_REQUIRES_BATCH_CONTEXT,
+        'LinearScorer.score() cannot score BM25 candidates without batch context; use scoreBatch().',
+      );
     }
+    const semantic = semanticSimilarity(candidate);
+    const time = this.recency(candidate, context);
 
     if (semantic === null) {
       throw new TragetiError(ErrorCode.SCORER_NO_USABLE_SIGNAL, 'candidate has no usable signal');
@@ -73,6 +76,12 @@ export class LinearScorer implements IRetrievalScorer {
 
     const w = this.weights.semantic + this.weights.recency;
     return (this.weights.semantic / w) * semantic + (this.weights.recency / w) * time;
+  }
+
+  private recency(candidate: ScoredCandidate, context: ScoringContext): number {
+    return this.recencyMode === 'anchor-distance'
+      ? anchorDistanceRecency(candidate, context)
+      : namespaceRecency(candidate, context);
   }
 
   scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[] {
@@ -95,7 +104,7 @@ export class LinearScorer implements IRetrievalScorer {
 
     return candidates.map((candidate, i) => {
       const semantic = semanticSimilarity(candidate);
-      const time = recency(candidate, context);
+      const time = this.recency(candidate, context);
 
       if (candidate.bm25Score !== null) {
         const keyword = bm25NormalisedByIndex.get(i) ?? 0;

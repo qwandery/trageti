@@ -135,6 +135,11 @@ function contextOptionsFromQuery(query: RetrievalQuery, tokenBudget?: number): C
   if (query.queryEmbedding !== undefined) options.queryEmbedding = query.queryEmbedding;
   if (query.queryText !== undefined) options.queryText = query.queryText;
   if (query.queryTextMode !== undefined) options.queryTextMode = query.queryTextMode;
+  if (query.temporalWindow !== undefined) options.temporalWindow = query.temporalWindow;
+  if (query.entityTypes !== undefined) options.entityTypes = query.entityTypes;
+  if (query.assertionTypes !== undefined) options.assertionTypes = query.assertionTypes;
+  if (query.minConfidence !== undefined) options.minConfidence = query.minConfidence;
+  if (query.includeSuperseded !== undefined) options.includeSuperseded = query.includeSuperseded;
   if (query.expandLinks !== undefined) options.expandLinks = query.expandLinks;
   if (query.maxDepth !== undefined) options.maxDepth = query.maxDepth;
   if (query.mode !== undefined) options.mode = query.mode;

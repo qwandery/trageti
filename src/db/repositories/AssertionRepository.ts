@@ -2,6 +2,9 @@ import type { Database } from 'better-sqlite3';
 import type { Assertion, AssertionCitation, NormalizedNewAssertion } from '../../domain/types.js';
 import type { CitationRepository } from './CitationRepository.js';
 import { buildCandidateJson } from '../candidates.js';
+import { ErrorCode, TragetiError } from '../../errors/index.js';
+
+const MAX_SUPERSESSION_DEPTH = 1000;
 
 interface AssertionRow {
   id: string;
@@ -23,6 +26,8 @@ export interface AssertionQueryOptions {
   entityId?: string;
   entityType?: string;
   type?: string;
+  entityTypes?: string[];
+  types?: string[];
   validAt?: number;
   includeSuperseded?: boolean;
 }
@@ -67,8 +72,11 @@ export class AssertionRepository {
    * supersedes_id is strictly new -> old (decision §1) and is set on the new
    * assertion at writeAssertion() time, never written back from the predecessor.
    */
-  supersedeAssertion(assertionId: string, validUntil: number): void {
-    this.db.prepare('UPDATE trageti_assertions SET valid_until = ? WHERE id = ?').run(validUntil, assertionId);
+  supersedeAssertion(assertionId: string, validUntil: number): boolean {
+    const result = this.db
+      .prepare('UPDATE trageti_assertions SET valid_until = ? WHERE id = ? AND valid_until IS NULL')
+      .run(validUntil, assertionId);
+    return result.changes === 1;
   }
 
   getById(id: string): Assertion | null {
@@ -119,9 +127,17 @@ export class AssertionRepository {
       conditions.push('entity_type = ?');
       params.push(options.entityType);
     }
+    if (options.entityTypes !== undefined && options.entityTypes.length > 0) {
+      conditions.push(`entity_type IN (${options.entityTypes.map(() => '?').join(',')})`);
+      params.push(...options.entityTypes);
+    }
     if (options.type !== undefined) {
       conditions.push('type = ?');
       params.push(options.type);
+    }
+    if (options.types !== undefined && options.types.length > 0) {
+      conditions.push(`type IN (${options.types.map(() => '?').join(',')})`);
+      params.push(...options.types);
     }
 
     const sql = `SELECT * FROM trageti_assertions WHERE ${conditions.join(' AND ')}`;
@@ -178,8 +194,9 @@ export class AssertionRepository {
           WHERE a.supersedes_id IS NOT NULL
             AND a.namespace = ?
             AND a.entity_id IS NOT NULL AND a.entity_id = ?
+            AND c.depth < ?
         )
-      SELECT DISTINCT a.*
+      SELECT DISTINCT a.*, c.depth AS _depth
       FROM chain c
       JOIN trageti_assertions a ON a.id = c.id
       WHERE a.namespace = ? AND a.entity_id IS NOT NULL AND a.entity_id = ?
@@ -187,7 +204,8 @@ export class AssertionRepository {
     `;
     const rows = this.db
       .prepare<unknown[], AssertionRow>(sql)
-      .all(namespace, entityId, namespace, entityId, namespace, entityId, namespace, entityId);
+      .all(namespace, entityId, namespace, entityId, namespace, entityId, MAX_SUPERSESSION_DEPTH, namespace, entityId);
+    assertSupersessionDepth(namespace, rows);
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id));
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []));
   }
@@ -206,13 +224,15 @@ export class AssertionRepository {
         FROM chain c
         JOIN trageti_assertions a ON a.id = c.id
         WHERE a.supersedes_id IS NOT NULL
+          AND c.depth < ?
       )
       SELECT a.*, c.depth AS _depth
       FROM chain c
       JOIN trageti_assertions a ON a.id = c.id
       ORDER BY c.depth DESC
     `;
-    const rows = this.db.prepare<[string], AssertionRow>(sql).all(assertionId);
+    const rows = this.db.prepare<[string, number], AssertionRow>(sql).all(assertionId, MAX_SUPERSESSION_DEPTH);
+    assertSupersessionDepth(assertionId, rows);
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id));
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []));
   }
@@ -234,6 +254,7 @@ export class AssertionRepository {
         FROM chain c
         JOIN trageti_assertions a ON a.id = c.id
         WHERE a.supersedes_id IS NOT NULL
+          AND c.depth < ?
       )
       SELECT c.root_id, a.*, c.depth AS _depth
       FROM chain c
@@ -241,8 +262,9 @@ export class AssertionRepository {
       ORDER BY c.root_id ASC, c.depth DESC
     `;
     const rows = this.db
-      .prepare<[string], AssertionRow & { root_id: string }>(sql)
-      .all(buildCandidateJson(assertionIds));
+      .prepare<[string, number], AssertionRow & { root_id: string }>(sql)
+      .all(buildCandidateJson(assertionIds), MAX_SUPERSESSION_DEPTH);
+    assertSupersessionDepth(assertionIds.join(','), rows);
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id));
     for (const row of rows) {
       const chain = chains.get(row.root_id);
@@ -294,5 +316,14 @@ export class AssertionRepository {
       createdAt: row.created_at,
       extensions,
     };
+  }
+}
+
+function assertSupersessionDepth(scope: string, rows: Array<AssertionRow & { _depth?: number }>): void {
+  if (rows.some((row) => (row._depth ?? 0) >= MAX_SUPERSESSION_DEPTH && row.supersedes_id !== null)) {
+    throw new TragetiError(
+      ErrorCode.SUPERSESSION_DEPTH_EXCEEDED,
+      `Supersession traversal exceeded maximum depth ${String(MAX_SUPERSESSION_DEPTH)} for "${scope}"`,
+    );
   }
 }

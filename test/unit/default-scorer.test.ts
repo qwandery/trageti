@@ -45,9 +45,9 @@ describe('LinearScorer', () => {
       bm25Score: null,
       position: 5,
     };
-    const score = scorer.score(candidate, makeContext());
-    expect(score).toBeGreaterThanOrEqual(0);
-    expect(score).toBeLessThanOrEqual(1);
+    const [score] = scorer.scoreBatch([candidate], makeContext());
+    expect(score ?? NaN).toBeGreaterThanOrEqual(0);
+    expect(score ?? NaN).toBeLessThanOrEqual(1);
   });
 
   it('perfect semantic match (distance=0) scores higher than poor match (distance=1)', async () => {
@@ -64,7 +64,8 @@ describe('LinearScorer', () => {
       bm25Score: null,
       position: 5,
     };
-    expect(scorer.score(perfect, ctx)).toBeGreaterThan(scorer.score(poor, ctx));
+    const [perfectScore, poorScore] = scorer.scoreBatch([perfect, poor], ctx);
+    expect(perfectScore).toBeGreaterThan(poorScore ?? 0);
   });
 
   it('more recent assertion scores higher than older one with same semantic distance', async () => {
@@ -81,10 +82,11 @@ describe('LinearScorer', () => {
       bm25Score: null,
       position: 1,
     };
-    expect(scorer.score(recent, ctx)).toBeGreaterThan(scorer.score(old, ctx));
+    const [recentScore, oldScore] = scorer.scoreBatch([recent, old], ctx);
+    expect(recentScore).toBeGreaterThan(oldScore ?? 0);
   });
 
-  it('per-candidate score handles raw FTS5 BM25 (negative values)', async () => {
+  it('batch scoring handles raw FTS5 BM25 (negative values)', async () => {
     const ctx = makeContext();
     // v0.2: BM25 arrives as raw FTS5 (negative; more-negative = better).
     const withBm25: ScoredCandidate = {
@@ -99,7 +101,8 @@ describe('LinearScorer', () => {
       bm25Score: null,
       position: 5,
     };
-    expect(scorer.score(withBm25, ctx)).not.toBe(scorer.score(noBm25, ctx));
+    const [withBm25Score, noBm25Score] = scorer.scoreBatch([withBm25, noBm25], ctx);
+    expect(withBm25Score).not.toBe(noBm25Score);
   });
 
   it('handles flat position range (min === max) without division by zero', async () => {
@@ -110,7 +113,7 @@ describe('LinearScorer', () => {
       bm25Score: null,
       position: 5,
     };
-    expect(() => scorer.score(candidate, ctx)).not.toThrow();
+    expect(() => scorer.scoreBatch([candidate], ctx)).not.toThrow();
   });
 
   describe('scoreBatch — cross-candidate BM25 normalisation (v0.2)', () => {

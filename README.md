@@ -449,6 +449,10 @@ emission is a guarded no-op when unset.
 
 ## Schema extensions
 
+Store construction does not mutate the process-default logger used by
+standalone helper classes. Pass `logger` to each store that should emit to a
+specific sink.
+
 Add custom columns or tables without breaking migrations:
 
 ```typescript
@@ -514,6 +518,10 @@ retrieval core → per-call `after` (reverse) → global `after` (reverse).
 
 ## Custom scorer
 
+Middleware before-hooks run before provider-derived query embeddings are
+created, so rewrites to `queryText`, `queryEmbedding`, filters, or strategy are
+reflected in retrieval.
+
 ```typescript
 import type { RetrievalScorer, ScoredCandidate, ScoringContext } from 'trageti';
 
@@ -540,6 +548,11 @@ a vector-only candidate. `RetrievalScorer` is batch-only in v0.3 rev2: the
 pipeline always calls `scoreBatch()` and validates the returned array length.
 `RRFScorer` is the default scorer; use `LinearScorer` for the previous
 weighted-linear behavior.
+Both built-in scorers also support opt-in anchor-distance recency:
+`new RRFScorer({ recencyMode: 'anchor-distance' })` and
+`new LinearScorer({ recencyMode: 'anchor-distance' })`. Use
+`LinearScorer.scoreBatch()` for pipeline-equivalent BM25 scoring; direct
+`score()` is retained only for cases that do not need batch normalization.
 
 ## Migrations
 
@@ -556,6 +569,11 @@ const version = await store.getCurrentSchemaVersion();
 changing embedding dimensions) using a staging-swap: it builds a fresh index
 and atomically swaps it in, so a provider failure leaves the previous index
 intact.
+While reindexing, Trageti records a database-backed namespace lock. Writes,
+indexing, namespace deletion, and vector upgrades for that namespace fail fast
+until the lock is released. Locks older than 24 hours are treated as stale and
+cleared with a warning; remove fresher rows from `trageti_namespace_locks` only
+after confirming no reindex is running.
 
 ```typescript
 await store.reindexNamespace('my-namespace', {
@@ -572,6 +590,17 @@ await store.rebuildFts({ tokenizer: { tokenizer: 'porter', tokenizerArgs: ['unic
 ```
 
 `getPendingIndexing(namespace)` lists assertions that have no embedding yet.
+Vector-only retrieval against a vector-configured namespace whose vec0 table is
+missing throws `RETRIEVAL_VECTOR_INDEX_NOT_READY`; hybrid retrieval falls back
+to BM25 with `TRGT_RETRIEVE_VECTOR_SKIPPED`.
+
+`writeEpisodeBundle()` applies the same assertion validators and guarded
+supersession close behavior as `writeAssertion()`, including rejection of
+duplicate `supersedesId` claims.
+
+`prepareDatabase({ pragmas })` and `fts5Tokenizer` are validated before
+SQLite interpolation. `trustedCustomTokenizer` permits a custom tokenizer name,
+but tokenizer args still must be safe SQL tokens.
 
 ## Multiple namespaces
 

@@ -27,6 +27,11 @@ export async function assembleContext(store: TragetiStore, options: AssembleOpti
   if (options.queryEmbedding !== undefined) query.queryEmbedding = options.queryEmbedding;
   if (options.queryText !== undefined) query.queryText = options.queryText;
   if (options.queryTextMode !== undefined) query.queryTextMode = options.queryTextMode;
+  if (options.temporalWindow !== undefined) query.temporalWindow = options.temporalWindow;
+  if (options.entityTypes !== undefined) query.entityTypes = options.entityTypes;
+  if (options.assertionTypes !== undefined) query.assertionTypes = options.assertionTypes;
+  if (options.minConfidence !== undefined) query.minConfidence = options.minConfidence;
+  if (options.includeSuperseded !== undefined) query.includeSuperseded = options.includeSuperseded;
   if (options.expandLinks !== undefined) query.expandLinks = options.expandLinks;
   if (options.maxDepth !== undefined) query.maxDepth = options.maxDepth;
   if (options.mode !== undefined) query.mode = options.mode;
@@ -48,7 +53,7 @@ export async function assembleContext(store: TragetiStore, options: AssembleOpti
   const renderedAssertions =
     formatted.includedAssertions ?? (formatted.truncated ? assertions.slice(0, formatted.includedCount) : assertions);
 
-  const positions = assertions.map((a) => a.validFrom);
+  const positions = renderedAssertions.map((a) => a.validFrom);
   const from = positions.length > 0 ? Math.min(...positions) : options.temporalAnchor;
   const to = positions.length > 0 ? Math.max(...positions) : options.temporalAnchor;
 

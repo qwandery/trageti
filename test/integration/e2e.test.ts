@@ -186,6 +186,6 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     const db = openTestDb();
     const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
-    expect(await store.getCurrentSchemaVersion()).toBe(1);
+    expect(await store.getCurrentSchemaVersion()).toBe(2);
   });
 });

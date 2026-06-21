@@ -10,6 +10,7 @@
  */
 /* eslint-disable @typescript-eslint/require-await */
 import type { Database } from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import type {
   Episode,
   Assertion,
@@ -77,7 +78,7 @@ import {
   ErrorCode,
   errorCodeOf,
 } from '../errors/index.js';
-import { ConsoleLogger, setDefaultLogger, emitOnce, incr, observe } from '../internal/logger.js';
+import { ConsoleLogger, emitOnce, incr, observe } from '../internal/logger.js';
 import { namespaceToEmbeddingTable } from '../internal/hash.js';
 import { validateTokenizer } from '../internal/tokenizer.js';
 import { quoteIdent } from '../internal/sql-ident.js';
@@ -89,12 +90,14 @@ import {
 } from '../internal/validate.js';
 import { prepareDatabase } from '../defaults/connection/prepareDatabase.js';
 import { retrieve, validateRetrievalQuery } from '../pipeline/retrieve.js';
+import { applyBeforeHooks } from '../pipeline/middleware.js';
 import { assembleContext } from '../pipeline/assemble.js';
 import { getTemporalSnapshot } from '../pipeline/snapshot.js';
 import { getConnected, findPath } from '../pipeline/graph.js';
 import { reindexNamespace as doReindex } from '../pipeline/reindex.js';
 
 const DEFAULT_MAX_EPISODE_CONTENT_BYTES = 8192;
+const NAMESPACE_LOCK_STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Throws `ValidationError` unless `dimension` is a positive integer. Shared by
@@ -181,8 +184,6 @@ export class TragetiStore {
   private linkRepo!: LinkRepository;
   private embeddingRepo!: EmbeddingRepository;
 
-  /** Cache: namespace → embedding table name */
-  private readonly embeddingTableCache = new Map<string, string>();
   /** Cache: table → extension column names (for extensions bag) */
   private extensionColumnCache = new Map<string, string[]>();
   /** Process-local per-namespace embedding providers (never persisted). */
@@ -193,7 +194,7 @@ export class TragetiStore {
   private closing = false;
   private inFlightOperations = 0;
   private readonly inFlightWaiters: Array<() => void> = [];
-  private readonly reindexLocks = new Set<string>();
+  private sqliteVecLoaded: boolean | null = null;
 
   static async create(options: CreateStoreOptions): Promise<TragetiStore> {
     const db = prepareDatabase(options.database, options.prepare);
@@ -228,7 +229,6 @@ export class TragetiStore {
     } as typeof this.options;
     this.closeDatabaseOnStoreClose = internal.closeDatabaseOnStoreClose ?? false;
     this.fts5TokenizerExplicit = options.fts5Tokenizer !== undefined;
-    setDefaultLogger(this.options.logger);
   }
 
   async init(): Promise<void> {
@@ -345,6 +345,7 @@ export class TragetiStore {
 
   async writeEpisode(episode: NewEpisodeInput): Promise<Episode> {
     this.requireNamespaceInit(episode.namespace);
+    this.requireNamespaceUnlocked(episode.namespace, 'writeEpisode');
     validateEpisodeInput(episode);
     const maxBytes = this.options.maxEpisodeContentBytes;
     if (maxBytes > 0) {
@@ -362,13 +363,16 @@ export class TragetiStore {
 
   async writeEpisodeBundle(input: NewEpisodeBundleInput): Promise<EpisodeBundleWriteResult> {
     this.requireNamespaceInit(input.episode.namespace);
+    this.requireNamespaceUnlocked(input.episode.namespace, 'writeEpisodeBundle');
     validateEpisodeInput(input.episode);
     const assertions = input.assertions.map((assertion) => this.normalizeAssertionInput(assertion));
     const links = input.links ?? [];
 
     const assertionIds = new Set<string>();
     const citationIds = new Set<string>();
+    const claimedPredecessors = new Set<string>();
     const errors: string[] = [];
+    const inFlightEpisodeIds = new Set([input.episode.id]);
     for (const assertion of assertions) {
       if (assertion.namespace !== input.episode.namespace) {
         errors.push(`assertion "${assertion.id}" namespace must match episode namespace "${input.episode.namespace}"`);
@@ -378,15 +382,21 @@ export class TragetiStore {
       }
       if (assertionIds.has(assertion.id)) errors.push(`duplicate assertion id "${assertion.id}" in episode bundle`);
       assertionIds.add(assertion.id);
+      if (assertion.supersedesId !== null) {
+        if (claimedPredecessors.has(assertion.supersedesId)) {
+          errors.push(`duplicate supersedesId "${assertion.supersedesId}" in episode bundle`);
+        }
+        claimedPredecessors.add(assertion.supersedesId);
+      }
       for (const citation of assertion.citations) {
         if (citationIds.has(citation.id)) errors.push(`duplicate citation id "${citation.id}" in episode bundle`);
         citationIds.add(citation.id);
       }
-      this.enforceStructuralInvariants(assertion, {
-        inFlightEpisodeIds: new Set([input.episode.id]),
+      this.validateAssertionForWrite(assertion, {
+        inFlightEpisodeIds,
         collectErrors: errors,
+        errorPrefix: `assertion "${assertion.id}": `,
       });
-      this.enforceCitationExcerptPolicy(assertion);
     }
 
     const linkIds = new Set<string>();
@@ -400,14 +410,7 @@ export class TragetiStore {
         errors.push(`link "${link.id}" sourceEpisodeId must be "${input.episode.id}"`);
       }
       validateLinkFields(link, errors);
-      for (const [endpoint, label] of [
-        [link.fromId, 'fromId'],
-        [link.toId, 'toId'],
-      ] as const) {
-        if (!assertionIds.has(endpoint) && !this.assertionRepo.getById(endpoint)) {
-          errors.push(`link.${label} "${endpoint}" does not reference an existing or bundled assertion`);
-        }
-      }
+      this.validateLinkReferences(link, errors, { inFlightAssertionIds: assertionIds, inFlightEpisodeIds });
     }
 
     if (errors.length > 0) throw new ValidationError(errors, 'EpisodeBundle');
@@ -419,7 +422,7 @@ export class TragetiStore {
         this.assertionRepo.insert(assertion);
         const citations = this.citationRepo.insertMany(assertion.id, assertion.citations);
         if (assertion.supersedesId !== null) {
-          this.assertionRepo.supersedeAssertion(assertion.supersedesId, assertion.validFrom);
+          this.closeSupersededAssertion(assertion.supersedesId, assertion.validFrom);
         }
         const inserted = this.assertionRepo.getById(assertion.id);
         if (!inserted) {
@@ -435,34 +438,21 @@ export class TragetiStore {
   async writeAssertion(input: NewAssertionInput): Promise<Assertion> {
     const assertion = this.normalizeAssertionInput(input);
     this.requireNamespaceInit(assertion.namespace);
+    this.requireNamespaceUnlocked(assertion.namespace, 'writeAssertion');
 
     // ─── Structural invariants (decision §2) ─────────────────────────────────
     // Enforced here, NOT in DefaultAssertionValidator — replacing the validators
     // array does not bypass these. Configured validators run *after* and only if
     // structural checks pass; this avoids duplicate error messages on the same
     // field.
-    this.enforceStructuralInvariants(assertion);
-
-    // ─── Citation-excerpt policy ─────────────────────────────────────────────
-    // Enforced here, NOT only in DefaultAssertionValidator — a custom
-    // validators array would otherwise silently disable the regulated-domain
-    // excerpt requirement.
-    this.enforceCitationExcerptPolicy(assertion);
-
-    // ─── User-facing validators (replaceable) ───────────────────────────────
-    const errors: string[] = [];
-    for (const validator of this.options.validators) {
-      const result = validator.validate(assertion);
-      if (!result.valid) errors.push(...result.errors);
-    }
-    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
+    this.validateAssertionForWrite(assertion);
 
     // ─── Atomic write ───────────────────────────────────────────────────────
     return this.db.transaction(() => {
       this.assertionRepo.insert(assertion);
       const citations = this.citationRepo.insertMany(assertion.id, assertion.citations);
       if (assertion.supersedesId !== null) {
-        this.assertionRepo.supersedeAssertion(assertion.supersedesId, assertion.validFrom);
+        this.closeSupersededAssertion(assertion.supersedesId, assertion.validFrom);
       }
       const inserted = this.assertionRepo.getById(assertion.id);
       if (!inserted) {
@@ -483,6 +473,7 @@ export class TragetiStore {
     if (!parent) {
       errors.push(`citation.assertionId "${citation.assertionId}" does not reference an existing assertion`);
     } else {
+      this.requireNamespaceUnlocked(parent.namespace, 'writeCitation');
       const ep = this.db
         .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
         .get(citation.episodeId, parent.namespace);
@@ -551,32 +542,15 @@ export class TragetiStore {
         'Assertion',
       );
     }
-    this.assertionRepo.supersedeAssertion(assertionId, validUntil);
+    this.closeSupersededAssertion(assertionId, validUntil);
   }
 
   async writeLink(link: NewAssertionLinkInput): Promise<AssertionLink> {
     this.requireNamespaceInit(link.namespace);
+    this.requireNamespaceUnlocked(link.namespace, 'writeLink');
     validateLinkInput(link);
-    // Warn once per cross-namespace link pair (spec §Future: permitted but flagged)
-    const fromA = this.assertionRepo.getById(link.fromId);
-    const toA = this.assertionRepo.getById(link.toId);
     const linkErrors: string[] = [];
-    if (!fromA) linkErrors.push(`link.fromId "${link.fromId}" does not reference an existing assertion`);
-    if (!toA) linkErrors.push(`link.toId "${link.toId}" does not reference an existing assertion`);
-    if (fromA && toA && fromA.namespace !== toA.namespace) {
-      this.options.logger.warn('TRGT_CROSS_NAMESPACE_LINK', {
-        fromNs: fromA.namespace,
-        toNs: toA.namespace,
-      });
-    }
-    const sourceEpisode = this.db
-      .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
-      .get(link.sourceEpisodeId, link.namespace);
-    if (!sourceEpisode) {
-      linkErrors.push(
-        `link.sourceEpisodeId "${link.sourceEpisodeId}" does not reference an episode in namespace "${link.namespace}"`,
-      );
-    }
+    this.validateLinkReferences(link, linkErrors);
     if (linkErrors.length > 0) throw new ValidationError(linkErrors, 'Link');
     return this.linkRepo.insert(link);
   }
@@ -597,6 +571,7 @@ export class TragetiStore {
           assertionId,
         });
       }
+      this.requireNamespaceUnlocked(assertion.namespace, 'indexAssertion');
       const table = this.ensureVectorReady(assertion.namespace, 'indexing');
       const dim = this.namespaceRepo.get(assertion.namespace)?.embeddingDimension ?? null;
 
@@ -656,6 +631,7 @@ export class TragetiStore {
       if (modeError) {
         throw new IndexingError(ErrorCode.INDEXING_INVALID_PROVIDER_ERROR_MODE, modeError);
       }
+      this.clearStaleNamespaceLocks();
 
       // Skips are tracked with their input index so the returned skipped[]
       // preserves input order regardless of which resolution stage produced them.
@@ -693,6 +669,25 @@ export class TragetiStore {
             },
           });
           continue;
+        }
+        const locked = this.namespaceLock(assertion.namespace);
+        if (locked) {
+          if (mode === 'skip') {
+            skips.push({
+              index: i,
+              entry: {
+                assertionId: item.assertionId,
+                reason: ErrorCode.NAMESPACE_OPERATION_LOCKED,
+                errorCode: ErrorCode.NAMESPACE_OPERATION_LOCKED,
+              },
+            });
+            continue;
+          }
+          throw new IndexingError(
+            ErrorCode.NAMESPACE_OPERATION_LOCKED,
+            `Namespace "${assertion.namespace}" is locked by ${locked.operation}; cannot index "${assertion.id}"`,
+            { assertionId: assertion.id },
+          );
         }
         // Validate the namespace is vector-configured / sqlite-vec loaded, and
         // resolve its effective embedding provider — once per distinct namespace.
@@ -901,12 +896,13 @@ export class TragetiStore {
 
   async retrieve(query: RetrievalQuery): Promise<RetrievalResult> {
     return this.trackOperation('retrieve', async () => {
-      this.requireNamespaceInit(query.namespace);
-      validateRetrievalQuery(query);
+      const routedBefore = applyBeforeHooks(this.options.middleware, query.middleware ?? [], query);
+      this.requireNamespaceInit(routedBefore.namespace);
+      validateRetrievalQuery(routedBefore);
       // Step 0: routing. Resolve a provider-derived query embedding when the
       // caller gave queryText but no queryEmbedding, or record why the vector
       // branch is skipped under hybrid degradation.
-      const { query: routed, skipReason } = await this.resolveQueryEmbedding(query);
+      const { query: routed, skipReason } = await this.resolveQueryEmbedding(routedBefore);
       this.requireNotClosed('retrieve');
       const result = retrieve(
         this.db,
@@ -923,6 +919,7 @@ export class TragetiStore {
           metrics: this.options.metrics ?? null,
         },
         routed,
+        { skipBefore: true },
       );
       if (skipReason) {
         result.meta.warnings.push({
@@ -983,6 +980,16 @@ export class TragetiStore {
         throw new MissingPeerDependencyError('sqlite-vec', 'npm install sqlite-vec', "use retrievalStrategy: 'bm25'");
       }
       return degrade('NO_SQLITE_VEC');
+    }
+    const table = this.namespaceRepo.getEmbeddingTable(query.namespace);
+    if (!table || !this.embeddingRepo.tableExists(table)) {
+      if (strategy === 'vector') {
+        throw new RetrievalInputError(
+          ErrorCode.RETRIEVAL_VECTOR_INDEX_NOT_READY,
+          `Namespace "${query.namespace}" has no readable vector index table; index assertions before vector retrieval.`,
+        );
+      }
+      return degrade('VECTOR_INDEX_NOT_READY');
     }
 
     // Pre-checks passed (provider resolvable, sqlite-vec loaded, namespace
@@ -1080,12 +1087,12 @@ export class TragetiStore {
     if (assertionIds.length === 0) return [];
     const table = this.ensureVectorReadable(namespace);
     const missingIds =
-      table === null ? [...assertionIds] : this.embeddingRepo.getMissingIndexingByIds(table, assertionIds);
+      table === null ? [...assertionIds] : this.embeddingRepo.getMissingIndexingByIds(table, namespace, assertionIds);
     if (missingIds.length === 0) return [];
     const assertionsById = new Map(this.assertionRepo.getByIds(missingIds).map((assertion) => [assertion.id, assertion]));
     return missingIds.flatMap((id) => {
       const assertion = assertionsById.get(id);
-      return assertion ? [{ id, content: assertion.content }] : [];
+      return assertion && assertion.namespace === namespace ? [{ id, content: assertion.content }] : [];
     });
   }
 
@@ -1096,6 +1103,7 @@ export class TragetiStore {
 
   async deleteNamespace(namespace: string, options: DeleteNamespaceOptions = {}): Promise<void> {
     this.requireInit();
+    this.requireNamespaceUnlocked(namespace, 'deleteNamespace');
     const refTables = (this.options.schemaExtensions.tables ?? []).filter((t) => t.referencesNamespace);
     if (refTables.length > 0) {
       if (!options.cascade) {
@@ -1116,32 +1124,26 @@ export class TragetiStore {
       if (table) this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(table)}`);
       // Citations must go before assertions (FK from trageti_citations.assertion_id).
       this.citationRepo.deleteByAssertionNamespace(namespace);
+      this.db.prepare('DELETE FROM trageti_links WHERE namespace = ?').run(namespace);
       this.db
-        .prepare(
-          `DELETE FROM trageti_links
-            WHERE namespace = ?
-               OR from_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)
-               OR to_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)
-               OR source_episode_id IN (SELECT id FROM trageti_episodes WHERE namespace = ?)`,
-        )
-        .run(namespace, namespace, namespace, namespace);
+        .prepare('DELETE FROM trageti_links WHERE from_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)')
+        .run(namespace);
+      this.db
+        .prepare('DELETE FROM trageti_links WHERE to_id IN (SELECT id FROM trageti_assertions WHERE namespace = ?)')
+        .run(namespace);
+      this.db
+        .prepare('DELETE FROM trageti_links WHERE source_episode_id IN (SELECT id FROM trageti_episodes WHERE namespace = ?)')
+        .run(namespace);
       this.db.prepare('DELETE FROM trageti_assertions WHERE namespace = ?').run(namespace);
       this.db.prepare('DELETE FROM trageti_episodes WHERE namespace = ?').run(namespace);
       this.db.prepare('DELETE FROM trageti_namespaces WHERE namespace = ?').run(namespace);
-      this.embeddingTableCache.delete(namespace);
     })();
   }
 
   async reindexNamespace(namespace: string, options: ReindexOptions = {}): Promise<ReindexResult> {
     return this.trackOperation('reindexNamespace', async () => {
       this.requireNamespaceInit(namespace);
-      if (this.reindexLocks.has(namespace)) {
-        throw new ReindexError(namespace, 0, 'reindex already running for namespace', {
-          code: ErrorCode.REINDEX_ALREADY_RUNNING,
-          advice: 'wait for the existing reindex to finish, then retry',
-        });
-      }
-      this.reindexLocks.add(namespace);
+      const lockOwner = this.acquireNamespaceOperationLock(namespace, 'reindexNamespace');
       try {
         const batchSize = options.batchSize ?? 64;
         const batchError = positiveIntegerOptionError(batchSize, 'batchSize');
@@ -1184,13 +1186,10 @@ export class TragetiStore {
           embeddingProvider: provider,
         });
         this.requireNotClosed('reindexNamespace');
-        // The embedding_table was repointed by the staging swap — refresh the cache.
-        const newTable = this.namespaceRepo.getEmbeddingTable(namespace);
-        if (newTable) this.embeddingTableCache.set(namespace, newTable);
         observe(this.options.metrics ?? undefined, 'trageti.reindex.tookMs', result.durationMs);
         return result;
       } finally {
-        this.reindexLocks.delete(namespace);
+        this.releaseNamespaceOperationLock(namespace, lockOwner);
       }
     });
   }
@@ -1314,6 +1313,7 @@ export class TragetiStore {
 
   async upgradeNamespaceToVector(namespace: string, options: UpgradeNamespaceToVectorOptions): Promise<void> {
     this.requireNamespaceInit(namespace);
+    this.requireNamespaceUnlocked(namespace, 'upgradeNamespaceToVector');
     const existing = this.namespaceRepo.get(namespace);
     if (existing && existing.embeddingDimension !== null) {
       throw new ValidationError([
@@ -1330,7 +1330,6 @@ export class TragetiStore {
     const table = namespaceToEmbeddingTable(namespace);
     this.db.transaction(() => {
       this.namespaceRepo.updateEmbeddingDimension(namespace, dimension, table);
-      this.embeddingTableCache.set(namespace, table);
     })();
     if (options.embeddingProvider) {
       this.namespaceProviders.set(namespace, options.embeddingProvider);
@@ -1547,9 +1546,12 @@ export class TragetiStore {
    * `TRGT_CITATION_EXCERPT_MISSING`. Mirrors `writeCitation()`'s late-citation
    * check.
    */
-  private enforceCitationExcerptPolicy(assertion: NormalizedNewAssertion): void {
+  private enforceCitationExcerptPolicy(
+    assertion: NormalizedNewAssertion,
+    options: { collectErrors?: string[] } = {},
+  ): void {
     const strict = this.options.validation?.requireCitationExcerpt ?? false;
-    const errors: string[] = [];
+    const errors = options.collectErrors ?? [];
     for (const cit of assertion.citations) {
       if (cit.excerpt === null) {
         if (strict) {
@@ -1562,7 +1564,7 @@ export class TragetiStore {
         }
       }
     }
-    if (errors.length > 0) throw new ValidationError(errors, 'Assertion');
+    if (options.collectErrors === undefined && errors.length > 0) throw new ValidationError(errors, 'Assertion');
   }
 
   private validateTemporalSnapshotOptions(options: TemporalSnapshotOptions): void {
@@ -1627,6 +1629,58 @@ export class TragetiStore {
     }
   }
 
+  private clearStaleNamespaceLocks(now = Date.now()): void {
+    const staleBefore = new Date(now - NAMESPACE_LOCK_STALE_MS).toISOString();
+    const result = this.db.prepare('DELETE FROM trageti_namespace_locks WHERE acquired_at < ?').run(staleBefore);
+    if (result.changes > 0) {
+      this.options.logger.warn('TRGT_NAMESPACE_LOCK_STALE_CLEARED', { count: result.changes });
+    }
+  }
+
+  private namespaceLock(namespace: string): { operation: string; owner: string; acquired_at: string } | null {
+    return (
+      this.db
+        .prepare<[string], { operation: string; owner: string; acquired_at: string }>(
+          'SELECT operation, owner, acquired_at FROM trageti_namespace_locks WHERE namespace = ?',
+        )
+        .get(namespace) ?? null
+    );
+  }
+
+  private requireNamespaceUnlocked(namespace: string, operation: string): void {
+    this.clearStaleNamespaceLocks();
+    const lock = this.namespaceLock(namespace);
+    if (!lock) return;
+    throw new TragetiError(
+      ErrorCode.NAMESPACE_OPERATION_LOCKED,
+      `Namespace "${namespace}" is locked by ${lock.operation}; cannot run ${operation}.`,
+    );
+  }
+
+  private acquireNamespaceOperationLock(namespace: string, operation: string): string {
+    this.clearStaleNamespaceLocks();
+    const owner = randomUUID();
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO trageti_namespace_locks (namespace, operation, owner, acquired_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(namespace, operation, owner, new Date().toISOString());
+      return owner;
+    } catch {
+      const lock = this.namespaceLock(namespace);
+      throw new ReindexError(namespace, 0, `namespace locked by ${lock?.operation ?? 'another operation'}`, {
+        code: ErrorCode.REINDEX_ALREADY_RUNNING,
+        advice: 'wait for the existing namespace operation to finish, then retry',
+      });
+    }
+  }
+
+  private releaseNamespaceOperationLock(namespace: string, owner: string): void {
+    this.db.prepare('DELETE FROM trageti_namespace_locks WHERE namespace = ? AND owner = ?').run(namespace, owner);
+  }
+
   private warmExtensionCache(): void {
     const tables: Array<'trageti_assertions' | 'trageti_episodes' | 'trageti_links'> = [
       'trageti_assertions',
@@ -1636,6 +1690,82 @@ export class TragetiStore {
     for (const table of tables) {
       const cols = this.extensionApplier.getExtensionColumns(this.db, table);
       this.extensionColumnCache.set(table, cols);
+    }
+  }
+
+  private validateAssertionForWrite(
+    assertion: NormalizedNewAssertion,
+    options: {
+      inFlightEpisodeIds?: ReadonlySet<string>;
+      collectErrors?: string[];
+      errorPrefix?: string;
+    } = {},
+  ): void {
+    const errors = options.collectErrors ?? [];
+    const before = errors.length;
+    this.enforceStructuralInvariants(assertion, {
+      ...(options.inFlightEpisodeIds !== undefined && { inFlightEpisodeIds: options.inFlightEpisodeIds }),
+      collectErrors: errors,
+    });
+    this.enforceCitationExcerptPolicy(assertion, { collectErrors: errors });
+    for (const validator of this.options.validators) {
+      if (options.inFlightEpisodeIds !== undefined && validator instanceof DefaultAssertionValidator) continue;
+      const result = validator.validate(assertion);
+      if (!result.valid) errors.push(...result.errors);
+    }
+    if (options.errorPrefix && errors.length > before) {
+      for (let i = before; i < errors.length; i++) {
+        errors[i] = `${options.errorPrefix}${errors[i]}`;
+      }
+    }
+    if (options.collectErrors === undefined && errors.length > 0) throw new ValidationError(errors, 'Assertion');
+  }
+
+  private validateLinkReferences(
+    link: NewAssertionLinkInput,
+    errors: string[],
+    options: {
+      inFlightAssertionIds?: ReadonlySet<string>;
+      inFlightEpisodeIds?: ReadonlySet<string>;
+    } = {},
+  ): void {
+    const endpoint = (id: string, label: 'fromId' | 'toId'): { namespace: string } | null => {
+      if (options.inFlightAssertionIds?.has(id)) return { namespace: link.namespace };
+      const assertion = this.assertionRepo.getById(id);
+      if (!assertion) {
+        errors.push(`link.${label} "${id}" does not reference an existing or bundled assertion`);
+        return null;
+      }
+      return { namespace: assertion.namespace };
+    };
+
+    const fromA = endpoint(link.fromId, 'fromId');
+    const toA = endpoint(link.toId, 'toId');
+    if (fromA && toA && fromA.namespace !== toA.namespace) {
+      this.options.logger.warn('TRGT_CROSS_NAMESPACE_LINK', {
+        fromNs: fromA.namespace,
+        toNs: toA.namespace,
+      });
+    }
+
+    if (!options.inFlightEpisodeIds?.has(link.sourceEpisodeId)) {
+      const sourceEpisode = this.db
+        .prepare<[string, string], { id: string }>('SELECT id FROM trageti_episodes WHERE id = ? AND namespace = ?')
+        .get(link.sourceEpisodeId, link.namespace);
+      if (!sourceEpisode) {
+        errors.push(
+          `link.sourceEpisodeId "${link.sourceEpisodeId}" does not reference an episode in namespace "${link.namespace}"`,
+        );
+      }
+    }
+  }
+
+  private closeSupersededAssertion(assertionId: string, validUntil: number): void {
+    if (!this.assertionRepo.supersedeAssertion(assertionId, validUntil)) {
+      throw new ValidationError(
+        [`Assertion "${assertionId}" is already closed or no longer available for supersession`],
+        'Assertion',
+      );
     }
   }
 
@@ -1656,7 +1786,6 @@ export class TragetiStore {
       this.options.logger.debug('TRGT_RETRIEVE_VECTOR_TABLE_MISSING', { namespace, table });
       return null;
     }
-    this.embeddingTableCache.set(namespace, table);
     return table;
   }
 
@@ -1696,18 +1825,19 @@ export class TragetiStore {
     if (!this.embeddingRepo.tableExists(table)) {
       this.embeddingRepo.ensureVec0Table(table, config.embeddingDimension);
     }
-    this.embeddingTableCache.set(namespace, table);
     return table;
   }
 
   /** Returns true when sqlite-vec's vec_version() function is callable. */
   private isSqliteVecLoaded(): boolean {
+    if (this.sqliteVecLoaded !== null) return this.sqliteVecLoaded;
     try {
       this.db.prepare('SELECT vec_version() AS v').get();
-      return true;
+      this.sqliteVecLoaded = true;
     } catch {
-      return false;
+      this.sqliteVecLoaded = false;
     }
+    return this.sqliteVecLoaded;
   }
 
   /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TragetiStore } from '../../src/index.js';
+import type { AssertionValidator, NormalizedNewAssertion } from '../../src/domain/types.js';
 import { openTestDb } from '../helpers/openTestDb.js';
 
 describe('writeEpisodeBundle', () => {
@@ -76,6 +77,66 @@ describe('writeEpisodeBundle', () => {
       'SELECT valid_until FROM trageti_assertions WHERE id = ?',
     ).get('a-1');
     expect(predecessor?.valid_until).toBeNull();
+  });
+
+  it('runs configured assertion validators for bundled assertions', async () => {
+    const validator: AssertionValidator = {
+      validate(assertion: NormalizedNewAssertion) {
+        return assertion.type === 'blocked' ? { valid: false, errors: ['blocked type rejected'] } : { valid: true, errors: [] };
+      },
+    };
+    const store = await TragetiStore.create({
+      database: openTestDb(),
+      namespace: 'bundle',
+      embeddingDimension: 2,
+      validators: [validator],
+    });
+
+    await expect(
+      store.writeEpisodeBundle({
+        episode: {
+          id: 'ep-v',
+          namespace: 'bundle',
+          position: 1,
+          occurredAt: '2026-01-01T00:00:00Z',
+          type: 'demo',
+          content: 'episode',
+        },
+        assertions: [{ ...assertion('a-v', 'ep-v', 'bad'), type: 'blocked' }],
+      }),
+    ).rejects.toThrow(/blocked type rejected/);
+
+    expect(await store.getEpisode('ep-v')).toBeNull();
+  });
+
+  it('rejects duplicate supersedesId values inside one bundle', async () => {
+    const store = await TragetiStore.create({ database: openTestDb(), namespace: 'bundle', embeddingDimension: 2 });
+    await store.writeEpisode({
+      id: 'ep-old',
+      namespace: 'bundle',
+      position: 1,
+      occurredAt: '2026-01-01T00:00:00Z',
+      type: 'seed',
+      content: 'old',
+    });
+    await store.writeAssertion(assertion('a-old', 'ep-old', 'old assertion'));
+
+    await expect(
+      store.writeEpisodeBundle({
+        episode: {
+          id: 'ep-new',
+          namespace: 'bundle',
+          position: 2,
+          occurredAt: '2026-01-02T00:00:00Z',
+          type: 'demo',
+          content: 'new',
+        },
+        assertions: [
+          assertion('a-new-1', 'ep-new', 'new 1', { supersedesId: 'a-old' }),
+          assertion('a-new-2', 'ep-new', 'new 2', { supersedesId: 'a-old' }),
+        ],
+      }),
+    ).rejects.toThrow(/duplicate supersedesId/);
   });
 });
 

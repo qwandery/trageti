@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-deprecated */
 import { describe, it, expect } from 'vitest';
 import { LinearScorer } from '../../src/defaults/scoring/LinearScorer.js';
-import { TragetiError } from '../../src/errors/index.js';
+import { ErrorCode, TragetiError } from '../../src/errors/index.js';
 import type { Assertion, ScoredCandidate, ScoringContext } from '../../src/domain/types.js';
 
 const ctx: ScoringContext = {
@@ -34,10 +35,14 @@ describe('LinearScorer.score — single-signal cases', () => {
     expect(Number.isFinite(s)).toBe(true);
   });
 
-  it('scores a bm25-only candidate (semantic null, bm25 present)', () => {
-    const s = scorer.score(candidate({ bm25Score: -3.5 }), ctx);
-    expect(s).toBeGreaterThan(0);
-    expect(Number.isFinite(s)).toBe(true);
+  it('throws when a BM25 candidate requires batch normalization context', () => {
+    try {
+      scorer.score(candidate({ bm25Score: -3.5 }), ctx);
+      throw new Error('expected LinearScorer.score() to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TragetiError);
+      expect((err as TragetiError).code).toBe(ErrorCode.SCORER_REQUIRES_BATCH_CONTEXT);
+    }
   });
 
   it('throws SCORER_NO_USABLE_SIGNAL when both signals are null', () => {
@@ -67,5 +72,14 @@ describe('LinearScorer.scoreBatch', () => {
 
   it('throws SCORER_NO_USABLE_SIGNAL when a batched candidate has no signal', () => {
     expect(() => scorer.scoreBatch([candidate({})], ctx)).toThrow(TragetiError);
+  });
+
+  it('supports anchor-distance recency as an opt-in mode', () => {
+    const anchorScorer = new LinearScorer({ recencyMode: 'anchor-distance', weights: { semantic: 0, keyword: 0, recency: 1 } });
+    const scores = anchorScorer.scoreBatch([
+      candidate({ semanticDistance: 0.2, position: 1 }),
+      candidate({ semanticDistance: 0.2, position: 9 }),
+    ], ctx);
+    expect(scores[1]).toBeGreaterThan(scores[0] ?? 0);
   });
 });

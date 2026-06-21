@@ -94,7 +94,7 @@ describe('MigrationRunner baseline schema', () => {
     const runner = new MigrationRunner();
     runner.applyMigrations(db);
 
-    expect(runner.getCurrentVersion(db)).toBe(1);
+    expect(runner.getCurrentVersion(db)).toBe(2);
     expect(getObjects(db, 'table')).toEqual(
       expect.arrayContaining([
         'trageti_namespaces',
@@ -104,6 +104,7 @@ describe('MigrationRunner baseline schema', () => {
         'trageti_citations',
         'trageti_tokenizer',
         'trageti_schema_version',
+        'trageti_namespace_locks',
         'trageti_fulltext',
       ]),
     );
@@ -115,9 +116,9 @@ describe('MigrationRunner baseline schema', () => {
     runner.applyMigrations(db);
     runner.applyMigrations(db);
 
-    expect(runner.getCurrentVersion(db)).toBe(1);
+    expect(runner.getCurrentVersion(db)).toBe(2);
     const versionRows = db.prepare<[], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trageti_schema_version').get();
-    expect(versionRows?.cnt).toBe(1);
+    expect(versionRows?.cnt).toBe(2);
   });
 
   it('matches the pre-flattening v001-to-v005 steady-state schema', () => {
@@ -142,6 +143,7 @@ describe('MigrationRunner baseline schema', () => {
         'trageti_idx_assertions_episode',
         'trageti_idx_assertions_supersedes',
         'trageti_idx_links_from',
+        'trageti_idx_links_source_episode',
         'trageti_idx_links_to',
         'trageti_idx_episodes_ns_pos',
         'trageti_idx_citations_assertion',

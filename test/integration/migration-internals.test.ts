@@ -4,7 +4,7 @@ import { MigrationRunner } from '../../src/db/migrations/runner.js';
 import { MigrationError } from '../../src/errors/index.js';
 
 describe('MigrationRunner internals', () => {
-  it('reports one baseline descriptor with a recorded applied timestamp', () => {
+  it('reports migration descriptors with recorded applied timestamps', () => {
     const db = openTestDb();
     const runner = new MigrationRunner();
     runner.applyMigrations(db);
@@ -12,13 +12,19 @@ describe('MigrationRunner internals', () => {
     const migrations = runner.getMigrations();
     const applied = runner.getAppliedVersions(db);
 
-    expect(migrations).toHaveLength(1);
+    expect(migrations).toHaveLength(2);
     expect(migrations[0]).toMatchObject({
       version: 1,
       name: 'v001_baseline',
       requiresForeignKeyToggle: false,
     });
+    expect(migrations[1]).toMatchObject({
+      version: 2,
+      name: 'v002_namespace_operation_locks',
+      requiresForeignKeyToggle: false,
+    });
     expect(applied.get(1)).toEqual(expect.any(String));
+    expect(applied.get(2)).toEqual(expect.any(String));
   });
 
   it('rolls back the baseline version row when baseline DDL fails', () => {

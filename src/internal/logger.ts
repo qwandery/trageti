@@ -94,17 +94,13 @@ export function resetEmitOnceRegistry(): void {
 // default components constructed *standalone* (a `DefaultAssertionValidator` or
 // `DefaultConnectionVerifier` created directly without a `logger` option) and
 // for `MockEmbeddingProvider`, whose one-shot non-production warning fires at
-// module scope before any store exists. `TragetiStore`'s constructor still
-// calls `setDefaultLogger` so even those standalone fallbacks honor the most
-// recent store's logger. Known limitation: with multiple stores the
-// process-default reflects whichever was constructed last — acceptable, since
-// it only affects standalone default components, never plumbed store calls.
+// module scope before any store exists. `TragetiStore` does not mutate this
+// process default; store loggers remain scoped to each store instance.
 
 let defaultLogger: Logger = new ConsoleLogger();
 
-/** Internal: replace the process-default logger. Called by every
- *  `TragetiStore` constructor so standalone default components (see audit
- *  note above) honor the user's chosen logger. */
+/** Internal/back-compat: replace the process-default logger used only by
+ * standalone defaults that were not given an explicit store-scoped logger. */
 export function setDefaultLogger(logger: Logger): void {
   defaultLogger = logger;
 }

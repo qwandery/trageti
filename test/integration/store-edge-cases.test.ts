@@ -4,7 +4,7 @@ import { TragetiStore } from '../../src/store/TragetiStore.js';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import type { EmbeddingProvider, RetrievalMiddleware } from '../../src/domain/types.js';
 import type { Logger } from '../../src/internal/logger.js';
-import { EmbeddingProviderError, IndexingError, ReindexError, ValidationError } from '../../src/errors/index.js';
+import { EmbeddingProviderError, ErrorCode, IndexingError, ReindexError, ValidationError } from '../../src/errors/index.js';
 import { citationFor } from '../fixtures/scenario.js';
 
 const DIM = 4;
@@ -380,6 +380,44 @@ describe('explain — vector routing', () => {
   });
 });
 
+describe('retrieve — vector readiness', () => {
+  it('throws a public not-ready error for vector-only retrieval before the vec0 table exists', async () => {
+    const store = await vectorStore('vr-vector', new MockEmbeddingProvider({ dimension: DIM }));
+    await seed(store, 'vr-vector', ['a-1']);
+
+    await expect(
+      store.retrieve({
+        namespace: 'vr-vector',
+        queryText: 'assertion',
+        temporalAnchor: 1,
+        retrievalStrategy: 'vector',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.RETRIEVAL_VECTOR_INDEX_NOT_READY });
+    await store.close();
+  });
+
+  it('falls back to BM25 with a warning for hybrid retrieval before the vec0 table exists', async () => {
+    const store = await vectorStore('vr-hybrid', new MockEmbeddingProvider({ dimension: DIM }));
+    await seed(store, 'vr-hybrid', ['a-1']);
+
+    const result = await store.retrieve({
+      namespace: 'vr-hybrid',
+      queryText: 'assertion',
+      temporalAnchor: 1,
+      retrievalStrategy: 'hybrid',
+    });
+
+    expect(result.results.map((r) => r.id)).toContain('a-1');
+    expect(result.meta.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'TRGT_RETRIEVE_VECTOR_SKIPPED',
+        message: expect.stringContaining('VECTOR_INDEX_NOT_READY'),
+      }),
+    );
+    await store.close();
+  });
+});
+
 describe('close — middleware disposal and logger flush', () => {
   it('disposes middleware and flushes the logger on close', async () => {
     let disposed = false;
@@ -418,8 +456,26 @@ describe('prepareDatabase — custom pragmas', () => {
       namespace: 'pg',
       prepare: { pragmas: { cache_size: -2000 } },
     });
-    expect(await store.getCurrentSchemaVersion()).toBe(1);
+    expect(await store.getCurrentSchemaVersion()).toBe(2);
     await store.close();
+  });
+
+  it('rejects unsafe pragma keys and foreign_keys overrides', async () => {
+    await expect(
+      TragetiStore.create({
+        database: ':memory:',
+        namespace: 'pg-bad',
+        prepare: { pragmas: { 'cache_size; DROP TABLE x': 1 } },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      TragetiStore.create({
+        database: ':memory:',
+        namespace: 'pg-fk',
+        prepare: { pragmas: { foreign_keys: 'OFF' } },
+      }),
+    ).rejects.toThrow();
   });
 });
 

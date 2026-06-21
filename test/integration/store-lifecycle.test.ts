@@ -61,7 +61,7 @@ async function seedEpisodeAndAssertion(store: TragetiStore, ns: string): Promise
 describe('TragetiStore.create() lifecycle', () => {
   it('create() on an in-memory database initialises a usable store', async () => {
     const store = await TragetiStore.create({ database: ':memory:', namespace: 'mem' });
-    expect(await store.getCurrentSchemaVersion()).toBe(1);
+    expect(await store.getCurrentSchemaVersion()).toBe(2);
     await store.close();
   });
 
@@ -96,9 +96,10 @@ describe('TragetiStore migration introspection', () => {
   it('getMigrations() reports the v0.3 baseline descriptor', async () => {
     const store = await TragetiStore.create({ database: ':memory:', namespace: 'mig' });
     const migrations = await store.getMigrations();
-    expect(migrations.map((m) => m.version)).toEqual([1]);
+    expect(migrations.map((m) => m.version)).toEqual([1, 2]);
     expect(migrations.every((m) => typeof m.description === 'string')).toBe(true);
     expect(migrations[0]?.name).toBe('v001_baseline');
+    expect(migrations[1]?.name).toBe('v002_namespace_operation_locks');
     expect(migrations[0]?.requiresForeignKeyToggle).toBe(false);
     expect(migrations[0]?.appliedAt).toEqual(expect.any(String));
     await store.close();
@@ -107,7 +108,7 @@ describe('TragetiStore migration introspection', () => {
   it('applyMigrations() is idempotent on an already-current database', async () => {
     const store = await TragetiStore.create({ database: ':memory:', namespace: 'mig' });
     await store.applyMigrations();
-    expect(await store.getCurrentSchemaVersion()).toBe(1);
+    expect(await store.getCurrentSchemaVersion()).toBe(2);
     await store.close();
   });
 });

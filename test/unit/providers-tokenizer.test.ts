@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { MockEmbeddingProvider } from '../../src/defaults/providers/MockEmbeddingProvider.js';
 import { RawVectorProvider } from '../../src/defaults/providers/RawVectorProvider.js';
 import { validateTokenizer } from '../../src/internal/tokenizer.js';
+import { getDefaultLogger, setDefaultLogger } from '../../src/internal/logger.js';
 import { EmbeddingProviderError, MigrationCompatibilityError, SchemaExtensionError } from '../../src/errors/index.js';
 
 describe('MockEmbeddingProvider', () => {
@@ -37,6 +38,30 @@ describe('MockEmbeddingProvider', () => {
     expect(out).toHaveLength(3);
     const [solo] = await provider.embed(['y']);
     expect(Array.from(out[1] ?? [])).toEqual(Array.from(solo ?? []));
+  });
+
+  it('warns once when used outside test mode', async () => {
+    const originalEnv = process.env['NODE_ENV'];
+    const originalLogger = getDefaultLogger();
+    const warnings: string[] = [];
+    try {
+      process.env['NODE_ENV'] = 'development';
+      setDefaultLogger({
+        debug: () => {},
+        info: () => {},
+        warn: (code) => warnings.push(code),
+        error: () => {},
+      });
+      await new MockEmbeddingProvider({ dimension: 1 }).embed(['production-ish']);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env['NODE_ENV'];
+      } else {
+        process.env['NODE_ENV'] = originalEnv;
+      }
+      setDefaultLogger(originalLogger);
+    }
+    expect(warnings).toContain('TRGT_MOCK_PROVIDER_NON_PRODUCTION');
   });
 });
 
@@ -85,6 +110,12 @@ describe('validateTokenizer', () => {
     expect(() => validateTokenizer({ tokenizer: 'evil' }, 'init')).toThrow(SchemaExtensionError);
   });
 
+  it('rejects an unsafe tokenizer name even when trustedCustomTokenizer is set', () => {
+    expect(() =>
+      validateTokenizer({ tokenizer: 'custom-tokenizer;drop', trustedCustomTokenizer: true }, 'init'),
+    ).toThrow(SchemaExtensionError);
+  });
+
   it('rejects an unknown tokenizer with MigrationCompatibilityError on the rebuild path', () => {
     expect(() => validateTokenizer({ tokenizer: 'evil' }, 'rebuild')).toThrow(MigrationCompatibilityError);
   });
@@ -95,9 +126,18 @@ describe('validateTokenizer', () => {
     ).toThrow(MigrationCompatibilityError);
   });
 
-  it('passes a custom tokenizer through unchecked when trustedCustomTokenizer is set', () => {
+  it('accepts a safe custom tokenizer name when trustedCustomTokenizer is set', () => {
     expect(() =>
       validateTokenizer({ tokenizer: 'my_icu_tokenizer', trustedCustomTokenizer: true }, 'init'),
     ).not.toThrow();
+  });
+
+  it('still rejects unsafe args when trustedCustomTokenizer is set', () => {
+    expect(() =>
+      validateTokenizer(
+        { tokenizer: 'my_icu_tokenizer', tokenizerArgs: ["1'; DROP TABLE x; --"], trustedCustomTokenizer: true },
+        'init',
+      ),
+    ).toThrow(SchemaExtensionError);
   });
 });

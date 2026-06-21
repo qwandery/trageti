@@ -3,6 +3,7 @@ import type { IRetrievalScorer, ScoredCandidate, ScoringContext } from '../../do
 export interface RRFScorerOptions {
   k?: number;
   includeRecency?: boolean;
+  recencyMode?: 'position-rank' | 'anchor-distance';
 }
 
 type RankDirection = 'asc' | 'desc';
@@ -37,18 +38,24 @@ function rankBy(
 export class RRFScorer implements IRetrievalScorer {
   private readonly k: number;
   private readonly includeRecency: boolean;
+  private readonly recencyMode: 'position-rank' | 'anchor-distance';
 
   constructor(options: RRFScorerOptions = {}) {
     this.k = options.k ?? 60;
     this.includeRecency = options.includeRecency ?? true;
+    this.recencyMode = options.recencyMode ?? 'position-rank';
   }
 
-  scoreBatch(candidates: ScoredCandidate[], _context: ScoringContext): number[] {
+  scoreBatch(candidates: ScoredCandidate[], context: ScoringContext): number[] {
     if (candidates.length === 0) return [];
 
     const semanticRanks = rankBy(candidates, (candidate) => candidate.semanticDistance, 'asc');
     const bm25Ranks = rankBy(candidates, (candidate) => candidate.bm25Score, 'asc');
-    const recencyRanks = this.includeRecency ? rankBy(candidates, (candidate) => candidate.position, 'desc') : null;
+    const recencyRanks = this.includeRecency
+      ? this.recencyMode === 'anchor-distance'
+        ? rankBy(candidates, (candidate) => Math.abs(context.temporalAnchor - candidate.position), 'asc')
+        : rankBy(candidates, (candidate) => candidate.position, 'desc')
+      : null;
 
     return candidates.map((_, i) => {
       let score = 0;

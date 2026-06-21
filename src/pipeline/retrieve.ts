@@ -18,7 +18,7 @@ import type { AssertionRepository } from '../db/repositories/AssertionRepository
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js';
 import { buildCandidateJson } from '../db/candidates.js';
 import { quoteIdent } from '../internal/sql-ident.js';
-import { applyMiddleware } from './middleware.js';
+import { applyAfterHooks, applyMiddleware } from './middleware.js';
 import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js';
 import type { Logger, Metrics } from '../internal/logger.js';
 import { observe } from '../internal/logger.js';
@@ -150,11 +150,19 @@ export function validateRetrievalQuery(query: RetrievalQuery): void {
   }
 }
 
-export function retrieve(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
+export function retrieve(
+  db: Database,
+  ctx: RetrieveContext,
+  query: RetrievalQuery,
+  options: { skipBefore?: boolean } = {},
+): RetrievalResult {
   const started = Date.now();
   const callMiddleware = query.middleware ?? [];
   const core = (q: RetrievalQuery): RetrievalResult => retrieveCore(db, ctx, q);
-  const result = applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core);
+  const result = options.skipBefore ? core(query) : applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core);
+  if (options.skipBefore) {
+    result.results = applyAfterHooks(ctx.globalMiddleware, callMiddleware, result.results, query);
+  }
   result.meta.tookMs = Date.now() - started;
   observe(ctx.metrics ?? undefined, 'trageti.retrieve.tookMs', result.meta.tookMs);
   observe(ctx.metrics ?? undefined, 'trageti.retrieve.candidateCount', result.meta.candidateCount);
@@ -214,7 +222,25 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const applyVector = strategy !== 'bm25' && hasQueryEmbedding;
   const embeddingTable = applyVector ? ctx.getEmbeddingTable(query.namespace) : null;
   const vectorCanRun = applyVector && embeddingTable !== null;
+  const vectorSkipReason = applyVector && !vectorCanRun ? 'VECTOR_INDEX_NOT_READY' : null;
   const applyBm25 = strategy !== 'vector' && hasQueryText;
+
+  if (strategy === 'vector' && vectorSkipReason !== null) {
+    throw new RetrievalInputError(
+      ErrorCode.RETRIEVAL_VECTOR_INDEX_NOT_READY,
+      `Namespace "${query.namespace}" has no readable vector index table; index assertions before vector retrieval.`,
+    );
+  }
+
+  const withVectorWarning = (result: RetrievalResult): RetrievalResult => {
+    if (vectorSkipReason !== null) {
+      result.meta.warnings.push({
+        code: 'TRGT_RETRIEVE_VECTOR_SKIPPED',
+        message: `vector retrieval skipped: ${vectorSkipReason}`,
+      });
+    }
+    return result;
+  };
 
   // Per-step wall-clock: each call returns the ms elapsed since the previous
   // call, i.e. the duration of the step just completed.
@@ -273,10 +299,10 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     tookMs: sinceStep(),
   });
   if (temporalCandidateCount === 0) {
-    return {
+    return withVectorWarning({
       results: [],
       meta: emptyMeta(strategy !== 'bm25' && hasQueryEmbedding, strategy !== 'vector' && hasQueryText),
-    };
+    });
   }
 
   const candidateJson = useFtsBoundedTemporalSelection ? null : buildCandidateJson(step1.map((r) => r.id));
@@ -347,7 +373,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     for (const id of bm25Map.keys()) candidateIds.add(id);
   }
   if (candidateIds.size === 0) {
-    return { results: [], meta: emptyMeta(vectorCanRun, applyBm25) };
+    return withVectorWarning({ results: [], meta: emptyMeta(vectorCanRun, applyBm25) });
   }
 
   const oversampledIds = useFtsBoundedTemporalSelection
@@ -512,14 +538,14 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     tookMs: sinceStep(),
   });
 
-  return {
+  return withVectorWarning({
     results,
     meta: buildMeta(query, limit, strategy, metaQueryTextMode, {
       candidateCount: candidates.length,
       vectorApplied: vectorCanRun && step2Rows.length > 0,
       bm25Applied: applyBm25 && bm25Map.size > 0,
     }),
-  };
+  });
 }
 
 function runStep1(db: Database, query: RetrievalQuery): Step1Row[] {

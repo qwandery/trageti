@@ -56,7 +56,12 @@ export function getConnected(
   // `toId` of each link — excluding the origin itself (spec §677).
   const ids = [...new Set(links.map((l) => l.toId))].filter((id) => id !== options.fromAssertionId);
 
-  return ids.map((id) => assertionRepo.getById(id)).filter((a): a is Assertion => a !== null);
+  const hydrated = assertionRepo.getByIds(ids);
+  const byId = new Map(hydrated.map((assertion) => [assertion.id, assertion]));
+  return ids.flatMap((id) => {
+    const assertion = byId.get(id);
+    return assertion ? [assertion] : [];
+  });
 }
 
 export function findPath(

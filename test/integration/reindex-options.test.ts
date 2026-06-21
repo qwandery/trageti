@@ -37,6 +37,19 @@ class DeferredProvider implements EmbeddingProvider {
   }
 }
 
+class PartialBatchProvider implements EmbeddingProvider {
+  readonly name = 'partial-batch';
+  readonly dimension = DIM;
+
+  embed(): Promise<Float32Array[]> {
+    return Promise.resolve([
+      new Float32Array([1, 0, 0, 0]),
+      undefined as unknown as Float32Array,
+      new Float32Array([1, 0]),
+    ]);
+  }
+}
+
 async function vectorStore(ns: string): Promise<TragetiStore> {
   const store = new TragetiStore(openTestDb(), { namespace: ns, embeddingDimension: DIM });
   await store.init();
@@ -108,6 +121,76 @@ describe('reindexNamespace — staging-swap', () => {
     await store.close();
   });
 
+  it('persisted namespace locks block writes and fail-fast indexing, while skip-mode indexing records locked items', async () => {
+    const db = openTestDb();
+    const store = new TragetiStore(db, { namespace: 'rx-locked', embeddingDimension: DIM });
+    await store.init();
+    await seed(store, 'rx-locked', { 'a-1': 'one' });
+    db.prepare(
+      `INSERT INTO trageti_namespace_locks (namespace, operation, owner, acquired_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run('rx-locked', 'reindexNamespace', 'owner-1', new Date().toISOString());
+
+    await expect(
+      store.writeEpisode({
+        id: 'ep-locked',
+        namespace: 'rx-locked',
+        position: 2,
+        occurredAt: '2024-01-02T00:00:00Z',
+        type: 'document',
+        content: 'locked',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.NAMESPACE_OPERATION_LOCKED });
+
+    await expect(store.indexAssertion('a-1', new Float32Array([1, 0, 0, 0]))).rejects.toMatchObject({
+      code: ErrorCode.NAMESPACE_OPERATION_LOCKED,
+    });
+
+    const skipped = await store.indexBatch([{ assertionId: 'a-1', embedding: new Float32Array([1, 0, 0, 0]) }], {
+      onProviderError: 'skip',
+    });
+    expect(skipped.indexed).toBe(0);
+    expect(skipped.skipped).toEqual([
+      { assertionId: 'a-1', reason: ErrorCode.NAMESPACE_OPERATION_LOCKED, errorCode: ErrorCode.NAMESPACE_OPERATION_LOCKED },
+    ]);
+
+    await expect(store.deleteNamespace('rx-locked')).rejects.toMatchObject({
+      code: ErrorCode.NAMESPACE_OPERATION_LOCKED,
+    });
+    await store.close();
+  });
+
+  it('cleans stale persisted namespace locks before acquiring a new lock', async () => {
+    const db = openTestDb();
+    const warnings: string[] = [];
+    const store = new TragetiStore(db, {
+      namespace: 'rx-stale',
+      embeddingDimension: DIM,
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: (code) => warnings.push(code),
+        error: () => {},
+      },
+    });
+    await store.init();
+    await seed(store, 'rx-stale', { 'a-1': 'one' });
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    db.prepare(
+      `INSERT INTO trageti_namespace_locks (namespace, operation, owner, acquired_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run('rx-stale', 'reindexNamespace', 'stale-owner', stale);
+
+    const result = await store.reindexNamespace('rx-stale', {
+      embeddingProvider: new MockEmbeddingProvider({ dimension: DIM }),
+    });
+
+    expect(result.reindexed).toBe(1);
+    expect(warnings).toContain('TRGT_NAMESPACE_LOCK_STALE_CLEARED');
+    expect(db.prepare('SELECT COUNT(*) AS c FROM trageti_namespace_locks').get()).toMatchObject({ c: 0 });
+    await store.close();
+  });
+
   it('fail-fast success swaps and reports swappedAt', async () => {
     const store = await vectorStore('rx');
     await seed(store, 'rx', { 'a-1': 'one', 'a-2': 'two', 'a-3': 'three' });
@@ -155,6 +238,25 @@ describe('reindexNamespace — staging-swap', () => {
     expect(result.skipped[0]?.assertionId).toBe('a-2');
     expect(typeof result.swappedAt).toBe('string');
     expect((await store.getStats('rx')).indexedCount).toBe(2);
+    await store.close();
+  });
+
+  it('skip mode records empty and wrong-dimension vectors returned in a successful batch', async () => {
+    const store = await vectorStore('rx-partial-batch');
+    await seed(store, 'rx-partial-batch', { 'a-1': 'ok', 'a-2': 'empty', 'a-3': 'wrong dimension' });
+
+    const result = await store.reindexNamespace('rx-partial-batch', {
+      embeddingProvider: new PartialBatchProvider(),
+      onProviderError: 'skip',
+      allowPartialSwap: true,
+    });
+
+    expect(result.reindexed).toBe(1);
+    expect(result.skipped).toEqual([
+      { assertionId: 'a-2', reason: 'EMBEDDING_PROVIDER_ERROR', errorCode: 'EMBEDDING_PROVIDER_EMPTY' },
+      { assertionId: 'a-3', reason: 'EMBEDDING_DIMENSION_MISMATCH', errorCode: 'EMBEDDING_DIMENSION_MISMATCH' },
+    ]);
+    expect((await store.getStats('rx-partial-batch')).indexedCount).toBe(1);
     await store.close();
   });
 

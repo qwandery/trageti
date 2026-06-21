@@ -355,6 +355,14 @@ export interface ContextAssemblyOptions {
   queryText?: string;
   queryTextMode?: QueryTextMode;
   temporalAnchor: number;
+  temporalWindow?: {
+    from?: number;
+    to?: number;
+  };
+  entityTypes?: string[];
+  assertionTypes?: string[];
+  minConfidence?: number;
+  includeSuperseded?: boolean;
   tokenBudget: number;
   expandLinks?: boolean;
   maxDepth?: number;
@@ -645,9 +653,9 @@ export interface MigrationDescriptor {
 export interface FTS5TokenizerConfig {
   tokenizer: string;
   tokenizerArgs?: string[];
-  /** Opt-out of the built-in-tokenizer allow-list and argument validation.
-   *  Set true only for a vetted custom FTS5 tokenizer the caller fully trusts —
-   *  the library then interpolates the name/args into DDL without checks. */
+  /** Opt out of the built-in tokenizer-name allow-list. The tokenizer name and
+   *  args still must be safe SQL tokens because they are interpolated into FTS
+   *  DDL. Set true only for a vetted custom FTS5 tokenizer name. */
   trustedCustomTokenizer?: boolean;
 }
 
