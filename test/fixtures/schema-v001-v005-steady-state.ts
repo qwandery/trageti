@@ -69,6 +69,12 @@ export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
     sql: 'CREATE INDEX trageti_idx_links_to ON trageti_links(namespace, to_id, valid_until)',
   },
   {
+    type: 'index',
+    name: 'trageti_idx_namespace_locks_heartbeat',
+    tableName: 'trageti_namespace_locks',
+    sql: 'CREATE INDEX trageti_idx_namespace_locks_heartbeat ON trageti_namespace_locks(heartbeat_at)',
+  },
+  {
     type: 'table',
     name: 'trageti_assertions',
     tableName: 'trageti_assertions',
@@ -102,7 +108,7 @@ export const EXPECTED_STEADY_STATE_OBJECTS: readonly ExpectedSchemaObject[] = [
     type: 'table',
     name: 'trageti_namespace_locks',
     tableName: 'trageti_namespace_locks',
-    sql: 'CREATE TABLE trageti_namespace_locks ( namespace TEXT PRIMARY KEY REFERENCES trageti_namespaces(namespace) ON DELETE CASCADE, operation TEXT NOT NULL, owner TEXT NOT NULL, acquired_at TEXT NOT NULL )',
+    sql: 'CREATE TABLE trageti_namespace_locks ( namespace TEXT PRIMARY KEY REFERENCES trageti_namespaces(namespace) ON DELETE CASCADE, operation TEXT NOT NULL, owner TEXT NOT NULL, acquired_at TEXT NOT NULL , heartbeat_at TEXT)',
   },
   {
     type: 'table',
@@ -179,6 +185,7 @@ export const EXPECTED_STEADY_STATE_COLUMNS: Readonly<Record<string, readonly Exp
     { name: 'operation', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
     { name: 'owner', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
     { name: 'acquired_at', type: 'TEXT', notnull: 1, defaultValue: null, pk: 0 },
+    { name: 'heartbeat_at', type: 'TEXT', notnull: 0, defaultValue: null, pk: 0 },
   ],
   trageti_namespaces: [
     { name: 'namespace', type: 'TEXT', notnull: 0, defaultValue: null, pk: 1 },

@@ -94,7 +94,7 @@ describe('MigrationRunner baseline schema', () => {
     const runner = new MigrationRunner();
     runner.applyMigrations(db);
 
-    expect(runner.getCurrentVersion(db)).toBe(2);
+    expect(runner.getCurrentVersion(db)).toBe(3);
     expect(getObjects(db, 'table')).toEqual(
       expect.arrayContaining([
         'trageti_namespaces',
@@ -116,9 +116,9 @@ describe('MigrationRunner baseline schema', () => {
     runner.applyMigrations(db);
     runner.applyMigrations(db);
 
-    expect(runner.getCurrentVersion(db)).toBe(2);
+    expect(runner.getCurrentVersion(db)).toBe(3);
     const versionRows = db.prepare<[], { cnt: number }>('SELECT COUNT(*) AS cnt FROM trageti_schema_version').get();
-    expect(versionRows?.cnt).toBe(2);
+    expect(versionRows?.cnt).toBe(3);
   });
 
   it('matches the pre-flattening v001-to-v005 steady-state schema', () => {

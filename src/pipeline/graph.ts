@@ -56,7 +56,9 @@ export function getConnected(
   // `toId` of each link — excluding the origin itself (spec §677).
   const ids = [...new Set(links.map((l) => l.toId))].filter((id) => id !== options.fromAssertionId);
 
-  const hydrated = assertionRepo.getByIds(ids);
+  const hydrated = assertionRepo.getByIdsValidAt(ids, options.temporalAnchor, {
+    ...(options.includeSuperseded !== undefined && { includeSuperseded: options.includeSuperseded }),
+  });
   const byId = new Map(hydrated.map((assertion) => [assertion.id, assertion]));
   return ids.flatMap((id) => {
     const assertion = byId.get(id);

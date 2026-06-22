@@ -6,6 +6,7 @@ import type { EmbeddingProvider, IndexBatchSkipped, ReindexOptions, ReindexResul
 import { namespaceToEmbeddingTable } from '../internal/hash.js';
 import { ErrorCode, ReindexError, errorCodeOf } from '../errors/index.js';
 import { literalOptionError, positiveIntegerOptionError } from '../internal/validate.js';
+import { vectorValidationError } from '../internal/vector.js';
 
 const DEFAULT_BATCH_SIZE = 64;
 
@@ -38,13 +39,14 @@ export async function reindexNamespace(
   namespaceRepo: NamespaceRepository,
   embeddingRepo: EmbeddingRepository,
   namespace: string,
-  options: ReindexOptions & { embeddingProvider: EmbeddingProvider },
+  options: ReindexOptions & { embeddingProvider: EmbeddingProvider; onHeartbeat?: () => void },
 ): Promise<ReindexResult> {
   const started = Date.now();
   const strategy = options.strategy ?? 'staging-swap';
   const mode = options.onProviderError ?? 'fail-fast';
   const allowPartialSwap = options.allowPartialSwap ?? false;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const includeSuperseded = options.includeSuperseded ?? true;
   const provider = options.embeddingProvider;
   const strategyError = literalOptionError(strategy, 'strategy', ['staging-swap', 'in-place'] as const);
   if (strategyError) {
@@ -112,7 +114,12 @@ export async function reindexNamespace(
         .prepare<
           [string],
           { max_rowid: number | null }
-        >('SELECT MAX(rowid) AS max_rowid FROM trageti_assertions WHERE namespace = ?')
+        >(
+          `SELECT MAX(rowid) AS max_rowid
+           FROM trageti_assertions
+           WHERE namespace = ?
+             ${includeSuperseded ? '' : 'AND valid_until IS NULL'}`,
+        )
         .get(namespace)?.max_rowid ?? 0;
     let lastRowid = 0;
     for (;;) {
@@ -121,6 +128,7 @@ export async function reindexNamespace(
           `SELECT rowid, id, content
              FROM trageti_assertions
             WHERE namespace = ?
+              ${includeSuperseded ? '' : 'AND valid_until IS NULL'}
               AND rowid > ?
               AND rowid <= ?
             ORDER BY rowid
@@ -143,13 +151,13 @@ export async function reindexNamespace(
           if (!vec || !row) {
             throw new Error(`embedding provider returned no vector for batch item ${String(i)}`);
           }
-          if (vec.length !== newDimension) {
-            throw new Error(`embedding length ${String(vec.length)} does not match dimension ${String(newDimension)}`);
-          }
+          const vectorError = vectorValidationError(vec, newDimension, 'provider embedding');
+          if (vectorError) throw new Error(vectorError);
           items.push({ assertionId: row.id, embedding: vec });
         }
         embeddingRepo.insertBatch(targetTable, items);
         reindexed += items.length;
+        options.onHeartbeat?.();
       } else {
         if (options.signal?.aborted) {
           for (const row of batch) {
@@ -174,11 +182,12 @@ export async function reindexNamespace(
               });
               continue;
             }
-            if (vec.length !== newDimension) {
+            const vectorError = vectorValidationError(vec, newDimension, 'provider embedding');
+            if (vectorError) {
               skipped.push({
                 assertionId: row.id,
-                reason: 'EMBEDDING_DIMENSION_MISMATCH',
-                errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+                reason: vectorError.includes(' length ') ? 'EMBEDDING_DIMENSION_MISMATCH' : 'EMBEDDING_INVALID',
+                errorCode: vectorError.includes(' length ') ? 'EMBEDDING_DIMENSION_MISMATCH' : 'EMBEDDING_INVALID',
               });
               continue;
             }
@@ -201,11 +210,12 @@ export async function reindexNamespace(
                 });
                 continue;
               }
-              if (vec.length !== newDimension) {
+              const vectorError = vectorValidationError(vec, newDimension, 'provider embedding');
+              if (vectorError) {
                 skipped.push({
                   assertionId: row.id,
-                  reason: 'EMBEDDING_DIMENSION_MISMATCH',
-                  errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+                  reason: vectorError.includes(' length ') ? 'EMBEDDING_DIMENSION_MISMATCH' : 'EMBEDDING_INVALID',
+                  errorCode: vectorError.includes(' length ') ? 'EMBEDDING_DIMENSION_MISMATCH' : 'EMBEDDING_INVALID',
                 });
                 continue;
               }
@@ -221,6 +231,7 @@ export async function reindexNamespace(
           }
         }
       }
+      options.onHeartbeat?.();
     }
   } catch (err) {
     // fail-fast failure. Staging-swap discards the staging table and preserves
@@ -250,6 +261,7 @@ export async function reindexNamespace(
     const swappedAt = new Date().toISOString();
     db.transaction(() => {
       namespaceRepo.updateEmbeddingDimension(namespace, newDimension, targetTable);
+      if (!includeSuperseded) embeddingRepo.deleteSuperseded(targetTable, namespace);
     })();
     if (oldTable && oldTable !== targetTable) {
       embeddingRepo.dropTable(oldTable);
@@ -258,5 +270,6 @@ export async function reindexNamespace(
   }
 
   // in-place: no atomic swap, so no swappedAt.
+  if (!includeSuperseded) embeddingRepo.deleteSuperseded(targetTable, namespace);
   return { reindexed, skipped, durationMs: Date.now() - started };
 }

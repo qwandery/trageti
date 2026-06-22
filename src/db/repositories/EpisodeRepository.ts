@@ -39,20 +39,27 @@ export class EpisodeRepository {
           'Episode',
         );
       }
-      this.db
-        .prepare(
-          `INSERT INTO trageti_episodes (id, namespace, position, occurred_at, type, content, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          episode.id,
-          episode.namespace,
-          episode.position,
-          episode.occurredAt,
-          episode.type,
-          episode.content,
-          new Date().toISOString(),
-        );
+      try {
+        this.db
+          .prepare(
+            `INSERT INTO trageti_episodes (id, namespace, position, occurred_at, type, content, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            episode.id,
+            episode.namespace,
+            episode.position,
+            episode.occurredAt,
+            episode.type,
+            episode.content,
+            new Date().toISOString(),
+          );
+      } catch (err) {
+        if (isSqliteConstraint(err)) {
+          throw new ValidationError([`Episode ID "${episode.id}" already exists`], 'Episode');
+        }
+        throw err;
+      }
       const row = this.db.prepare<[string], EpisodeRow>('SELECT * FROM trageti_episodes WHERE id = ?').get(episode.id);
       if (!row) {
         throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Episode "${episode.id}" not found after insert`);
@@ -82,4 +89,14 @@ export class EpisodeRepository {
       extensions,
     };
   }
+}
+
+function isSqliteConstraint(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    'code' in err &&
+    typeof err.code === 'string' &&
+    err.code.startsWith('SQLITE_CONSTRAINT')
+  );
 }

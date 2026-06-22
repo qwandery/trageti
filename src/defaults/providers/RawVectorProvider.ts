@@ -1,5 +1,6 @@
 import type { EmbeddingProvider, EmbedOptions } from '../../domain/types.js';
 import { EmbeddingProviderError } from '../../errors/index.js';
+import { toFloat32Array, vectorValidationError } from '../../internal/vector.js';
 
 /**
  * Zero-dependency provider for callers who already have embeddings on hand.
@@ -19,14 +20,9 @@ export class RawVectorProvider implements EmbeddingProvider {
   }
 
   set(text: string, embedding: Float32Array | number[]): void {
-    const vec = embedding instanceof Float32Array ? embedding : new Float32Array(embedding);
-    if (vec.length !== this.dimension) {
-      throw new EmbeddingProviderError(
-        this.name,
-        0,
-        `embedding length ${String(vec.length)} does not match dimension ${String(this.dimension)}`,
-      );
-    }
+    const err = vectorValidationError(embedding, this.dimension, 'embedding');
+    if (err) throw new EmbeddingProviderError(this.name, 0, err);
+    const vec = toFloat32Array(embedding);
     this.vectors.set(text, vec);
   }
 

@@ -23,6 +23,7 @@ import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js'
 import type { Logger, Metrics } from '../internal/logger.js';
 import { observe } from '../internal/logger.js';
 import { DEFAULT_RETRIEVAL_LIMIT, OVERSAMPLE_MULTIPLIER } from '../internal/retrieval-defaults.js';
+import { toFloat32Array, vectorValidationError } from '../internal/vector.js';
 import {
   finiteNumberError,
   literalOptionError,
@@ -275,10 +276,11 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   // queryEmbedding length vs the namespace's configured dimension.
   if (query.queryEmbedding) {
     const dim = ctx.getDimension(query.namespace);
-    if (dim !== null && query.queryEmbedding.length !== dim) {
+    const vectorError = vectorValidationError(query.queryEmbedding, dim, 'queryEmbedding');
+    if (vectorError) {
       throw new RetrievalInputError(
         ErrorCode.RETRIEVAL_DIMENSION_MISMATCH,
-        `queryEmbedding length ${String(query.queryEmbedding.length)} does not match namespace dimension ${String(dim)}`,
+        vectorError,
       );
     }
   }
@@ -291,9 +293,11 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   // Step 1: Temporal filter (applies in all strategies). BM25-only and
   // hybrid fallback push these predicates into the FTS query instead of
   // materializing every temporal candidate id in JS first.
+  const useVectorBoundedTemporalSelection = vectorCanRun;
   const useFtsBoundedTemporalSelection = !vectorCanRun && applyBm25 && hasQueryText;
-  const step1 = useFtsBoundedTemporalSelection ? [] : runStep1(db, query);
-  const temporalCandidateCount = useFtsBoundedTemporalSelection ? countStep1(db, query) : step1.length;
+  const step1 = useFtsBoundedTemporalSelection || useVectorBoundedTemporalSelection ? [] : runStep1(db, query);
+  const temporalCandidateCount =
+    useFtsBoundedTemporalSelection || useVectorBoundedTemporalSelection ? countStep1(db, query) : step1.length;
   debugStep(query, ctx.logger, 'temporal-filter', {
     candidateCount: temporalCandidateCount,
     tookMs: sinceStep(),
@@ -305,16 +309,15 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     });
   }
 
-  const candidateJson = useFtsBoundedTemporalSelection ? null : buildCandidateJson(step1.map((r) => r.id));
   const step1Map = new Map(step1.map((r) => [r.id, r]));
 
   // Step 2: Vector candidate selection (when applicable).
   const step2Rows: Step2Row[] = [];
   if (applyVector && query.queryEmbedding) {
     const rows =
-      embeddingTable === null || candidateJson === null
+      embeddingTable === null
         ? []
-        : runStep2(db, embeddingTable, candidateJson, query.queryEmbedding, oversample);
+        : runStep2Temporal(db, embeddingTable, query, query.queryEmbedding, oversample);
     for (const r of rows) step2Rows.push(r);
   }
   debugStep(query, ctx.logger, 'semantic', {
@@ -376,13 +379,25 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     return withVectorWarning({ results: [], meta: emptyMeta(vectorCanRun, applyBm25) });
   }
 
-  const oversampledIds = useFtsBoundedTemporalSelection
+  const oversampledIds = useFtsBoundedTemporalSelection || useVectorBoundedTemporalSelection
     ? [...candidateIds]
     : [...candidateIds].filter((id) => step1Map.has(id));
   const hydrated = ctx.assertionRepo.getByIds(oversampledIds);
   const hydratedById = new Map(hydrated.map((a) => [a.id, a]));
   const semanticById = new Map(step2Rows.map((r) => [r.assertion_id, r.semantic_distance]));
   if (useFtsBoundedTemporalSelection) {
+    for (const assertion of hydrated) {
+      step1Map.set(assertion.id, {
+        id: assertion.id,
+        content: assertion.content,
+        valid_from: assertion.validFrom,
+        confidence: assertion.confidence,
+        entity_type: assertion.entityType,
+        created_at: assertion.createdAt,
+      });
+    }
+  }
+  if (useVectorBoundedTemporalSelection) {
     for (const assertion of hydrated) {
       step1Map.set(assertion.id, {
         id: assertion.id,
@@ -496,8 +511,14 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     });
 
     const linkedById = new Map<string, Assertion[]>();
+    const targets = ctx.assertionRepo.getByIdsValidAt(
+      [...new Set(links.map((link) => link.toId))],
+      query.temporalAnchor,
+      query.includeSuperseded === undefined ? {} : { includeSuperseded: query.includeSuperseded },
+    );
+    const targetById = new Map(targets.map((target) => [target.id, target]));
     for (const link of links) {
-      const target = ctx.assertionRepo.getById(link.toId);
+      const target = targetById.get(link.toId);
       if (!target) continue;
       const existing = linkedById.get(link.fromId) ?? [];
       if (!existing.some((a) => a.id === target.id)) {
@@ -608,23 +629,27 @@ function buildTemporalPredicate(query: RetrievalQuery): { conditions: string[]; 
   return { conditions, params };
 }
 
-function runStep2(
+function runStep2Temporal(
   db: Database,
   embeddingTable: string,
-  candidateJson: string,
+  query: RetrievalQuery,
   queryEmbedding: Float32Array | number[],
   limit: number,
 ): Step2Row[] {
-  const vec = queryEmbedding instanceof Float32Array ? queryEmbedding : new Float32Array(queryEmbedding);
+  const vec = toFloat32Array(queryEmbedding);
+  const { conditions, params } = buildTemporalPredicate(query);
   const sql = `
     SELECT ae.assertion_id,
            vec_distance_cosine(ae.embedding, ?) AS semantic_distance
     FROM ${quoteIdent(embeddingTable)} ae
-    WHERE ae.assertion_id IN (SELECT value FROM json_each(?))
+    WHERE ae.assertion_id IN (
+      SELECT a.id FROM trageti_assertions a
+      WHERE ${conditions.join(' AND ')}
+    )
     ORDER BY semantic_distance ASC
     LIMIT ?
   `;
-  return db.prepare<unknown[], Step2Row>(sql).all(vec, candidateJson, limit);
+  return db.prepare<unknown[], Step2Row>(sql).all(vec, ...params, limit);
 }
 
 function runStep3(db: Database, candidateJson: string, queryText: string, limit?: number): Step3Row[] {

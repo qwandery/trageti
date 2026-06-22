@@ -356,9 +356,10 @@ describe('getMigrations() reports appliedAt', () => {
     const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     const migrations = await store.getMigrations();
-    expect(migrations).toHaveLength(2);
+    expect(migrations).toHaveLength(3);
     expect(migrations[0]?.name).toBe('v001_baseline');
     expect(migrations[1]?.name).toBe('v002_namespace_operation_locks');
+    expect(migrations[2]?.name).toBe('v003_namespace_lock_heartbeat');
     for (const m of migrations) {
       expect(typeof m.appliedAt).toBe('string');
       expect(m.appliedAt).not.toBeNull();

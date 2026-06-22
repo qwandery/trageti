@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import type { AssertionLink, NewAssertionLinkInput } from '../../domain/types.js';
-import { ErrorCode, TragetiError } from '../../errors/index.js';
+import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js';
 import { buildCandidateJson } from '../candidates.js';
 
 interface LinkRow {
@@ -45,22 +45,29 @@ export class LinkRepository {
   }
 
   insert(link: NewAssertionLinkInput): AssertionLink {
-    this.db
-      .prepare(
-        `INSERT INTO trageti_links (id, namespace, from_id, to_id, link_type, valid_from, valid_until, source_episode_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        link.id,
-        link.namespace,
-        link.fromId,
-        link.toId,
-        link.linkType,
-        link.validFrom,
-        link.validUntil ?? null,
-        link.sourceEpisodeId,
-        new Date().toISOString(),
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO trageti_links (id, namespace, from_id, to_id, link_type, valid_from, valid_until, source_episode_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          link.id,
+          link.namespace,
+          link.fromId,
+          link.toId,
+          link.linkType,
+          link.validFrom,
+          link.validUntil ?? null,
+          link.sourceEpisodeId,
+          new Date().toISOString(),
+        );
+    } catch (err) {
+      if (isSqliteConstraint(err)) {
+        throw new ValidationError([`Link ID "${link.id}" already exists`], 'Link');
+      }
+      throw err;
+    }
     const row = this.db.prepare<[string], LinkRow>('SELECT * FROM trageti_links WHERE id = ?').get(link.id);
     if (!row) {
       throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Link "${link.id}" not found after insert`);
@@ -86,4 +93,14 @@ export class LinkRepository {
       .get(namespace);
     return row?.cnt ?? 0;
   }
+}
+
+function isSqliteConstraint(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    'code' in err &&
+    typeof err.code === 'string' &&
+    err.code.startsWith('SQLITE_CONSTRAINT')
+  );
 }

@@ -456,7 +456,7 @@ describe('prepareDatabase — custom pragmas', () => {
       namespace: 'pg',
       prepare: { pragmas: { cache_size: -2000 } },
     });
-    expect(await store.getCurrentSchemaVersion()).toBe(2);
+    expect(await store.getCurrentSchemaVersion()).toBe(3);
     await store.close();
   });
 

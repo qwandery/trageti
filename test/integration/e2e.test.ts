@@ -182,10 +182,10 @@ describe('e2e: init → write → index → retrieve → assemble → snapshot �
     expect(ns2Assertions.map((a) => a.id)).not.toContain('a-ns1');
   });
 
-  it('schema version is 1 after init (v0.3 baseline)', async () => {
+  it('schema version is current after init', async () => {
     const db = openTestDb();
     const store = new TragetiStore(db, { namespace: NS, embeddingDimension: DIM });
     await store.init();
-    expect(await store.getCurrentSchemaVersion()).toBe(2);
+    expect(await store.getCurrentSchemaVersion()).toBe(3);
   });
 });

@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import type { FTS5TokenizerConfig, Migration } from '../../domain/types.js';
-import { MigrationError } from '../../errors/index.js';
+import { MigrationCompatibilityError, MigrationError } from '../../errors/index.js';
 import { validateTokenizer } from '../../internal/tokenizer.js';
 import { getMigrations } from './index.js';
 
@@ -33,9 +33,24 @@ export class MigrationRunner {
   applyMigrations(db: Database): void {
     db.exec(BOOTSTRAP_DDL);
     const current = this.getCurrentVersion(db);
+    const latestKnown = this.migrations.at(-1)?.version ?? 0;
+    if (current > latestKnown) {
+      throw new MigrationCompatibilityError(
+        'future-schema',
+        `Database schema version ${String(current)} is newer than this trageti package understands (latest known: ${String(latestKnown)}). Upgrade trageti before opening this database.`,
+        { currentVersion: current, latestKnownVersion: latestKnown },
+      );
+    }
 
     for (const migration of this.migrations) {
       if (migration.version <= current) continue;
+      if (migration.requiresForeignKeyToggle) {
+        throw new MigrationCompatibilityError(
+          'foreign-key-toggle-unsupported',
+          `Migration v${String(migration.version)} requires foreign-key toggling, which is not implemented in this trageti build.`,
+          { migrationVersion: migration.version },
+        );
+      }
       this.runStandardMigration(db, migration);
     }
   }

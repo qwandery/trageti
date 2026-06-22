@@ -338,8 +338,8 @@ export interface ScoredCandidate {
 
 export interface ScoringContext {
   temporalAnchor: number;
-  /** validFrom range across the namespace's active assertions; both null
-   *  when the namespace has no active assertions. */
+  /** validFrom range across all assertions in the namespace; both null
+   *  when the namespace has no assertions. */
   namespacePositionRange: {
     min: number | null;
     max: number | null;
@@ -572,6 +572,9 @@ export interface ReindexOptions {
   signal?: AbortSignal;
   /** Embedding provider override for this reindex. */
   embeddingProvider?: EmbeddingProvider;
+  /** Default true. When false, rebuild only active assertions and remove
+   *  superseded embeddings from the target table. */
+  includeSuperseded?: boolean;
 }
 
 export interface ReindexResult {
@@ -750,6 +753,11 @@ export interface InitNamespaceOptions {
   embeddingProvider?: EmbeddingProvider;
   /** Arbitrary caller metadata stored as JSON. */
   config?: Record<string, unknown>;
+}
+
+export interface IndexingStateOptions {
+  /** Default false. Include superseded assertions in indexing-state checks. */
+  includeSuperseded?: boolean;
 }
 
 export interface DeleteNamespaceOptions {

@@ -12,7 +12,7 @@ describe('MigrationRunner internals', () => {
     const migrations = runner.getMigrations();
     const applied = runner.getAppliedVersions(db);
 
-    expect(migrations).toHaveLength(2);
+    expect(migrations).toHaveLength(3);
     expect(migrations[0]).toMatchObject({
       version: 1,
       name: 'v001_baseline',
@@ -23,8 +23,14 @@ describe('MigrationRunner internals', () => {
       name: 'v002_namespace_operation_locks',
       requiresForeignKeyToggle: false,
     });
+    expect(migrations[2]).toMatchObject({
+      version: 3,
+      name: 'v003_namespace_lock_heartbeat',
+      requiresForeignKeyToggle: false,
+    });
     expect(applied.get(1)).toEqual(expect.any(String));
     expect(applied.get(2)).toEqual(expect.any(String));
+    expect(applied.get(3)).toEqual(expect.any(String));
   });
 
   it('rolls back the baseline version row when baseline DDL fails', () => {

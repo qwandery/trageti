@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from 'better-sqlite3';
 import { openTestDb } from '../helpers/openTestDb.js';
 import { TragetiStore } from '../../src/store/TragetiStore.js';
-import { loadScenario } from '../fixtures/scenario.js';
+import { citationFor, loadScenario } from '../fixtures/scenario.js';
 
 const NS = 'test-ns';
 const DIM = 4;
@@ -85,12 +85,26 @@ describe('TragetiStore — graph traversal', () => {
   });
 
   it('getConnected excludes expired links (valid_until <= temporalAnchor)', async () => {
-    // Add a link that expires at position 8
+    await store.writeAssertion({
+      id: 'a-temp-target',
+      namespace: NS,
+      type: 'fact',
+      content: 'temporary target',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: 'temp-target',
+      entityType: 'topic',
+      citations: [citationFor('a-temp-target', 'ep-1')],
+    });
+    // Add a link that expires at position 8.
     await store.writeLink({
       id: 'l-temp',
       namespace: NS,
       fromId: 'a-1',
-      toId: 'a-5',
+      toId: 'a-temp-target',
       linkType: 'temporary',
       validFrom: 1,
       validUntil: 8,
@@ -104,7 +118,7 @@ describe('TragetiStore — graph traversal', () => {
       maxDepth: 1,
       temporalAnchor: 7,
     });
-    expect(before.map((a) => a.id)).toContain('a-5');
+    expect(before.map((a) => a.id)).toContain('a-temp-target');
 
     // At anchor=8: link has expired (validUntil=8, condition is valid_until > anchor fails for equal)
     const after = await store.getConnected({
@@ -113,7 +127,7 @@ describe('TragetiStore — graph traversal', () => {
       maxDepth: 1,
       temporalAnchor: 8,
     });
-    expect(after.map((a) => a.id)).not.toContain('a-5');
+    expect(after.map((a) => a.id)).not.toContain('a-temp-target');
   });
 
   it('findPath returns links on the path between two assertions', async () => {

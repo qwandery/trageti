@@ -59,7 +59,7 @@ export class NamespaceRepository {
    * The schema CHECK forbids the partial state where dimension is set but
    * table name is not, so both fields are written atomically.
    */
-  upsert(namespace: string, embeddingDimension: number | null | undefined, config: Record<string, unknown> = {}): void {
+  upsert(namespace: string, embeddingDimension: number | null | undefined, config?: Record<string, unknown>): void {
     const dim = embeddingDimension && embeddingDimension > 0 ? embeddingDimension : null;
     const existing = this.get(namespace);
     if (existing) {
@@ -73,6 +73,11 @@ export class NamespaceRepository {
         if (existing.embeddingDimension !== dim) {
           throw new NamespaceDimensionMismatchError(namespace, existing.embeddingDimension, dim);
         }
+      }
+      if (config !== undefined) {
+        this.db
+          .prepare('UPDATE trageti_namespaces SET config = ? WHERE namespace = ?')
+          .run(JSON.stringify(config), namespace);
       }
       return;
     }
@@ -96,7 +101,7 @@ export class NamespaceRepository {
         `INSERT INTO trageti_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(namespace, dim, embeddingTable, JSON.stringify(config), new Date().toISOString());
+      .run(namespace, dim, embeddingTable, JSON.stringify(config ?? {}), new Date().toISOString());
   }
 
   updateEmbeddingDimension(namespace: string, newDimension: number, newTable: string): void {
@@ -110,7 +115,7 @@ export class NamespaceRepository {
   }
 
   /**
-   * The validFrom range across the namespace's *active* assertions
+   * The validFrom range across all assertions in the namespace.
    * (validUntil IS NULL). Empty namespace → { min: null, max: null }.
    * Drives the recency term in scoring and `NamespaceStats.positionRange`.
    */
@@ -119,7 +124,7 @@ export class NamespaceRepository {
       .prepare<
         [string],
         { min: number | null; max: number | null }
-      >('SELECT MIN(valid_from) AS min, MAX(valid_from) AS max FROM trageti_assertions WHERE namespace = ? AND valid_until IS NULL')
+      >('SELECT MIN(valid_from) AS min, MAX(valid_from) AS max FROM trageti_assertions WHERE namespace = ?')
       .get(namespace);
     return { min: row?.min ?? null, max: row?.max ?? null };
   }

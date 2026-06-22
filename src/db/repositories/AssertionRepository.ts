@@ -2,7 +2,7 @@ import type { Database } from 'better-sqlite3';
 import type { Assertion, AssertionCitation, NormalizedNewAssertion } from '../../domain/types.js';
 import type { CitationRepository } from './CitationRepository.js';
 import { buildCandidateJson } from '../candidates.js';
-import { ErrorCode, TragetiError } from '../../errors/index.js';
+import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js';
 
 const MAX_SUPERSESSION_DEPTH = 1000;
 
@@ -44,27 +44,34 @@ export class AssertionRepository {
   }
 
   insert(assertion: Omit<NormalizedNewAssertion, 'citations'>): void {
-    this.db
-      .prepare(
-        `INSERT INTO trageti_assertions
-           (id, namespace, type, content, valid_from, valid_until, confidence,
-            source_episode_id, supersedes_id, entity_id, entity_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        assertion.id,
-        assertion.namespace,
-        assertion.type,
-        assertion.content,
-        assertion.validFrom,
-        assertion.validUntil ?? null,
-        assertion.confidence,
-        assertion.sourceEpisodeId,
-        assertion.supersedesId ?? null,
-        assertion.entityId ?? null,
-        assertion.entityType ?? null,
-        new Date().toISOString(),
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO trageti_assertions
+             (id, namespace, type, content, valid_from, valid_until, confidence,
+              source_episode_id, supersedes_id, entity_id, entity_type, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          assertion.id,
+          assertion.namespace,
+          assertion.type,
+          assertion.content,
+          assertion.validFrom,
+          assertion.validUntil ?? null,
+          assertion.confidence,
+          assertion.sourceEpisodeId,
+          assertion.supersedesId ?? null,
+          assertion.entityId ?? null,
+          assertion.entityType ?? null,
+          new Date().toISOString(),
+        );
+    } catch (err) {
+      if (isSqliteConstraint(err)) {
+        throw new ValidationError([`Assertion ID "${assertion.id}" already exists`], 'Assertion');
+      }
+      throw err;
+    }
   }
 
   /**
@@ -96,6 +103,23 @@ export class AssertionRepository {
     const rows = this.db
       .prepare<[string], AssertionRow>('SELECT * FROM trageti_assertions WHERE id IN (SELECT value FROM json_each(?))')
       .all(json);
+    const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id));
+    return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []));
+  }
+
+  getByIdsValidAt(ids: readonly string[], anchor: number, options: { includeSuperseded?: boolean } = {}): Assertion[] {
+    if (ids.length === 0) return [];
+    const upper = options.includeSuperseded ? '' : 'AND (valid_until IS NULL OR valid_until > ?)';
+    const params: unknown[] = [buildCandidateJson(ids), anchor];
+    if (!options.includeSuperseded) params.push(anchor);
+    const rows = this.db
+      .prepare<unknown[], AssertionRow>(
+        `SELECT * FROM trageti_assertions
+         WHERE id IN (SELECT value FROM json_each(?))
+           AND valid_from <= ?
+           ${upper}`,
+      )
+      .all(...params);
     const citationsById = this.citationRepo.getByAssertionIds(rows.map((r) => r.id));
     return rows.map((r) => this.rowToAssertion(r, citationsById.get(r.id) ?? []));
   }
@@ -217,13 +241,16 @@ export class AssertionRepository {
    */
   getSupersessionChain(assertionId: string): Assertion[] {
     const sql = `
-      WITH RECURSIVE chain(id, depth) AS (
-        SELECT id, 0 FROM trageti_assertions WHERE id = ?
+      WITH RECURSIVE chain(id, namespace, depth) AS (
+        SELECT id, namespace, 0 FROM trageti_assertions WHERE id = ?
         UNION ALL
-        SELECT a.supersedes_id, c.depth + 1
+        SELECT pred.id, c.namespace, c.depth + 1
         FROM chain c
         JOIN trageti_assertions a ON a.id = c.id
+        JOIN trageti_assertions pred ON pred.id = a.supersedes_id
         WHERE a.supersedes_id IS NOT NULL
+          AND a.namespace = c.namespace
+          AND pred.namespace = c.namespace
           AND c.depth < ?
       )
       SELECT a.*, c.depth AS _depth
@@ -247,13 +274,18 @@ export class AssertionRepository {
     for (const id of assertionIds) chains.set(id, []);
 
     const sql = `
-      WITH RECURSIVE chain(root_id, id, depth) AS (
-        SELECT value, value, 0 FROM json_each(?)
+      WITH RECURSIVE chain(root_id, id, namespace, depth) AS (
+        SELECT value, a.id, a.namespace, 0
+        FROM json_each(?)
+        JOIN trageti_assertions a ON a.id = value
         UNION ALL
-        SELECT c.root_id, a.supersedes_id, c.depth + 1
+        SELECT c.root_id, pred.id, c.namespace, c.depth + 1
         FROM chain c
         JOIN trageti_assertions a ON a.id = c.id
+        JOIN trageti_assertions pred ON pred.id = a.supersedes_id
         WHERE a.supersedes_id IS NOT NULL
+          AND a.namespace = c.namespace
+          AND pred.namespace = c.namespace
           AND c.depth < ?
       )
       SELECT c.root_id, a.*, c.depth AS _depth
@@ -326,4 +358,14 @@ function assertSupersessionDepth(scope: string, rows: Array<AssertionRow & { _de
       `Supersession traversal exceeded maximum depth ${String(MAX_SUPERSESSION_DEPTH)} for "${scope}"`,
     );
   }
+}
+
+function isSqliteConstraint(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    'code' in err &&
+    typeof err.code === 'string' &&
+    err.code.startsWith('SQLITE_CONSTRAINT')
+  );
 }

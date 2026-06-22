@@ -8,9 +8,13 @@ interface PragmaTableInfoRow {
   name: string;
 }
 
-function getExistingColumns(db: Database, table: string): Set<string> {
+function getExistingColumnNames(db: Database, table: string): string[] {
   const rows = db.prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(table)})`).all();
-  return new Set(rows.map((r) => r.name.toLowerCase()));
+  return rows.map((r) => r.name);
+}
+
+function getExistingColumns(db: Database, table: string): Set<string> {
+  return new Set(getExistingColumnNames(db, table).map((name) => name.toLowerCase()));
 }
 
 export class SchemaExtensionApplier {
@@ -71,6 +75,7 @@ export class SchemaExtensionApplier {
         this.addColumnIfAbsent(db, col);
       }
       for (const tbl of extensions.tables ?? []) {
+        this.validateCreateTableSql(tbl.tableName, tbl.createSQL);
         db.exec(tbl.createSQL);
         if (tbl.referencesNamespace && tbl.namespaceColumn) {
           const columns = db.prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(tbl.tableName)})`).all();
@@ -89,15 +94,31 @@ export class SchemaExtensionApplier {
    * the library column list. Used to populate the extensions bag on returned rows.
    */
   getExtensionColumns(db: Database, table: LibraryTable): string[] {
-    const existing = getExistingColumns(db, table);
+    const existing = getExistingColumnNames(db, table);
     const librarySet = new Set(LIBRARY_COLUMNS[table].map((c) => c.toLowerCase()));
-    return [...existing].filter((c) => !librarySet.has(c));
+    return existing.filter((c) => !librarySet.has(c.toLowerCase()));
   }
 
   private addColumnIfAbsent(db: Database, col: ColumnExtension): void {
     const existing = getExistingColumns(db, col.table);
     if (!existing.has(col.column.toLowerCase())) {
       db.exec(`ALTER TABLE ${quoteIdent(col.table)} ADD COLUMN ${quoteIdent(col.column)} ${col.definition}`);
+    }
+  }
+
+  private validateCreateTableSql(tableName: string, createSQL: string): void {
+    const trimmed = createSQL.trim().replace(/;+\s*$/, '');
+    if (trimmed.includes(';')) {
+      throw new SchemaExtensionError([`Table "${tableName}": createSQL must contain exactly one CREATE TABLE statement`]);
+    }
+    const match = /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))/i.exec(
+      trimmed,
+    );
+    const declared = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
+    if (!declared || declared.toLowerCase() !== tableName.toLowerCase()) {
+      throw new SchemaExtensionError([
+        `Table "${tableName}": createSQL must be a CREATE TABLE statement for the declared table`,
+      ]);
     }
   }
 }

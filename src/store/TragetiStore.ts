@@ -48,6 +48,7 @@ import type {
   TraversalOptions,
   PathOptions,
   TemporalSnapshotOptions,
+  IndexingStateOptions,
 } from '../domain/types.js';
 import { MigrationRunner } from '../db/migrations/runner.js';
 import { SchemaExtensionApplier } from '../db/schema/extensions.js';
@@ -57,6 +58,7 @@ import { AssertionRepository } from '../db/repositories/AssertionRepository.js';
 import { CitationRepository } from '../db/repositories/CitationRepository.js';
 import { LinkRepository } from '../db/repositories/LinkRepository.js';
 import { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js';
+import { buildCandidateJson } from '../db/candidates.js';
 import { DefaultConnectionVerifier } from '../defaults/connection/DefaultConnectionVerifier.js';
 import { DefaultAssertionValidator } from '../defaults/validation/DefaultAssertionValidator.js';
 import { CTEGraphAdapter } from '../defaults/graph/CTEGraphAdapter.js';
@@ -82,6 +84,7 @@ import { ConsoleLogger, emitOnce, incr, observe } from '../internal/logger.js';
 import { namespaceToEmbeddingTable } from '../internal/hash.js';
 import { validateTokenizer } from '../internal/tokenizer.js';
 import { quoteIdent } from '../internal/sql-ident.js';
+import { vectorValidationError } from '../internal/vector.js';
 import {
   finiteNumberError,
   literalOptionError,
@@ -110,6 +113,10 @@ function assertValidDimension(namespace: string, dimension: number): void {
       `Namespace "${namespace}": embedding dimension must be a positive integer, got ${String(dimension)}`,
     ]);
   }
+}
+
+function vectorErrorCode(message: string): string {
+  return message.includes(' length ') ? 'EMBEDDING_DIMENSION_MISMATCH' : 'EMBEDDING_INVALID';
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -157,6 +164,11 @@ function validateLinkFields(link: NewAssertionLinkInput, errors: string[]): void
     errors.push('link.validUntil must be greater than link.validFrom');
 }
 
+function buildFtsTokenizeArg(tokenizer: FTS5TokenizerConfig): string {
+  validateTokenizer(tokenizer, 'rebuild');
+  return [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ');
+}
+
 export class TragetiStore {
   private readonly db: Database;
   private readonly options: TragetiStoreOptions & {
@@ -192,6 +204,7 @@ export class TragetiStore {
   private initialized = false;
   private closed = false;
   private closing = false;
+  private closePromise: Promise<void> | null = null;
   private inFlightOperations = 0;
   private readonly inFlightWaiters: Array<() => void> = [];
   private sqliteVecLoaded: boolean | null = null;
@@ -299,7 +312,7 @@ export class TragetiStore {
   async initNamespace(namespace: string, options: InitNamespaceOptions = {}): Promise<NamespaceConfig> {
     this.requireInit();
     const dimension = this.resolveVectorDimension(namespace, options.embeddingDimension, options.embeddingProvider);
-    this.namespaceRepo.upsert(namespace, dimension, options.config ?? {});
+    this.namespaceRepo.upsert(namespace, dimension, options.config);
     if (options.embeddingProvider) {
       this.namespaceProviders.set(namespace, options.embeddingProvider);
     }
@@ -557,11 +570,6 @@ export class TragetiStore {
 
   // ─── Indexing ──────────────────────────────────────────────────────────────
 
-  /** Length of an embedding, accepting either Float32Array or number[]. */
-  private embeddingLength(e: Float32Array | number[]): number {
-    return e.length;
-  }
-
   async indexAssertion(assertionId: string, embedding?: Float32Array | number[]): Promise<void> {
     return this.trackOperation('indexAssertion', async () => {
       this.requireInit();
@@ -577,6 +585,10 @@ export class TragetiStore {
 
       let vec: Float32Array | number[];
       if (embedding) {
+        const vectorError = vectorValidationError(embedding, dim, 'embedding');
+        if (vectorError) {
+          throw new IndexingError(ErrorCode.INDEXING_EMBEDDING_DIMENSION_MISMATCH, vectorError, { assertionId });
+        }
         vec = embedding;
       } else {
         // Resolve the namespace-effective provider: a per-namespace binding
@@ -605,17 +617,13 @@ export class TragetiStore {
             { assertionId },
           );
         }
+        const vectorError = vectorValidationError(computed, dim, 'provider embedding');
+        if (vectorError) {
+          throw new EmbeddingProviderError(provider.name, 0, vectorError);
+        }
         vec = computed;
       }
 
-      if (dim !== null && this.embeddingLength(vec) !== dim) {
-        throw new IndexingError(
-          ErrorCode.INDEXING_EMBEDDING_DIMENSION_MISMATCH,
-          `Embedding length ${String(this.embeddingLength(vec))} for "${assertionId}" does not match namespace dimension ${String(dim)}`,
-          { assertionId },
-        );
-      }
-      this.requireNotClosed('indexAssertion');
       this.embeddingRepo.insert(table, assertionId, vec);
     });
   }
@@ -702,13 +710,14 @@ export class TragetiStore {
         const provider = providerByNs.get(assertion.namespace) ?? null;
 
         if (item.embedding) {
-          if (dim !== null && this.embeddingLength(item.embedding) !== dim) {
+          const vectorError = vectorValidationError(item.embedding, dim, 'embedding');
+          if (vectorError) {
             skips.push({
               index: i,
               entry: {
                 assertionId: item.assertionId,
-                reason: 'EMBEDDING_DIMENSION_MISMATCH',
-                errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+                reason: vectorErrorCode(vectorError),
+                errorCode: vectorErrorCode(vectorError),
               },
             });
             continue;
@@ -736,13 +745,14 @@ export class TragetiStore {
       }
 
       const persist = (p: Pending, vec: Float32Array | number[]): void => {
-        if (p.dim !== null && this.embeddingLength(vec) !== p.dim) {
+        const vectorError = vectorValidationError(vec, p.dim, 'embedding');
+        if (vectorError) {
           skips.push({
             index: p.index,
             entry: {
               assertionId: p.assertion.id,
-              reason: 'EMBEDDING_DIMENSION_MISMATCH',
-              errorCode: 'EMBEDDING_DIMENSION_MISMATCH',
+              reason: vectorErrorCode(vectorError),
+              errorCode: vectorErrorCode(vectorError),
             },
           });
           return;
@@ -794,7 +804,10 @@ export class TragetiStore {
                     `provider returned no vector for batch item ${String(k)}`,
                   );
                 }
-                this.requireNotClosed('indexBatch');
+                const vectorError = vectorValidationError(vec, c.dim, 'provider embedding');
+                if (vectorError) {
+                  throw new EmbeddingProviderError(groupProvider.name, indexed, vectorError);
+                }
                 persist(c, vec);
               }
             }
@@ -830,7 +843,18 @@ export class TragetiStore {
               });
               continue;
             }
-            this.requireNotClosed('indexBatch');
+            const vectorError = vectorValidationError(vec, p.dim, 'provider embedding');
+            if (vectorError) {
+              skips.push({
+                index: p.index,
+                entry: {
+                  assertionId: p.assertion.id,
+                  reason: 'EMBEDDING_PROVIDER_ERROR',
+                  errorCode: vectorErrorCode(vectorError),
+                },
+              });
+              continue;
+            }
             persist(p, vec);
           } catch (err) {
             // The raw message is never surfaced — errorCode is the thrown
@@ -863,7 +887,10 @@ export class TragetiStore {
     });
   }
 
-  async getPendingIndexing(namespace: string): Promise<Array<{ id: string; content: string }>> {
+  async getPendingIndexing(
+    namespace: string,
+    options: IndexingStateOptions = {},
+  ): Promise<Array<{ id: string; content: string }>> {
     this.requireNamespaceInit(namespace);
     // getPendingIndexing does NOT route through ensureVectorReady: its result
     // is observable across the full (vectorless × vec0-exists × sqlite-vec)
@@ -879,7 +906,7 @@ export class TragetiStore {
       // Vector-configured but the vec0 table has not been lazily created yet —
       // every active assertion is pending. This case does not touch vec0, so
       // it works whether or not sqlite-vec is loaded.
-      return this.embeddingRepo.getAllActiveContent(namespace);
+      return this.embeddingRepo.getAllContent(namespace, options);
     }
     if (!this.isSqliteVecLoaded()) {
       // vec0 exists but the extension is not loaded — cannot introspect it.
@@ -889,7 +916,7 @@ export class TragetiStore {
         'load sqlite-vec to introspect indexing state for a vector namespace',
       );
     }
-    return this.embeddingRepo.getPendingIndexing(table, namespace);
+    return this.embeddingRepo.getPendingIndexing(table, namespace, options);
   }
 
   // ─── Retrieval ─────────────────────────────────────────────────────────────
@@ -903,7 +930,6 @@ export class TragetiStore {
       // caller gave queryText but no queryEmbedding, or record why the vector
       // branch is skipped under hybrid degradation.
       const { query: routed, skipReason } = await this.resolveQueryEmbedding(routedBefore);
-      this.requireNotClosed('retrieve');
       const result = retrieve(
         this.db,
         {
@@ -1008,6 +1034,10 @@ export class TragetiStore {
     if (!vec) {
       throw new EmbeddingProviderError(provider.name, 0, 'provider returned no query embedding');
     }
+    const vectorError = vectorValidationError(vec, config.embeddingDimension, 'provider query embedding');
+    if (vectorError) {
+      throw new EmbeddingProviderError(provider.name, 0, vectorError);
+    }
     return { query: { ...query, queryEmbedding: vec } };
   }
 
@@ -1082,12 +1112,24 @@ export class TragetiStore {
     return this.linkRepo.getByIds(ids);
   }
 
-  async getMissingIndexing(namespace: string, assertionIds: readonly string[]): Promise<Array<{ id: string; content: string }>> {
+  async getMissingIndexing(
+    namespace: string,
+    assertionIds: readonly string[],
+    options: IndexingStateOptions = {},
+  ): Promise<Array<{ id: string; content: string }>> {
     this.requireNamespaceInit(namespace);
     if (assertionIds.length === 0) return [];
+    const config = this.namespaceRepo.get(namespace);
+    const tableName = this.namespaceRepo.getEmbeddingTable(namespace);
+    if (!config || config.embeddingDimension === null || !tableName) {
+      this.options.logger.debug('TRGT_MISSING_INDEXING_VECTORLESS', { namespace });
+      return [];
+    }
     const table = this.ensureVectorReadable(namespace);
     const missingIds =
-      table === null ? [...assertionIds] : this.embeddingRepo.getMissingIndexingByIds(table, namespace, assertionIds);
+      table === null
+        ? this.filterRequestedIndexingIds(namespace, assertionIds, options)
+        : this.embeddingRepo.getMissingIndexingByIds(table, namespace, assertionIds, options);
     if (missingIds.length === 0) return [];
     const assertionsById = new Map(this.assertionRepo.getByIds(missingIds).map((assertion) => [assertion.id, assertion]));
     return missingIds.flatMap((id) => {
@@ -1184,8 +1226,10 @@ export class TragetiStore {
         const result = await doReindex(this.db, this.namespaceRepo, this.embeddingRepo, namespace, {
           ...options,
           embeddingProvider: provider,
+          onHeartbeat: () => {
+            this.refreshNamespaceOperationLock(namespace, lockOwner);
+          },
         });
-        this.requireNotClosed('reindexNamespace');
         observe(this.options.metrics ?? undefined, 'trageti.reindex.tookMs', result.durationMs);
         return result;
       } finally {
@@ -1263,9 +1307,7 @@ export class TragetiStore {
     // the tokenizer currently recorded in trageti_tokenizer, never silently
     // reset to the store's configured fts5Tokenizer (spec §2088-2099, §2350-2355).
     const tokenizer = options.tokenizer ?? this.readStoredTokenizer() ?? this.options.fts5Tokenizer;
-    // Reject an unsafe/unsupported tokenizer before generating any DDL.
-    validateTokenizer(tokenizer, 'rebuild');
-    const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ');
+    const tokenizeArg = buildFtsTokenizeArg(tokenizer);
     const batchSize = options.batchSize ?? 1000;
     const batchError = positiveIntegerOptionError(batchSize, 'batchSize');
     if (batchError) throw new ValidationError([batchError]);
@@ -1426,16 +1468,41 @@ export class TragetiStore {
 
   async close(): Promise<void> {
     if (this.closed) return;
+    this.closePromise ??= this.closeCore();
+    return this.closePromise;
+  }
+
+  private async closeCore(): Promise<void> {
     this.closing = true;
+    const cleanupErrors: unknown[] = [];
     await this.waitForInFlightOperations();
     for (const middleware of this.options.middleware) {
-      await middleware.dispose?.();
+      try {
+        await middleware.dispose?.();
+      } catch (err) {
+        cleanupErrors.push(err);
+      }
     }
-    await this.options.logger.flush?.();
+    try {
+      await this.options.logger.flush?.();
+    } catch (err) {
+      cleanupErrors.push(err);
+    }
     if (this.closeDatabaseOnStoreClose) {
-      this.db.close();
+      try {
+        this.db.close();
+      } catch (err) {
+        cleanupErrors.push(err);
+      }
     }
     this.closed = true;
+    this.closing = false;
+    if (cleanupErrors.length > 0) {
+      throw new TragetiError(
+        ErrorCode.STORE_CLOSED,
+        `TragetiStore closed with cleanup error(s): ${cleanupErrors.map(errorCodeOf).join(', ')}`,
+      );
+    }
   }
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
@@ -1631,17 +1698,19 @@ export class TragetiStore {
 
   private clearStaleNamespaceLocks(now = Date.now()): void {
     const staleBefore = new Date(now - NAMESPACE_LOCK_STALE_MS).toISOString();
-    const result = this.db.prepare('DELETE FROM trageti_namespace_locks WHERE acquired_at < ?').run(staleBefore);
+    const result = this.db
+      .prepare('DELETE FROM trageti_namespace_locks WHERE COALESCE(heartbeat_at, acquired_at) < ?')
+      .run(staleBefore);
     if (result.changes > 0) {
       this.options.logger.warn('TRGT_NAMESPACE_LOCK_STALE_CLEARED', { count: result.changes });
     }
   }
 
-  private namespaceLock(namespace: string): { operation: string; owner: string; acquired_at: string } | null {
+  private namespaceLock(namespace: string): { operation: string; owner: string; acquired_at: string; heartbeat_at: string | null } | null {
     return (
       this.db
-        .prepare<[string], { operation: string; owner: string; acquired_at: string }>(
-          'SELECT operation, owner, acquired_at FROM trageti_namespace_locks WHERE namespace = ?',
+        .prepare<[string], { operation: string; owner: string; acquired_at: string; heartbeat_at: string | null }>(
+          'SELECT operation, owner, acquired_at, heartbeat_at FROM trageti_namespace_locks WHERE namespace = ?',
         )
         .get(namespace) ?? null
     );
@@ -1663,10 +1732,10 @@ export class TragetiStore {
     try {
       this.db
         .prepare(
-          `INSERT INTO trageti_namespace_locks (namespace, operation, owner, acquired_at)
-           VALUES (?, ?, ?, ?)`,
+          `INSERT INTO trageti_namespace_locks (namespace, operation, owner, acquired_at, heartbeat_at)
+           VALUES (?, ?, ?, ?, ?)`,
         )
-        .run(namespace, operation, owner, new Date().toISOString());
+        .run(namespace, operation, owner, new Date().toISOString(), new Date().toISOString());
       return owner;
     } catch {
       const lock = this.namespaceLock(namespace);
@@ -1679,6 +1748,12 @@ export class TragetiStore {
 
   private releaseNamespaceOperationLock(namespace: string, owner: string): void {
     this.db.prepare('DELETE FROM trageti_namespace_locks WHERE namespace = ? AND owner = ?').run(namespace, owner);
+  }
+
+  private refreshNamespaceOperationLock(namespace: string, owner: string): void {
+    this.db
+      .prepare('UPDATE trageti_namespace_locks SET heartbeat_at = ? WHERE namespace = ? AND owner = ?')
+      .run(new Date().toISOString(), namespace, owner);
   }
 
   private warmExtensionCache(): void {
@@ -1769,6 +1844,25 @@ export class TragetiStore {
     }
   }
 
+  private filterRequestedIndexingIds(
+    namespace: string,
+    assertionIds: readonly string[],
+    options: IndexingStateOptions,
+  ): string[] {
+    if (assertionIds.length === 0) return [];
+    const activeOnly = options.includeSuperseded === true ? '' : 'AND valid_until IS NULL';
+    return this.db
+      .prepare<[string, string], { id: string }>(
+        `SELECT id
+         FROM trageti_assertions
+         WHERE namespace = ?
+           AND id IN (SELECT value FROM json_each(?))
+           ${activeOnly}`,
+      )
+      .all(namespace, buildCandidateJson(assertionIds))
+      .map((row) => row.id);
+  }
+
   private ensureVectorReadable(namespace: string): string | null {
     const config = this.namespaceRepo.get(namespace);
     if (!config) throw new NamespaceNotInitializedError(namespace);
@@ -1830,7 +1924,7 @@ export class TragetiStore {
 
   /** Returns true when sqlite-vec's vec_version() function is callable. */
   private isSqliteVecLoaded(): boolean {
-    if (this.sqliteVecLoaded !== null) return this.sqliteVecLoaded;
+    if (this.sqliteVecLoaded === true) return true;
     try {
       this.db.prepare('SELECT vec_version() AS v').get();
       this.sqliteVecLoaded = true;
@@ -1881,7 +1975,7 @@ export class TragetiStore {
    * they survive the drop/recreate. Mirrors the DDL `rebuildFts()` runs.
    */
   private applyFtsTokenizer(tokenizer: FTS5TokenizerConfig): void {
-    const tokenizeArg = [tokenizer.tokenizer, ...(tokenizer.tokenizerArgs ?? [])].join(' ');
+    const tokenizeArg = buildFtsTokenizeArg(tokenizer);
     this.db.transaction(() => {
       this.db.exec('DROP TABLE IF EXISTS trageti_fulltext');
       this.db.exec(`

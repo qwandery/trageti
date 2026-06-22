@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import type { FTS5TokenizerConfig, Migration } from '../../domain/types.js';
+import { validateTokenizer } from '../../internal/tokenizer.js';
 
 const DEFAULT_TOKENIZER: FTS5TokenizerConfig = {
   tokenizer: 'unicode61',
@@ -7,6 +8,7 @@ const DEFAULT_TOKENIZER: FTS5TokenizerConfig = {
 };
 
 function buildTokenizeArg(cfg: FTS5TokenizerConfig): string {
+  validateTokenizer(cfg, 'init');
   return [cfg.tokenizer, ...(cfg.tokenizerArgs ?? [])].join(' ');
 }
 

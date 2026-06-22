@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { AssertionCitation, NewAssertionCitation } from '../../domain/types.js';
 import { buildCandidateJson } from '../candidates.js';
-import { ErrorCode, TragetiError } from '../../errors/index.js';
+import { ErrorCode, TragetiError, ValidationError } from '../../errors/index.js';
 
 interface CitationRow {
   id: string;
@@ -51,39 +51,53 @@ export class CitationRepository {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const cit of citations) {
-      stmt.run(
-        cit.id,
-        assertionId,
-        cit.episodeId,
-        cit.sourceRef,
-        cit.excerpt,
-        cit.excerptStart ?? null,
-        cit.excerptEnd ?? null,
-        cit.metadata !== undefined ? JSON.stringify(cit.metadata) : null,
-        new Date().toISOString(),
-      );
+      try {
+        stmt.run(
+          cit.id,
+          assertionId,
+          cit.episodeId,
+          cit.sourceRef,
+          cit.excerpt,
+          cit.excerptStart ?? null,
+          cit.excerptEnd ?? null,
+          cit.metadata !== undefined ? JSON.stringify(cit.metadata) : null,
+          new Date().toISOString(),
+        );
+      } catch (err) {
+        if (isSqliteConstraint(err)) {
+          throw new ValidationError([`Citation ID "${cit.id}" already exists`], 'Citation');
+        }
+        throw err;
+      }
     }
     return this.getByAssertionId(assertionId);
   }
 
   insertOne(citation: Omit<AssertionCitation, 'createdAt'>): AssertionCitation {
-    this.db
-      .prepare(
-        `INSERT INTO trageti_citations
-           (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        citation.id,
-        citation.assertionId,
-        citation.episodeId,
-        citation.sourceRef,
-        citation.excerpt,
-        citation.excerptStart ?? null,
-        citation.excerptEnd ?? null,
-        citation.metadata !== undefined ? JSON.stringify(citation.metadata) : null,
-        new Date().toISOString(),
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO trageti_citations
+             (id, assertion_id, episode_id, source_ref, excerpt, excerpt_start, excerpt_end, metadata, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          citation.id,
+          citation.assertionId,
+          citation.episodeId,
+          citation.sourceRef,
+          citation.excerpt,
+          citation.excerptStart ?? null,
+          citation.excerptEnd ?? null,
+          citation.metadata !== undefined ? JSON.stringify(citation.metadata) : null,
+          new Date().toISOString(),
+        );
+    } catch (err) {
+      if (isSqliteConstraint(err)) {
+        throw new ValidationError([`Citation ID "${citation.id}" already exists`], 'Citation');
+      }
+      throw err;
+    }
     const row = this.db.prepare<[string], CitationRow>('SELECT * FROM trageti_citations WHERE id = ?').get(citation.id);
     if (!row) {
       throw new TragetiError(ErrorCode.INTERNAL_INVARIANT, `Citation "${citation.id}" not found after insert`);
@@ -142,4 +156,14 @@ export class CitationRepository {
       .get(namespace);
     return row?.cnt ?? 0;
   }
+}
+
+function isSqliteConstraint(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    'code' in err &&
+    typeof err.code === 'string' &&
+    err.code.startsWith('SQLITE_CONSTRAINT')
+  );
 }

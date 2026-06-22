@@ -56,6 +56,8 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     // crosses expired links too. Its `?` param is therefore conditional.
     const linkValidity = includeSuperseded ? '' : 'AND (l.valid_until IS NULL OR l.valid_until > ?)';
     const validityParams: number[] = includeSuperseded ? [] : [temporalAnchor];
+    const targetValidity = includeSuperseded ? '' : 'AND (target.valid_until IS NULL OR target.valid_until > ?)';
+    const targetValidityParams: number[] = includeSuperseded ? [] : [temporalAnchor];
 
     // Recursive CTE BFS up to maxDepth hops. `visited` carries the set of
     // node ids already on the path so the recursive step never re-enters a
@@ -69,10 +71,13 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                1 AS depth,
                json_array(l.from_id, l.to_id) AS visited
         FROM trageti_links l
+        JOIN trageti_assertions target ON target.id = l.to_id
         WHERE l.namespace = ?
           AND l.from_id IN (SELECT value FROM json_each(?))
           AND l.valid_from <= ?
           ${linkValidity}
+          AND target.valid_from <= ?
+          ${targetValidity}
           ${linkTypeFilter}
 
         UNION ALL
@@ -83,9 +88,12 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                json_insert(t.visited, '$[#]', l.to_id)
         FROM trageti_links l
         JOIN traversal t ON l.from_id = t.to_id
+        JOIN trageti_assertions target ON target.id = l.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
           ${linkValidity}
+          AND target.valid_from <= ?
+          ${targetValidity}
           ${linkTypeFilter}
           AND t.depth < ?
           AND NOT EXISTS (
@@ -108,10 +116,14 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       fromJson,
       temporalAnchor,
       ...validityParams,
+      temporalAnchor,
+      ...targetValidityParams,
       ...linkTypeParams,
       namespace,
       temporalAnchor,
       ...validityParams,
+      temporalAnchor,
+      ...targetValidityParams,
       ...linkTypeParams,
       maxDepth,
     ];
@@ -139,6 +151,8 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const linkTypeParams = linkTypes ?? [];
     const linkValidity = includeSuperseded ? '' : 'AND (l.valid_until IS NULL OR l.valid_until > ?)';
     const validityParams: number[] = includeSuperseded ? [] : [temporalAnchor];
+    const targetValidity = includeSuperseded ? '' : 'AND (target.valid_until IS NULL OR target.valid_until > ?)';
+    const targetValidityParams: number[] = includeSuperseded ? [] : [temporalAnchor];
 
     const sql = `
       WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids, path_sort_key) AS (
@@ -148,10 +162,13 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                json_array(l.from_id, l.to_id),
                l.created_at || char(31) || l.id
         FROM trageti_links l
+        JOIN trageti_assertions target ON target.id = l.to_id
         WHERE l.namespace = ?
           AND l.from_id = ?
           AND l.valid_from <= ?
           ${linkValidity}
+          AND target.valid_from <= ?
+          ${targetValidity}
           ${linkTypeFilter}
 
         UNION ALL
@@ -162,9 +179,12 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
                p.path_sort_key || char(30) || l.created_at || char(31) || l.id
         FROM trageti_links l
         JOIN path_search p ON l.from_id = p.to_id
+        JOIN trageti_assertions target ON target.id = l.to_id
         WHERE l.namespace = ?
           AND l.valid_from <= ?
           ${linkValidity}
+          AND target.valid_from <= ?
+          ${targetValidity}
           ${linkTypeFilter}
           AND p.depth < ?
           AND NOT EXISTS (
@@ -183,10 +203,14 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       fromId,
       temporalAnchor,
       ...validityParams,
+      temporalAnchor,
+      ...targetValidityParams,
       ...linkTypeParams,
       namespace,
       temporalAnchor,
       ...validityParams,
+      temporalAnchor,
+      ...targetValidityParams,
       ...linkTypeParams,
       maxDepth,
       toId,
