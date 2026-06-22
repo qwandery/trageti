@@ -184,3 +184,31 @@ Alternative A: never mutate config through `initNamespace()` to keep initializat
 4. Replace acquisition-time stale lock cleanup with heartbeat-based recovery or explicit unlock.
 5. Decide whether to implement or reject `requiresForeignKeyToggle`.
 6. Clean up extension-column case handling and namespace config semantics.
+
+## Claude Code Cross-Check Addendum
+
+Date: 2026-06-22
+
+After comparing this review with Claude Code's v0.4.1-alpha.0 review, the following additional items are confirmed and should be fixed before promotion:
+
+| Priority | Finding | Resolution |
+| --- | --- | --- |
+| P1 | `close()` rejects already-admitted in-flight operations after async boundaries because `closing` is treated the same as `closed`. | Reject only new operations during drain; allow tracked operations to finish. |
+| P1 | `close()` can leave the store in a `closing` but not `closed` state if middleware disposal, logger flush, or DB close throws. | Always transition to terminal closed state in `finally`; collect cleanup failures and rethrow after cleanup. |
+| P2 | Duplicate caller-provided assertion, episode, link, and citation IDs surface raw SQLite constraint errors. | Convert duplicate IDs to typed `ValidationError`s, with repository-level constraint mapping as a race fallback. |
+| P2 | Provider-derived query embeddings with wrong dimensions are reported as caller `queryEmbedding` errors. | Validate provider output immediately and throw provider-specific errors. |
+| P2 | `getPositionRange()` uses only active assertions, which can distort recency scoring for historical or supersession-heavy namespaces. | Use the full namespace assertion range and update scoring-context documentation accordingly. |
+| P2 | Indexing status and reindex scope are inconsistent for active-only vs historical embeddings. | Preserve historical indexing by default, and add explicit active-only indexing/reindex options. |
+| P2 | `getMissingIndexing()` throws for vectorless namespaces while `getPendingIndexing()` returns `[]`. | Return `[]` for vectorless namespaces. |
+| P3 | Supersession-chain CTEs rely on write validation instead of constraining recursive traversal to one namespace. | Add namespace constraints to recursive chain traversal. |
+| P3 | Large vector retrieval candidate sets are serialized through JSON and `json_each(?)`. | Push temporal filtering into vector SQL instead of materializing the full candidate set in JS. |
+| P3 | `isSqliteVecLoaded()` caches `false` permanently. | Re-probe when the cached value is `false`; keep caching `true`. |
+| Security hardening | Extension table `createSQL` is executed as arbitrary SQL from trusted caller configuration. | Validate it as one `CREATE TABLE IF NOT EXISTS <declared table>` statement before execution. |
+
+Claude Code's stale-embedding finding is valid only as an indexing-contract concern, not as a reason to delete superseded embeddings by default. Superseded embeddings are required for historical vector retrieval and for `includeSuperseded` workflows, so ordinary supersession must not delete them. Active-only cleanup belongs behind an explicit active-only reindex/maintenance option.
+
+The `deleteNamespace()` link-deletion finding is not carried forward. The current split statements intentionally handle same-namespace rows and cross-namespace references separately and are preferable to a broad `OR` delete for clarity and index use.
+
+The FTS tokenizer and vec0 dimension interpolation finding is defense-in-depth only. The values are already validated before interpolation, but final invariant checks at the DDL boundary are still worth adding.
+
+Temporal graph traversal remains strict by default. No temporal-distance or tolerance option should be added for v0.4.1-alpha.0; audit and topology use cases should use explicit historical APIs such as `includeSuperseded`, `mode: 'trajectory'`, entity history/trajectory reads, path inspection, or retrieval at the target-valid anchor.
