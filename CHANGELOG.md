@@ -1,5 +1,29 @@
 # trageti Changelog
 
+## 0.4.1-alpha.1
+
+Alpha release for the v0.4.1 review remediation line.
+
+- Fixed reviewed API-surface and mechanics issues across store lifecycle,
+  duplicate-ID validation, temporal graph traversal, retrieval expansion,
+  vector validation, reindex scope, migration compatibility, namespace locks,
+  schema-extension hardening, and namespace configuration updates.
+- Added schema v003 for namespace-lock heartbeats so long-running reindex
+  operations can refresh ownership and stale-lock cleanup uses heartbeat time
+  rather than acquisition time.
+- Preserved strict temporal link traversal by default: linked targets must be
+  valid at the temporal anchor, while `includeSuperseded: true` relaxes only
+  past/closed-data filtering and still excludes future assertions.
+- Kept historical vector retrieval/reindex behavior as the default while adding
+  explicit active-only indexing options. Active-only reindex removes superseded
+  embeddings from the target table; ordinary supersession keeps historical
+  embeddings available.
+- Hardened vector boundaries by validating caller, provider, raw-provider,
+  query, batch, and reindex vectors for dimension and finite numeric values
+  before handing data to sqlite-vec.
+- Added JSON-backed demo provider configuration with CLI provider selection,
+  per-scenario provider locks, and legacy environment fallback support.
+
 ## 0.4.0-rev.0
 
 Beta remediation release implementing the v0.3 rev2 contract.
