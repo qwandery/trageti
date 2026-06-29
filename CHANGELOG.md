@@ -24,7 +24,7 @@ Alpha release for the v0.4.1 review remediation line.
 - Added JSON-backed demo provider configuration with CLI provider selection,
   per-scenario provider locks, and legacy environment fallback support.
 
-## 0.4.0-rev.0
+## 0.4.0-alpha.0
 
 Beta remediation release implementing the v0.3 rev2 contract.
 
