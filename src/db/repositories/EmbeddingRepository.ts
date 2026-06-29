@@ -38,6 +38,15 @@ export class EmbeddingRepository {
     this.db.exec(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
   }
 
+  listOrphanStagingTables(referencedTables: ReadonlySet<string>): string[] {
+    const rows = this.db
+      .prepare<[], { name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'trageti_embeddings_%_staging_%'",
+      )
+      .all();
+    return rows.map((row) => row.name).filter((name) => !referencedTables.has(name));
+  }
+
   dropAndRecreate(tableName: string, dimension: number): void {
     assertVec0DimensionInvariant(dimension);
     this.db.transaction(() => {

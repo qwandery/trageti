@@ -28,29 +28,41 @@ function validatePragma(key: string, value: string | number): void {
 }
 
 export function prepareDatabase(source: string | DatabaseType, options: PrepareDatabaseOptions = {}): DatabaseType {
-  const db = typeof source === 'string' ? new Database(source, options.betterSqlite3) : source;
+  const ownsHandle = typeof source === 'string';
+  const db = ownsHandle ? new Database(source, options.betterSqlite3) : source;
 
-  db.pragma(`journal_mode = ${options.journalMode ?? 'WAL'}`);
-  db.pragma(`busy_timeout = ${String(options.busyTimeoutMs ?? 5000)}`);
-  db.pragma(`temp_store = ${options.tempStore ?? 'MEMORY'}`);
-  db.pragma('foreign_keys = ON');
+  try {
+    db.pragma(`journal_mode = ${options.journalMode ?? 'WAL'}`);
+    db.pragma(`busy_timeout = ${String(options.busyTimeoutMs ?? 5000)}`);
+    db.pragma(`temp_store = ${options.tempStore ?? 'MEMORY'}`);
+    db.pragma('foreign_keys = ON');
 
-  for (const [key, value] of Object.entries(options.pragmas ?? {})) {
-    validatePragma(key, value);
-    db.pragma(`${key} = ${String(value)}`);
-  }
-
-  if (options.loadSqliteVec ?? true) {
-    try {
-      const sqliteVec = require('sqlite-vec') as { load(db: DatabaseType): void };
-      sqliteVec.load(db);
-    } catch {
-      throw new MissingPeerDependencyError(
-        'sqlite-vec',
-        'npm install sqlite-vec',
-        'set loadSqliteVec: false and use vectorless namespaces or load the extension manually',
-      );
+    for (const [key, value] of Object.entries(options.pragmas ?? {})) {
+      validatePragma(key, value);
+      db.pragma(`${key} = ${String(value)}`);
     }
+
+    if (options.loadSqliteVec ?? true) {
+      try {
+        const sqliteVec = require('sqlite-vec') as { load(db: DatabaseType): void };
+        sqliteVec.load(db);
+      } catch {
+        throw new MissingPeerDependencyError(
+          'sqlite-vec',
+          'npm install sqlite-vec',
+          'set loadSqliteVec: false and use vectorless namespaces or load the extension manually',
+        );
+      }
+    }
+  } catch (err) {
+    if (ownsHandle) {
+      try {
+        db.close();
+      } catch {
+        // Preserve the setup failure as the primary error.
+      }
+    }
+    throw err;
   }
 
   return db;

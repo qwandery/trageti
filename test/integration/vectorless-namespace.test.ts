@@ -161,6 +161,42 @@ describe('TragetiStore vectorless namespace state', () => {
     expect((await reopened.getStats('vl-e2e')).indexedCount).toBe(1);
     await reopened.close();
   });
+
+  it('getMissingIndexing does not require sqlite-vec when the vec0 table is absent', async () => {
+    const store = await TragetiStore.create({
+      database: ':memory:',
+      namespace: 'missing-no-vec',
+      embeddingDimension: 4,
+      prepare: { loadSqliteVec: false },
+    });
+    await store.writeEpisode({
+      id: 'ep-1',
+      namespace: 'missing-no-vec',
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'episode',
+    });
+    await store.writeAssertion({
+      id: 'a-1',
+      namespace: 'missing-no-vec',
+      type: 'fact',
+      content: 'not indexed yet',
+      validFrom: 1,
+      validUntil: null,
+      confidence: 1,
+      sourceEpisodeId: 'ep-1',
+      supersedesId: null,
+      entityId: null,
+      entityType: null,
+      citations: [{ id: 'a-1:c0', episodeId: 'ep-1', sourceRef: 'self:a-1', excerpt: 'not indexed yet' }],
+    });
+
+    expect(await store.getMissingIndexing('missing-no-vec', ['a-1'])).toEqual([
+      { id: 'a-1', content: 'not indexed yet' },
+    ]);
+    await store.close();
+  });
 });
 
 describe('deleteNamespace extension cascade', () => {

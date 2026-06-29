@@ -170,7 +170,7 @@ const { results, meta } = await store.retrieve({ queryText: '...', namespace: 'd
 ```
 
 - `results: RetrievedAssertion[]` — the ranked hits.
-- `meta: RetrievalMeta` — `namespace`, `temporalAnchor`, `limit`, `candidateCount`, `retrievalStrategy`, `vectorApplied`, `bm25Applied`, `queryTextMode`, `tookMs?`, `warnings`.
+- `meta: RetrievalMeta` — `namespace`, `temporalAnchor`, `limit`, `candidateCount`, `matchedCount`, `retrievalStrategy`, `vectorApplied`, `bm25Applied`, `queryTextMode`, `tookMs?`, `warnings`.
 
 The pinned step order in `pipeline/retrieve.ts`:
 
@@ -185,17 +185,20 @@ The pinned step order in `pipeline/retrieve.ts`:
 2. Vector scoring     SQL: vec_distance_cosine over candidate ids (json_each).
                       ↳ skipped for retrievalStrategy:'bm25' or vectorless ns.
 3. FTS5 / BM25        SQL: trageti_fulltext MATCH …; raw BM25 score per candidate.
+                      ↳ hybrid uses temporal BM25 candidate selection and
+                        unions those ids with vector ids before fusion.
                       ↳ queryTextMode:'phrase' (default) quotes the query as a
                         single FTS5 phrase; 'fts5' passes raw FTS5 syntax — a
                         malformed expression → RETRIEVAL_INVALID_QUERY_TEXT.
 4. Score              TS:  scorer.scoreBatch() — RRF by default; LinearScorer for weighted normalisation.
-5. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
+5. Rerank             TS:  optional IRetrievalReranker over fused top candidates.
+6. Rank + truncate    TS:  sort by the determinism tie-break; slice(limit).
                       ↳ the `rank` step is emitted here, before graph/trajectory.
-6. Graph expand       SQL: recursive CTE through trageti_links at temporalAnchor.
-7. Trajectory         SQL: recursive CTE through supersedes_id; oldest-first.
+7. Graph expand       SQL: recursive CTE through trageti_links at temporalAnchor.
+8. Trajectory         SQL: recursive CTE through supersedes_id; oldest-first.
 ```
 
-`retrievalStrategy` is `hybrid` (default), `vector`, or `bm25`. Each retrieval step can be observed via the `RetrievalDebug.onStep` hook; a throwing hook is caught and logged as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` (the hook never breaks retrieval). The `RetrievalStep` emission order is `validate → temporal-filter → semantic → keyword → score → rank → graph-expand → trajectory-expand`: `rank` reports the truncated result set, so it precedes the expansion steps that only decorate those results. Numeric defaults (retrieval `limit` 10, candidate oversample ×3, `assembleContext` limit 100, graph depths 3/5) live as named constants in `src/internal/retrieval-defaults.ts`.
+`retrievalStrategy` is `hybrid` (default), `vector`, or `bm25`. Each retrieval step can be observed via the `RetrievalDebug.onStep` hook; a throwing hook is caught and logged as `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR` (the hook never breaks retrieval). The `RetrievalStep` emission order is `validate → temporal-filter → semantic → keyword → score → rerank → rank → graph-expand → trajectory-expand`: `rank` reports the truncated result set, so it precedes the expansion steps that only decorate those results. Numeric defaults (retrieval `limit` 10, candidate oversample ×3, `assembleContext` floor 100, graph depths 3/5) live as named constants in `src/internal/retrieval-defaults.ts`.
 
 The funnel between SQL steps is `buildCandidateJson(ids)` — a JSON-serialised array bound as a single parameter, consumed via `json_each(?)`. This is the **only** mechanism for passing intermediate id sets between SQL stages. See [critical invariants](#critical-invariants).
 
@@ -223,7 +226,7 @@ Table-name resolution is **always** via the `trageti_namespaces.embedding_table`
 
 ### Staging-swap reindex
 
-`reindexNamespace()` builds a brand-new vec0 table under a collision-safe staging name (`<base>_staging_<epochMillis>`), re-embeds into it, then **atomically repoints** `trageti_namespaces.embedding_table` to the staging table and drops the old one. The swap is a column `UPDATE` — never a vec0 virtual-table rename (vec0 rename support is version-dependent). On any failure the previous index is left fully intact (`ReindexError`). A leftover staging table from an interrupted run is detected and cleaned up with `TRGT_REINDEX_STAGING_LEFTOVER`.
+`reindexNamespace()` builds a brand-new vec0 table under a collision-safe staging name (`<base>_staging_<uuid>`), re-embeds into it, then **atomically repoints** `trageti_namespaces.embedding_table` to the staging table and drops the old one. The swap is a column `UPDATE` — never a vec0 virtual-table rename (vec0 rename support is version-dependent). On any failure the previous index is left fully intact (`ReindexError`). Unreferenced staging tables from interrupted runs are swept during initialization with `TRGT_ORPHAN_STAGING_EMBEDDING_TABLE_DROPPED`.
 
 ### Citations
 
@@ -261,7 +264,7 @@ await TragetiStore.create({
 });
 ```
 
-Validation (in `SchemaExtensionApplier.validate`): column names must not shadow `LIBRARY_COLUMNS`, must not be SQLite reserved words; user table names must not start with the reserved library prefix. Application is wrapped in a single `db.transaction()` — all-or-nothing. Extension columns are surfaced on returned rows under `assertion.extensions[colName]`, cached at `init()` time.
+Validation (in `SchemaExtensionApplier.validate`): column names must not shadow `LIBRARY_COLUMNS`, user table names must not start with the reserved library prefix, table `createSQL` must be a single `CREATE TABLE` statement for the declared table, and `ColumnExtension.definition` must fit a conservative `ALTER TABLE ADD COLUMN` subset. Application is wrapped in a single `db.transaction()` — all-or-nothing. Extension columns are surfaced on returned rows under `assertion.extensions[colName]`, cached at `init()` time.
 
 ### Logging and metrics
 
@@ -335,7 +338,7 @@ When adding an error: add the code to `ErrorCode`, throw the most specific subcl
 
 ### Log codes
 
-Log codes are stable `TRGT_*` strings passed as the first argument to `Logger` methods. They are part of the observable contract — renaming one is a breaking change and must be reflected in `CHANGELOG.md`. Notable codes: `TRGT_FOREIGN_KEYS_ENABLED`, `TRGT_RETRIEVE_VECTOR_SKIPPED`, `TRGT_PENDING_INDEXING_VECTORLESS`, `TRGT_STATS_VEC_NOT_INTROSPECTED`, `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`, `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`, `TRGT_DEPRECATED_USAGE`, `TRGT_REINDEX_STAGING_LEFTOVER`, `TRGT_CITATION_EXCERPT_MISSING`.
+Log codes are stable `TRGT_*` strings passed as the first argument to `Logger` methods. They are part of the observable contract — renaming one is a breaking change and must be reflected in `CHANGELOG.md`. Notable codes: `TRGT_FOREIGN_KEYS_ENABLED`, `TRGT_RETRIEVE_VECTOR_SKIPPED`, `TRGT_PENDING_INDEXING_VECTORLESS`, `TRGT_STATS_VEC_NOT_INTROSPECTED`, `TRGT_MIGRATION_TOKENIZER_INCOMPATIBLE`, `TRGT_RETRIEVAL_DEBUG_HOOK_ERROR`, `TRGT_DEPRECATED_USAGE`, `TRGT_ORPHAN_STAGING_EMBEDDING_TABLE_DROPPED`, `TRGT_CITATION_EXCERPT_MISSING`.
 
 `TRGT_NAMESPACE_LOCK_STALE_CLEARED` is emitted when startup/operation preflight
 removes namespace operation locks older than 24 hours.
@@ -547,13 +550,13 @@ Inject a `Logger` that ships to your observability stack, but remember `LogField
 
 ### Reindex operational impact
 
-`reindexNamespace()` re-embeds every active assertion in the namespace — for a remote provider that is N model calls and can take real time. It is staging-swap safe (the live index serves queries until the atomic repoint), but it is I/O- and cost-heavy: schedule it off-peak, pass `batchSize` to bound memory, and pass a `signal` so it can be cancelled. An interrupted run leaves the old index intact and a staging table behind; the next run cleans it up (`TRGT_REINDEX_STAGING_LEFTOVER`).
+`reindexNamespace()` re-embeds every active assertion in the namespace — for a remote provider that is N model calls and can take real time. It is staging-swap safe (the live index serves queries until the atomic repoint), but it is I/O- and cost-heavy: schedule it off-peak, pass `batchSize` to bound memory, and pass a `signal` so it can be cancelled. An interrupted run leaves the old index intact and may leave a staging table behind; initialization sweeps unreferenced staging tables with `TRGT_ORPHAN_STAGING_EMBEDDING_TABLE_DROPPED`.
 
 ---
 
 ## Versioning and releases
 
-`package.json` is at `0.4.0-rev.0`, the beta remediation release implementing the v0.3 rev2 contract. The npm dist-tag remains `beta`; `rev` is the semver prerelease identifier. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and must stay aligned with release-note-worthy changes.
+`package.json` is at `0.4.2-alpha.0`, the alpha release for the revised v0.4.1 review remediation line. The npm dist-tag is `alpha`; `alpha` is the semver prerelease identifier. [`CHANGELOG.md`](../../CHANGELOG.md) is the authoritative release record and must stay aligned with release-note-worthy changes.
 
 The `.changeset/` directory is configured, and Changesets is the intended mechanism for release-note-worthy changes, including pre-beta changes that alter public behavior. Prerelease revisions use Changesets pre-mode with the `rev` identifier. Keep changelog text aligned with the relevant changeset; do not rewrite already-published historical entries.
 
@@ -670,12 +673,20 @@ sqlite-vec's `vec0` virtual table requires the dimension as a DDL literal, not a
 
 ### Reindex is staging-swap safe but cost-heavy
 
-`reindexNamespace()` keeps the live index serving queries until an atomic column repoint; a mid-run failure preserves the old index. It is not "cheap" though — it re-embeds every active assertion. See [reindex operational impact](#reindex-operational-impact).
+`reindexNamespace()` keeps the live index serving queries until an atomic column repoint; a mid-run failure preserves the old index. Unreferenced staging vec0 tables left by a crashed process are conservatively swept during store initialization. It is not "cheap" though — it re-embeds every active assertion. See [reindex operational impact](#reindex-operational-impact).
 
 While reindexing, a row in `trageti_namespace_locks` blocks same-namespace
 writes, indexing, namespace deletion, and vector upgrades. Do not manually
 delete a lock row unless the owning process is known to be gone; rows older
 than 24 hours are cleared automatically with a warning.
+
+### Recursive graph traversal
+
+The default `CTEGraphAdapter` is intentionally simple and portable: recursive
+CTEs plus JSON visited-path guards. It preserves temporal validity at every hop
+and, after an explicit cross-namespace hop, continues traversal in the
+destination assertion's namespace. Dense graphs, high fanout, or high depths
+should use a custom `GraphQueryAdapter` that preserves those semantics.
 
 ### Single-process writes
 
@@ -685,7 +696,7 @@ trageti assumes one writer at a time. WAL gives concurrent readers + one writer;
 
 ## Where to look next
 
-- [`_docs/specs/trageti-spec-v0.3-rev2.md`](../specs/trageti-spec-v0.3-rev2.md) - the source of truth for the `0.4.0-rev.0` beta public contract. v0.1 / v0.2 / earlier v0.3 specs are retained alongside it for history only.
+- [`_docs/specs/trageti-spec-v0.3-rev2.md`](../specs/trageti-spec-v0.3-rev2.md) - historical v0.3 rev2 contract context. v0.1 / v0.2 / earlier v0.3 specs are retained alongside it for history only.
 - `src/store/TragetiStore.ts` — the entry point. Read top-to-bottom for the orchestration; `enforceStructuralInvariants` is where citation + predecessor checks live.
 - `src/pipeline/retrieve.ts` — the most algorithmically dense file. Step 0 is query routing; Step 7 is trajectory expansion.
 - `src/db/migrations/runner.ts` - baseline schema bootstrap and schema-version recording.

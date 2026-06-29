@@ -96,12 +96,43 @@ export class NamespaceRepository {
       }
     }
 
-    this.db
+    const info = this.db
       .prepare(
-        `INSERT INTO trageti_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
+        `INSERT OR IGNORE INTO trageti_namespaces (namespace, embedding_dimension, embedding_table, config, created_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(namespace, dim, embeddingTable, JSON.stringify(config ?? {}), new Date().toISOString());
+    if (info.changes > 0) return;
+
+    const existingAfterConflict = this.get(namespace);
+    if (existingAfterConflict) {
+      if (dim !== null) {
+        if (existingAfterConflict.embeddingDimension === null) {
+          throw new NamespaceDimensionMismatchError(namespace, null, dim);
+        }
+        if (existingAfterConflict.embeddingDimension !== dim) {
+          throw new NamespaceDimensionMismatchError(namespace, existingAfterConflict.embeddingDimension, dim);
+        }
+      }
+      if (config !== undefined) {
+        this.db
+          .prepare('UPDATE trageti_namespaces SET config = ? WHERE namespace = ?')
+          .run(JSON.stringify(config), namespace);
+      }
+      return;
+    }
+
+    if (embeddingTable !== null) {
+      const collision = this.db
+        .prepare<
+          [string, string],
+          { namespace: string }
+        >('SELECT namespace FROM trageti_namespaces WHERE embedding_table = ? AND namespace != ?')
+        .get(embeddingTable, namespace);
+      if (collision) {
+        throw new NamespaceHashCollisionError(namespace, collision.namespace, embeddingTable);
+      }
+    }
   }
 
   updateEmbeddingDimension(namespace: string, newDimension: number, newTable: string): void {

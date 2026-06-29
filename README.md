@@ -2,7 +2,7 @@
 
 Temporally-aware retrieval-augmented generation over SQLite.
 
-Package `0.4.0-rev.0` is the beta remediation release that implements the v0.3 rev2 contract in `_docs/specs/trageti-spec-v0.3-rev2.md`.
+Package `0.4.2-alpha.0` is the alpha release for the revised v0.4.1 review remediation line.
 
 `trageti` stores, indexes, and retrieves _episodic assertions_ — discrete, typed claims with explicit validity windows — with retrieval that respects temporal position as a first-class constraint alongside semantic similarity and full-text matching.
 
@@ -237,6 +237,15 @@ warnings }`.
 - `vector` — semantic only; requires either `queryEmbedding` or `queryText` plus a configured `EmbeddingProvider`.
 - `bm25` — keyword only; requires `queryText`; never needs `sqlite-vec`.
 
+In `hybrid` mode, vector and BM25 each contribute temporal candidates when
+available, then scores are fused. This means a strong keyword hit is not
+discarded merely because it was absent from the vector top-k.
+
+For second-stage precision ranking, pass an opt-in `reranker` at store or query
+level. Rerankers run over the fused top candidates before final truncation and
+must return one finite score per candidate. A query-level `reranker: null`
+disables the store-level reranker for that call.
+
 ### Query text modes
 
 - `phrase` (default) — user input is wrapped as a literal FTS5 phrase;
@@ -316,6 +325,19 @@ await store.writeAssertion({
 });
 ```
 
+For basic single-assertion ingest, `selfCitation()` builds a minimal citation
+while preserving mandatory citations:
+
+```typescript
+import { selfCitation } from 'trageti';
+
+await store.writeAssertion({
+  id: 'a-1',
+  // ...other fields...
+  citations: [selfCitation({ assertionId: 'a-1', episodeId: 'ep-1', content: 'verbatim source text' })],
+});
+```
+
 If you discover a citation after the assertion has been written, add it via
 `await store.writeCitation({ ... })`. Citations are populated on every read
 path (`getAssertions`, `retrieve`, `getEntityHistory`, etc.).
@@ -369,8 +391,24 @@ const ctx = await store.assembleContext({
 });
 // ctx.text     — formatted string ready for prompt injection
 // ctx.truncated — true if token budget was exceeded
-// ctx.coverage  — { totalAssertions, includedAssertions, positionRange }
+// ctx.coverage  — { totalAssertions, fetchedAssertions, includedAssertions, positionRange }
 ```
+
+`coverage.totalAssertions` is the count matching the retrieval filters before
+ranking/truncation. `coverage.fetchedAssertions` is the retrieval page assembled
+for the formatter, and `coverage.includedAssertions` is what fit in
+`tokenBudget`.
+
+By default `assembleContext()` keeps a 100-result floor and expands the fetch
+limit from `tokenBudget` using a 64-token-per-assertion estimate, capped at
+1000. Override with `retrievalLimit`, tune with `retrievalExpansion`, or pass
+`retrievalLimit: false` / `null` to use the 100-row floor without expansion.
+
+`tokenBudget` is an estimate, not a model-guaranteed tokenizer count. Built-in
+formatters default to a character heuristic; leave headroom before sending the
+assembled text to a model API. For model-specific counting, pass
+`tokenCounter` to `assembleContext()` or construct a formatter with
+`new ProseFormatter({ tokenCounter })`.
 
 ### Formatters
 
@@ -405,9 +443,16 @@ const path = await store.findPath({
 Links carry their own `validFrom` / `validUntil` — expired links are automatically excluded.
 Cross-namespace links are permitted when explicitly written; the store logs
 `TRGT_CROSS_NAMESPACE_LINK`, validates that both endpoints exist, and traversal
-can cross into the linked namespace.
+can cross into the linked namespace. After a hop into another namespace, the
+default adapter continues traversal using that destination assertion's
+namespace.
 
 `maxDepth` is optional: it defaults to `3` for `getConnected` and `5` for `findPath`. `getConnected` returns its neighborhood in a deterministic order (traversal depth, then link `createdAt`, then `id`), so repeated calls are reproducible.
+
+The default `CTEGraphAdapter` uses recursive SQLite CTEs and visited-path JSON
+arrays. This is appropriate for small and moderate graph fanout. For dense,
+high-depth, or graph-heavy workloads, provide a custom `GraphQueryAdapter` and
+preserve Trageti's temporal validity and namespace traversal rules.
 
 ## Temporal snapshots
 
@@ -489,6 +534,9 @@ Constraints:
 - Extension tables that reference a namespace must declare `namespaceColumn`,
   validated against `PRAGMA table_info` at `init()` time
 - Extensions are applied idempotently on every `init()`
+- `ColumnExtension.definition` is validated against a conservative
+  `ALTER TABLE ADD COLUMN` subset. Use extension SQL only from trusted code;
+  reject user-authored schema fragments before passing them to Trageti.
 
 ## Middleware
 

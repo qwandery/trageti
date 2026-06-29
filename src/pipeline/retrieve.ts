@@ -9,6 +9,8 @@ import type {
   RetrievalMiddleware,
   GraphQueryAdapter,
   ScoredCandidate,
+  IRetrievalReranker,
+  RerankCandidate,
   QueryTextMode,
   RetrievalStrategy,
   RetrievalStep,
@@ -16,9 +18,8 @@ import type {
 } from '../domain/types.js';
 import type { AssertionRepository } from '../db/repositories/AssertionRepository.js';
 import type { EmbeddingRepository } from '../db/repositories/EmbeddingRepository.js';
-import { buildCandidateJson } from '../db/candidates.js';
 import { quoteIdent } from '../internal/sql-ident.js';
-import { applyAfterHooks, applyMiddleware } from './middleware.js';
+import { applyAfterHooks, applyMiddlewareAsync } from './middleware.js';
 import { ErrorCode, RetrievalInputError, errorCodeOf } from '../errors/index.js';
 import type { Logger, Metrics } from '../internal/logger.js';
 import { observe } from '../internal/logger.js';
@@ -40,6 +41,7 @@ interface RetrieveContext {
   /** Configured embedding dimension for a namespace, or null if vectorless. */
   getDimension: (namespace: string) => number | null;
   globalScorer: IRetrievalScorer;
+  globalReranker?: IRetrievalReranker;
   globalMiddleware: readonly RetrievalMiddleware[];
   graphAdapter: GraphQueryAdapter;
   logger: Logger;
@@ -115,6 +117,10 @@ export function validateRetrievalQuery(query: RetrievalQuery): void {
     const err = nonNegativeIntegerOptionError(query.maxDepth, 'maxDepth');
     if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_MAX_DEPTH, err);
   }
+  if (query.rerankCandidateLimit !== undefined) {
+    const err = positiveIntegerOptionError(query.rerankCandidateLimit, 'rerankCandidateLimit');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, err);
+  }
 
   const tw = query.temporalWindow;
   if (tw?.from !== undefined) {
@@ -151,16 +157,16 @@ export function validateRetrievalQuery(query: RetrievalQuery): void {
   }
 }
 
-export function retrieve(
+export async function retrieve(
   db: Database,
   ctx: RetrieveContext,
   query: RetrievalQuery,
   options: { skipBefore?: boolean } = {},
-): RetrievalResult {
+): Promise<RetrievalResult> {
   const started = Date.now();
   const callMiddleware = query.middleware ?? [];
-  const core = (q: RetrievalQuery): RetrievalResult => retrieveCore(db, ctx, q);
-  const result = options.skipBefore ? core(query) : applyMiddleware(ctx.globalMiddleware, callMiddleware, query, core);
+  const core = (q: RetrievalQuery): Promise<RetrievalResult> => retrieveCore(db, ctx, q);
+  const result = options.skipBefore ? await core(query) : await applyMiddlewareAsync(ctx.globalMiddleware, callMiddleware, query, core);
   if (options.skipBefore) {
     result.results = applyAfterHooks(ctx.globalMiddleware, callMiddleware, result.results, query);
   }
@@ -184,13 +190,14 @@ function buildMeta(
   limit: number,
   strategy: RetrievalStrategy,
   queryTextMode: QueryTextMode | null,
-  opts: { candidateCount: number; vectorApplied: boolean; bm25Applied: boolean },
+  opts: { candidateCount: number; matchedCount: number; vectorApplied: boolean; bm25Applied: boolean },
 ): RetrievalMeta {
   return {
     namespace: query.namespace,
     temporalAnchor: query.temporalAnchor,
     limit,
     candidateCount: opts.candidateCount,
+    matchedCount: opts.matchedCount,
     retrievalStrategy: strategy,
     vectorApplied: opts.vectorApplied,
     bm25Applied: opts.bm25Applied,
@@ -199,7 +206,7 @@ function buildMeta(
   };
 }
 
-function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery): RetrievalResult {
+async function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery): Promise<RetrievalResult> {
   validateRetrievalQuery(query);
   const limit = query.limit ?? DEFAULT_RETRIEVAL_LIMIT;
   const oversample = limit * OVERSAMPLE_MULTIPLIER;
@@ -217,6 +224,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const emptyMeta = (vectorApplied: boolean, bm25Applied: boolean): RetrievalMeta =>
     buildMeta(query, limit, strategy, metaQueryTextMode, {
       candidateCount: 0,
+      matchedCount: 0,
       vectorApplied,
       bm25Applied,
     });
@@ -334,13 +342,8 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const bm25Map = new Map<string, number>();
   if (applyBm25 && query.queryText) {
     const ftsText = queryTextMode === 'phrase' ? escapeFts5Phrase(query.queryText) : query.queryText;
-    // BM25-only (Step 2 skipped) selects candidates, so it is ordered + capped
-    // by relevance; the hybrid re-rank branch only attaches scores (no limit).
-    const bm25Limit = vectorCanRun ? undefined : oversample;
     try {
-      const step3 = vectorCanRun
-        ? runStep3(db, buildCandidateJson(step2Rows.map((r) => r.assertion_id)), ftsText, bm25Limit)
-        : runStep3Temporal(db, query, ftsText, oversample);
+      const step3 = runStep3Temporal(db, query, ftsText, oversample);
       for (const row of step3) bm25Map.set(row.assertion_id, row.bm25_score);
     } catch (err) {
       // A malformed raw FTS5 expression surfaces as a SQLite parse error. Under
@@ -372,11 +375,18 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
   const candidateIds = new Set<string>();
   if (vectorCanRun) {
     for (const r of step2Rows) candidateIds.add(r.assertion_id);
-  } else {
-    for (const id of bm25Map.keys()) candidateIds.add(id);
   }
+  for (const id of bm25Map.keys()) candidateIds.add(id);
   if (candidateIds.size === 0) {
-    return withVectorWarning({ results: [], meta: emptyMeta(vectorCanRun, applyBm25) });
+    return withVectorWarning({
+      results: [],
+      meta: buildMeta(query, limit, strategy, metaQueryTextMode, {
+        candidateCount: 0,
+        matchedCount: temporalCandidateCount,
+        vectorApplied: vectorCanRun,
+        bm25Applied: applyBm25,
+      }),
+    });
   }
 
   const oversampledIds = useFtsBoundedTemporalSelection || useVectorBoundedTemporalSelection
@@ -466,17 +476,74 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     tookMs: sinceStep(),
   });
 
-  // Step 5: Rank + truncate with deterministic tie-breaking
+  // Step 5: Rank with deterministic tie-breaking
   //   (score DESC, validFrom DESC, createdAt ASC, id ASC).
   const ranked = candidates.map((c, i) => ({ ...c, score: scores[i] ?? 0 }));
-  ranked.sort((a, b) => {
+  const firstStageSort = (a: (typeof ranked)[number], b: (typeof ranked)[number]): number => {
     if (b.score !== a.score) return b.score - a.score;
     if (b.s1.valid_from !== a.s1.valid_from) return b.s1.valid_from - a.s1.valid_from;
     if (a.assertion.createdAt !== b.assertion.createdAt) {
       return a.assertion.createdAt < b.assertion.createdAt ? -1 : 1;
     }
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+  ranked.sort(firstStageSort);
+
+  const reranker = query.reranker === null ? undefined : query.reranker ?? ctx.globalReranker;
+  const rerankCount = reranker ? Math.min(query.rerankCandidateLimit ?? limit * OVERSAMPLE_MULTIPLIER, ranked.length) : 0;
+  if (reranker && rerankCount > 0) {
+    const rerankPool = ranked.slice(0, rerankCount);
+    const rerankInputs: RerankCandidate[] = rerankPool.map((c) => ({
+      assertion: c.assertion,
+      firstStageScore: c.score,
+      scoreComponents: {
+        semanticDistance: c.candidate.semanticDistance,
+        bm25Score: c.candidate.bm25Score,
+        position: c.candidate.assertion.validFrom,
+      },
+    }));
+    let rerankScores: number[];
+    try {
+      rerankScores = await reranker.rerank(rerankInputs, {
+        query,
+        temporalAnchor: query.temporalAnchor,
+        limit,
+        ...(query.signal !== undefined && { signal: query.signal }),
+      });
+    } catch (err) {
+      throw new RetrievalInputError(
+        ErrorCode.RERANKER_ERROR,
+        `IRetrievalReranker.rerank failed: ${errorCodeOf(err)}`,
+      );
+    }
+    if (rerankScores.length !== rerankPool.length) {
+      throw new RetrievalInputError(
+        ErrorCode.RERANKER_BATCH_LENGTH_MISMATCH,
+        `IRetrievalReranker.rerank returned ${String(rerankScores.length)} scores for ${String(rerankPool.length)} candidates`,
+      );
+    }
+    for (const s of rerankScores) {
+      if (!Number.isFinite(s)) {
+        throw new RetrievalInputError(
+          ErrorCode.RERANKER_INVALID_OUTPUT,
+          `IRetrievalReranker produced a non-finite score (${String(s)})`,
+        );
+      }
+    }
+    const firstStageOrder = new Map(rerankPool.map((c, i) => [c.id, i]));
+    const rerankedPool = rerankPool.map((c, i) => ({ ...c, rerankScore: rerankScores[i] ?? 0 }));
+    rerankedPool.sort((a, b) => {
+      if (b.rerankScore !== a.rerankScore) return b.rerankScore - a.rerankScore;
+      return (firstStageOrder.get(a.id) ?? 0) - (firstStageOrder.get(b.id) ?? 0);
+    });
+    ranked.splice(0, rerankCount, ...rerankedPool.map(({ rerankScore: _rerankScore, ...c }) => c));
+  }
+  debugStep(query, ctx.logger, 'rerank', {
+    applied: rerankCount > 0,
+    candidateCount: rerankCount,
+    tookMs: sinceStep(),
   });
+
   const topCandidates = ranked.slice(0, limit);
 
   const results: RetrievedAssertion[] = topCandidates.map((c) => ({
@@ -563,6 +630,7 @@ function retrieveCore(db: Database, ctx: RetrieveContext, query: RetrievalQuery)
     results,
     meta: buildMeta(query, limit, strategy, metaQueryTextMode, {
       candidateCount: candidates.length,
+      matchedCount: temporalCandidateCount,
       vectorApplied: vectorCanRun && step2Rows.length > 0,
       bm25Applied: applyBm25 && bm25Map.size > 0,
     }),
@@ -650,22 +718,6 @@ function runStep2Temporal(
     LIMIT ?
   `;
   return db.prepare<unknown[], Step2Row>(sql).all(vec, ...params, limit);
-}
-
-function runStep3(db: Database, candidateJson: string, queryText: string, limit?: number): Step3Row[] {
-  // When `limit` is given (BM25-only candidate selection), order by relevance
-  // and cap; the hybrid re-rank caller omits it and just attaches scores.
-  const tail = limit !== undefined ? 'ORDER BY bm25(trageti_fulltext) ASC LIMIT ?' : '';
-  const sql = `
-    SELECT a.id AS assertion_id, bm25(trageti_fulltext) AS bm25_score
-    FROM trageti_fulltext
-    JOIN trageti_assertions a ON a.rowid = trageti_fulltext.rowid
-    WHERE trageti_fulltext MATCH ?
-      AND a.id IN (SELECT value FROM json_each(?))
-    ${tail}
-  `;
-  const params: unknown[] = limit !== undefined ? [queryText, candidateJson, limit] : [queryText, candidateJson];
-  return db.prepare<unknown[], Step3Row>(sql).all(...params);
 }
 
 function runStep3Temporal(db: Database, query: RetrievalQuery, queryText: string, limit: number): Step3Row[] {

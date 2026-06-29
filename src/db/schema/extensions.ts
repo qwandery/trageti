@@ -8,6 +8,19 @@ interface PragmaTableInfoRow {
   name: string;
 }
 
+const SIDE_EFFECTING_SQL = /\b(ALTER|ATTACH|CREATE|DELETE|DETACH|DROP|INSERT|PRAGMA|REINDEX|REPLACE|SELECT|UPDATE|VACUUM)\b/i;
+const UNSAFE_COLUMN_CONSTRAINTS = /\b(REFERENCES|PRIMARY\s+KEY|UNIQUE|GENERATED|AS)\b/i;
+const SAFE_COLUMN_DEFINITION =
+  /^(?:[A-Za-z][A-Za-z0-9_]*(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?)(?:\s+(?:NOT\s+NULL|NULL|COLLATE\s+[A-Za-z_][A-Za-z0-9_]*|DEFAULT\s+(?:NULL|CURRENT_TIME|CURRENT_DATE|CURRENT_TIMESTAMP|[-+]?\d+(?:\.\d+)?|'[^']*'|"[^"]*")|CHECK\s*\([^;]*\)))*$/i;
+
+function containsUnsafeControlCharacter(value: string): boolean {
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if (code === 0 || (code < 32 && code !== 9 && code !== 10 && code !== 13)) return true;
+  }
+  return false;
+}
+
 function getExistingColumnNames(db: Database, table: string): string[] {
   const rows = db.prepare<[], PragmaTableInfoRow>(`PRAGMA table_info(${quoteIdent(table)})`).all();
   return rows.map((r) => r.name);
@@ -39,6 +52,8 @@ export class SchemaExtensionApplier {
       if (libraryColumns.includes(col.column.toLowerCase())) {
         violations.push(`Column "${col.column}" on ${col.table}: shadows a library-managed column`);
       }
+      const definitionError = this.validateColumnDefinition(col);
+      if (definitionError) violations.push(definitionError);
     }
 
     for (const tbl of extensions.tables ?? []) {
@@ -102,8 +117,27 @@ export class SchemaExtensionApplier {
   private addColumnIfAbsent(db: Database, col: ColumnExtension): void {
     const existing = getExistingColumns(db, col.table);
     if (!existing.has(col.column.toLowerCase())) {
+      const definitionError = this.validateColumnDefinition(col);
+      if (definitionError) throw new SchemaExtensionError([definitionError]);
       db.exec(`ALTER TABLE ${quoteIdent(col.table)} ADD COLUMN ${quoteIdent(col.column)} ${col.definition}`);
     }
+  }
+
+  private validateColumnDefinition(col: ColumnExtension): string | null {
+    const definition = col.definition.trim();
+    const label = `Column "${col.column}" on ${col.table}`;
+    if (definition.length === 0) return `${label}: definition is required`;
+    if (containsUnsafeControlCharacter(definition)) {
+      return `${label}: definition contains control characters`;
+    }
+    if (definition.includes(';')) return `${label}: definition must be a single column definition`;
+    if (definition.includes('--') || /\/\*/.test(definition)) return `${label}: definition must not contain SQL comments`;
+    if (SIDE_EFFECTING_SQL.test(definition)) return `${label}: definition contains unsupported SQL keywords`;
+    if (UNSAFE_COLUMN_CONSTRAINTS.test(definition)) return `${label}: definition contains unsupported constraints`;
+    if (!SAFE_COLUMN_DEFINITION.test(definition)) {
+      return `${label}: definition is outside the supported ALTER TABLE ADD COLUMN subset`;
+    }
+    return null;
   }
 
   private validateCreateTableSql(tableName: string, createSQL: string): void {

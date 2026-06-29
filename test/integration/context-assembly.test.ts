@@ -119,14 +119,15 @@ describe('TragetiStore — context assembly', () => {
     expect(ctx.tokenEstimate).toBeLessThan(2000);
   });
 
-  it('coverage.totalAssertions reflects total retrieved', async () => {
+  it('coverage distinguishes matched, fetched, and included assertions', async () => {
     const ctx = await store.assembleContext({
       namespace: NS,
       queryEmbedding: VEC,
       temporalAnchor: 3,
       tokenBudget: 2000,
     });
-    expect(ctx.coverage.totalAssertions).toBeGreaterThan(0);
+    expect(ctx.coverage.totalAssertions).toBe(3);
+    expect(ctx.coverage.fetchedAssertions).toBe(3);
     expect(ctx.coverage.includedAssertions).toBeLessThanOrEqual(ctx.coverage.totalAssertions);
   });
 
@@ -196,6 +197,52 @@ describe('TragetiStore — context assembly', () => {
     });
     expect(ctx.truncated).toBe(true);
     expect(ctx.coverage.includedAssertions).toBeLessThan(ctx.coverage.totalAssertions);
+  });
+
+  it('supports explicit retrieval limits while keeping matched coverage complete', async () => {
+    const ctx = await store.assembleContext({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 3,
+      tokenBudget: 12_800,
+      retrievalLimit: 2,
+    });
+    expect(ctx.coverage.totalAssertions).toBe(3);
+    expect(ctx.coverage.fetchedAssertions).toBe(2);
+  });
+
+  it('uses an opt-in token counter for built-in formatters', async () => {
+    const ctx = await store.assembleContext({
+      namespace: NS,
+      queryEmbedding: VEC,
+      temporalAnchor: 3,
+      tokenBudget: 2,
+      formatter: new ProseFormatter(),
+      tokenCounter: () => 1,
+    });
+    expect(ctx.coverage.includedAssertions).toBe(2);
+
+    await expect(
+      store.assembleContext({
+        namespace: NS,
+        queryEmbedding: VEC,
+        temporalAnchor: 3,
+        tokenBudget: 2000,
+        tokenCounter: () => Number.NaN,
+      }),
+    ).rejects.toMatchObject({ code: 'TOKEN_COUNTER_INVALID_OUTPUT' });
+
+    await expect(
+      store.assembleContext({
+        namespace: NS,
+        queryEmbedding: VEC,
+        temporalAnchor: 3,
+        tokenBudget: 2000,
+        tokenCounter: () => {
+          throw new Error('counter failed');
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'TOKEN_COUNTER_ERROR' });
   });
 
   it('no truncation within large budget', async () => {

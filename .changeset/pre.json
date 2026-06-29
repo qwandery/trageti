@@ -1,0 +1,11 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "trageti": "0.4.1"
+  },
+  "changesets": [
+    "alpha-one-release",
+    "alpha-two-release"
+  ]
+}

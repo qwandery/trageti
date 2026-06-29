@@ -20,6 +20,18 @@ export function applyMiddleware(
   return { results, meta: result.meta };
 }
 
+export async function applyMiddlewareAsync(
+  globalMiddleware: readonly RetrievalMiddleware[],
+  callMiddleware: readonly RetrievalMiddleware[],
+  query: RetrievalQuery,
+  fn: (q: RetrievalQuery) => Promise<RetrievalResult>,
+): Promise<RetrievalResult> {
+  const q = applyBeforeHooks(globalMiddleware, callMiddleware, query);
+  const result = await fn(q);
+  const results = applyAfterHooks(globalMiddleware, callMiddleware, result.results, q);
+  return { results, meta: result.meta };
+}
+
 export function applyBeforeHooks(
   globalMiddleware: readonly RetrievalMiddleware[],
   callMiddleware: readonly RetrievalMiddleware[],

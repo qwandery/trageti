@@ -140,4 +140,38 @@ describe('schema extension read surface', () => {
     await reader.close();
     db.close();
   });
+
+  it('rejects unsafe column definitions before DDL execution', async () => {
+    await expect(
+      TragetiStore.create({
+        database: openTestDb(),
+        namespace: NS,
+        schemaExtensions: {
+          columns: [
+            {
+              table: 'trageti_assertions',
+              column: 'bad',
+              definition: "TEXT; DROP TABLE trageti_assertions",
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'SCHEMA_EXTENSION_ERROR' });
+
+    await expect(
+      TragetiStore.create({
+        database: openTestDb(),
+        namespace: NS,
+        schemaExtensions: {
+          columns: [
+            {
+              table: 'trageti_assertions',
+              column: 'also_bad',
+              definition: 'TEXT -- comment',
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'SCHEMA_EXTENSION_ERROR' });
+  });
 });

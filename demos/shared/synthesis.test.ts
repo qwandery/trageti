@@ -148,6 +148,7 @@ function contextWithAssertions(assertions: RetrievedAssertion[]): AssembledConte
     metadata: {},
     coverage: {
       totalAssertions: assertions.length,
+      fetchedAssertions: assertions.length,
       includedAssertions: assertions.length,
       positionRange: {
         from: positions.length > 0 ? Math.min(...positions) : 0,

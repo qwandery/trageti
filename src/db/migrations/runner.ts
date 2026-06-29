@@ -31,42 +31,58 @@ export class MigrationRunner {
   }
 
   applyMigrations(db: Database): void {
-    db.exec(BOOTSTRAP_DDL);
-    const current = this.getCurrentVersion(db);
-    const latestKnown = this.migrations.at(-1)?.version ?? 0;
-    if (current > latestKnown) {
-      throw new MigrationCompatibilityError(
-        'future-schema',
-        `Database schema version ${String(current)} is newer than this trageti package understands (latest known: ${String(latestKnown)}). Upgrade trageti before opening this database.`,
-        { currentVersion: current, latestKnownVersion: latestKnown },
-      );
-    }
-
-    for (const migration of this.migrations) {
-      if (migration.version <= current) continue;
-      if (migration.requiresForeignKeyToggle) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(BOOTSTRAP_DDL);
+      const current = this.readCurrentVersion(db);
+      const latestKnown = this.migrations.at(-1)?.version ?? 0;
+      if (current > latestKnown) {
         throw new MigrationCompatibilityError(
-          'foreign-key-toggle-unsupported',
-          `Migration v${String(migration.version)} requires foreign-key toggling, which is not implemented in this trageti build.`,
-          { migrationVersion: migration.version },
+          'future-schema',
+          `Database schema version ${String(current)} is newer than this trageti package understands (latest known: ${String(latestKnown)}). Upgrade trageti before opening this database.`,
+          { currentVersion: current, latestKnownVersion: latestKnown },
         );
       }
-      this.runStandardMigration(db, migration);
+
+      for (const migration of this.migrations) {
+        if (migration.version <= current) continue;
+        if (migration.requiresForeignKeyToggle) {
+          throw new MigrationCompatibilityError(
+            'foreign-key-toggle-unsupported',
+            `Migration v${String(migration.version)} requires foreign-key toggling, which is not implemented in this trageti build.`,
+            { migrationVersion: migration.version },
+          );
+        }
+        this.runStandardMigration(db, migration);
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // Preserve the migration error as primary.
+      }
+      throw err;
     }
   }
 
   private runStandardMigration(db: Database, migration: Migration): void {
     try {
-      db.transaction(() => {
-        migration.up(db);
-        db.prepare(`INSERT INTO ${SCHEMA_VERSION_TABLE} (version, description) VALUES (?, ?)`).run(
-          migration.version,
-          migration.description,
-        );
-      })();
+      migration.up(db);
+      db.prepare(`INSERT INTO ${SCHEMA_VERSION_TABLE} (version, description) VALUES (?, ?)`).run(
+        migration.version,
+        migration.description,
+      );
     } catch (err) {
       throw new MigrationError(migration.version, err);
     }
+  }
+
+  private readCurrentVersion(db: Database): number {
+    const row = db
+      .prepare<[], { version: number | null }>(`SELECT MAX(version) AS version FROM ${SCHEMA_VERSION_TABLE}`)
+      .get();
+    return row?.version ?? 0;
   }
 
   getMigrations(): readonly Migration[] {

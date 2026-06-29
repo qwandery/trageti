@@ -2,9 +2,33 @@ import type { ContextAssemblyOptions, AssembledContext, ContextFormatter, Retrie
 import type { TragetiStore } from '../store/TragetiStore.js';
 import { ErrorCode, RetrievalInputError } from '../errors/index.js';
 import { DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT } from '../internal/retrieval-defaults.js';
+import { positiveIntegerOptionError } from '../internal/validate.js';
 
 interface AssembleOptions extends ContextAssemblyOptions {
   globalFormatter: ContextFormatter;
+}
+
+const DEFAULT_EXPANSION_TOKENS_PER_ASSERTION = 64;
+const DEFAULT_EXPANSION_MAX_LIMIT = 1000;
+
+function resolveRetrievalLimit(options: ContextAssemblyOptions): number {
+  if (options.retrievalLimit !== undefined) {
+    if (options.retrievalLimit === false || options.retrievalLimit === null) return DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT;
+    const err = positiveIntegerOptionError(options.retrievalLimit, 'retrievalLimit');
+    if (err) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, err);
+    return options.retrievalLimit;
+  }
+  if (options.retrievalExpansion === false) return DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT;
+
+  const expansion = options.retrievalExpansion ?? {};
+  const tokensPerAssertion = expansion.tokensPerAssertion ?? DEFAULT_EXPANSION_TOKENS_PER_ASSERTION;
+  const maxLimit = expansion.maxLimit ?? DEFAULT_EXPANSION_MAX_LIMIT;
+  const tokensErr = positiveIntegerOptionError(tokensPerAssertion, 'retrievalExpansion.tokensPerAssertion');
+  if (tokensErr) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, tokensErr);
+  const maxErr = positiveIntegerOptionError(maxLimit, 'retrievalExpansion.maxLimit');
+  if (maxErr) throw new RetrievalInputError(ErrorCode.RETRIEVAL_INVALID_LIMIT, maxErr);
+  const expanded = Math.ceil(options.tokenBudget / tokensPerAssertion);
+  return Math.min(Math.max(DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT, expanded), maxLimit);
 }
 
 export async function assembleContext(store: TragetiStore, options: AssembleOptions): Promise<AssembledContext> {
@@ -21,8 +45,7 @@ export async function assembleContext(store: TragetiStore, options: AssembleOpti
   const query: RetrievalQuery = {
     namespace: options.namespace,
     temporalAnchor: options.temporalAnchor,
-    // Large initial fetch; the formatter truncates by token budget.
-    limit: DEFAULT_ASSEMBLY_RETRIEVAL_LIMIT,
+    limit: resolveRetrievalLimit(options),
   };
   if (options.queryEmbedding !== undefined) query.queryEmbedding = options.queryEmbedding;
   if (options.queryText !== undefined) query.queryText = options.queryText;
@@ -36,6 +59,8 @@ export async function assembleContext(store: TragetiStore, options: AssembleOpti
   if (options.maxDepth !== undefined) query.maxDepth = options.maxDepth;
   if (options.mode !== undefined) query.mode = options.mode;
   if (options.scorer !== undefined) query.scorer = options.scorer;
+  if (options.reranker !== undefined) query.reranker = options.reranker;
+  if (options.rerankCandidateLimit !== undefined) query.rerankCandidateLimit = options.rerankCandidateLimit;
   if (options.middleware !== undefined) query.middleware = options.middleware;
   if (options.retrievalStrategy !== undefined) query.retrievalStrategy = options.retrievalStrategy;
   if (options.debug !== undefined) query.debug = options.debug;
@@ -64,7 +89,8 @@ export async function assembleContext(store: TragetiStore, options: AssembleOpti
     truncated: formatted.truncated,
     metadata: formatted.metadata,
     coverage: {
-      totalAssertions: assertions.length,
+      totalAssertions: retrieval.meta.matchedCount,
+      fetchedAssertions: assertions.length,
       includedAssertions: formatted.includedCount,
       positionRange: { from, to },
     },

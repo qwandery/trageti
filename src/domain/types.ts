@@ -189,6 +189,7 @@ export type RetrievalStep =
   | 'semantic'
   | 'keyword'
   | 'score'
+  | 'rerank'
   | 'rank'
   | 'graph-expand'
   | 'trajectory-expand';
@@ -243,6 +244,10 @@ export interface RetrievalQuery {
   /** Default: 'hybrid'. */
   retrievalStrategy?: RetrievalStrategy;
   scorer?: IRetrievalScorer;
+  /** Opt-in second-stage reranker. `null` disables a store-level reranker for this call. */
+  reranker?: IRetrievalReranker | null;
+  /** Number of first-stage fused candidates passed to the reranker. Default: limit * 4. */
+  rerankCandidateLimit?: number;
   middleware?: RetrievalMiddleware[];
   debug?: RetrievalDebug;
   /** Optional cancellation signal for provider-derived query embeddings. */
@@ -284,6 +289,8 @@ export interface RetrievalMeta {
   limit: number;
   /** Count of candidates considered before scoring/truncation. */
   candidateCount: number;
+  /** Count of assertions matching namespace/filter/temporal predicates before retrieval ranking. */
+  matchedCount: number;
   retrievalStrategy: RetrievalStrategy;
   vectorApplied: boolean;
   bm25Applied: boolean;
@@ -347,6 +354,36 @@ export interface ScoringContext {
   query: RetrievalQuery;
 }
 
+export interface RerankCandidate {
+  assertion: Assertion;
+  firstStageScore: number;
+  scoreComponents: RetrievedAssertion['scoreComponents'];
+}
+
+export interface RerankingContext {
+  query: RetrievalQuery;
+  temporalAnchor: number;
+  limit: number;
+  signal?: AbortSignal;
+}
+
+export interface IRetrievalReranker {
+  /**
+   * Return one finite score per candidate. Higher scores rank first; ties keep
+   * the first-stage deterministic ordering.
+   */
+  rerank(candidates: RerankCandidate[], context: RerankingContext): number[] | Promise<number[]>;
+}
+
+export type TokenCounter = (text: string) => number;
+
+export interface FormatterTokenOptions {
+  /** Default 0.25 when no tokenCounter is supplied. */
+  tokensPerChar?: number;
+  /** Optional model-specific token counter. Must return a finite non-negative number. */
+  tokenCounter?: TokenCounter;
+}
+
 // ─── Context assembly ─────────────────────────────────────────────────────────
 
 export interface ContextAssemblyOptions {
@@ -370,7 +407,23 @@ export interface ContextAssemblyOptions {
   mode?: RetrievalMode;
   retrievalStrategy?: RetrievalStrategy;
   scorer?: IRetrievalScorer;
+  reranker?: IRetrievalReranker | null;
+  rerankCandidateLimit?: number;
   middleware?: RetrievalMiddleware[];
+  /**
+   * Retrieve this many assertions before formatter truncation. A number is an
+   * explicit cap. `false`/`null` disables token-budget expansion and uses the
+   * default 100-row floor.
+   */
+  retrievalLimit?: number | false | null;
+  /**
+   * Controls default retrieval expansion from tokenBudget. Default estimates
+   * 64 tokens per assertion, floors at 100, and caps at 1000. `false` disables
+   * expansion.
+   */
+  retrievalExpansion?: false | { tokensPerAssertion?: number; maxLimit?: number };
+  /** Optional tokenizer/counting hook used by built-in formatters. */
+  tokenCounter?: TokenCounter;
   /** Per-call formatter override. */
   formatter?: ContextFormatter;
   /** Per-step retrieval debug hook (propagated to retrieve()). */
@@ -388,6 +441,7 @@ export interface AssembledContext {
   metadata: Record<string, unknown>;
   coverage: {
     totalAssertions: number;
+    fetchedAssertions: number;
     includedAssertions: number;
     positionRange: { from: number; to: number };
   };
@@ -680,6 +734,7 @@ export interface TragetiStoreOptions {
   maxEpisodeContentBytes?: number;
   graphAdapter?: GraphQueryAdapter;
   scorer?: IRetrievalScorer;
+  reranker?: IRetrievalReranker;
   defaultFormatter?: ContextFormatter;
   validators?: AssertionValidator[];
   connectionVerifier?: ConnectionVerifier;

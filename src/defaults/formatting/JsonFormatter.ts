@@ -5,9 +5,9 @@ import type {
   FormattedContext,
   Assertion,
   AssertionCitation,
+  FormatterTokenOptions,
 } from '../../domain/types.js';
-
-const DEFAULT_TOKENS_PER_CHAR = 0.25;
+import { estimateTokens, resolveTokenCounterOptions, type ResolvedTokenCounter } from './token-count.js';
 
 interface AssertionPayload {
   id: string;
@@ -25,10 +25,10 @@ interface AssertionPayload {
 }
 
 export class JsonFormatter implements ContextFormatter {
-  private readonly tokensPerChar: number;
+  private readonly tokenOptions: ResolvedTokenCounter;
 
-  constructor(tokensPerChar = DEFAULT_TOKENS_PER_CHAR) {
-    this.tokensPerChar = tokensPerChar;
+  constructor(options?: number | FormatterTokenOptions) {
+    this.tokenOptions = resolveTokenCounterOptions(options);
   }
 
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext {
@@ -42,7 +42,7 @@ export class JsonFormatter implements ContextFormatter {
     for (const assertion of assertions) {
       const payload = this.toRetrievedPayload(assertion);
       const candidateText = JSON.stringify([...payloads, payload], null, 2);
-      const candidateTokens = Math.ceil(candidateText.length * this.tokensPerChar);
+      const candidateTokens = estimateTokens(candidateText, this.tokenOptions, options);
       if (candidateTokens > budget) {
         truncated = true;
         break;

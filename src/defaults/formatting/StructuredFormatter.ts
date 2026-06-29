@@ -4,9 +4,9 @@ import type {
   ContextAssemblyOptions,
   FormattedContext,
   AssertionCitation,
+  FormatterTokenOptions,
 } from '../../domain/types.js';
-
-const DEFAULT_TOKENS_PER_CHAR = 0.25;
+import { estimateTokens, resolveTokenCounterOptions, type ResolvedTokenCounter } from './token-count.js';
 
 function citationMarker(citations: AssertionCitation[]): string {
   if (citations.length === 0) return '';
@@ -15,10 +15,10 @@ function citationMarker(citations: AssertionCitation[]): string {
 }
 
 export class StructuredFormatter implements ContextFormatter {
-  private readonly tokensPerChar: number;
+  private readonly tokenOptions: ResolvedTokenCounter;
 
-  constructor(tokensPerChar = DEFAULT_TOKENS_PER_CHAR) {
-    this.tokensPerChar = tokensPerChar;
+  constructor(options?: number | FormatterTokenOptions) {
+    this.tokenOptions = resolveTokenCounterOptions(options);
   }
 
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext {
@@ -45,7 +45,7 @@ export class StructuredFormatter implements ContextFormatter {
 
     for (const [entityType, items] of groups.entries()) {
       const header = `## ${entityType}`;
-      const headerTokens = Math.ceil(header.length * this.tokensPerChar);
+      const headerTokens = estimateTokens(header, this.tokenOptions, options);
       if (tokenEstimate + headerTokens > budget) {
         truncated = true;
         break;
@@ -54,7 +54,7 @@ export class StructuredFormatter implements ContextFormatter {
       const bullets: string[] = [];
       for (const item of items) {
         const bullet = `- [pos ${String(item.validFrom)}] ${item.content}${citationMarker(item.citations)}`;
-        const bulletTokens = Math.ceil(bullet.length * this.tokensPerChar);
+        const bulletTokens = estimateTokens(bullet, this.tokenOptions, options);
         if (tokenEstimate + headerTokens + bulletTokens > budget) {
           truncated = true;
           break;

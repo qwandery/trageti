@@ -4,9 +4,9 @@ import type {
   ContextAssemblyOptions,
   FormattedContext,
   AssertionCitation,
+  FormatterTokenOptions,
 } from '../../domain/types.js';
-
-const DEFAULT_TOKENS_PER_CHAR = 0.25;
+import { estimateTokens, resolveTokenCounterOptions, type ResolvedTokenCounter } from './token-count.js';
 
 /** Compact citation marker, e.g. `[ep-1#chunk:3, ep-2#0:08:14-0:12:30]`. */
 function citationMarker(citations: AssertionCitation[]): string {
@@ -16,10 +16,10 @@ function citationMarker(citations: AssertionCitation[]): string {
 }
 
 export class ProseFormatter implements ContextFormatter {
-  private readonly tokensPerChar: number;
+  private readonly tokenOptions: ResolvedTokenCounter;
 
-  constructor(tokensPerChar = DEFAULT_TOKENS_PER_CHAR) {
-    this.tokensPerChar = tokensPerChar;
+  constructor(options?: number | FormatterTokenOptions) {
+    this.tokenOptions = resolveTokenCounterOptions(options);
   }
 
   format(assertions: RetrievedAssertion[], options: ContextAssemblyOptions): FormattedContext {
@@ -31,7 +31,7 @@ export class ProseFormatter implements ContextFormatter {
 
     for (const assertion of assertions) {
       const line = this.formatOne(assertion);
-      const lineTokens = Math.ceil(line.length * this.tokensPerChar);
+      const lineTokens = estimateTokens(line, this.tokenOptions, options);
       if (tokenEstimate + lineTokens > budget) {
         truncated = true;
         break;

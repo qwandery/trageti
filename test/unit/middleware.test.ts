@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyMiddleware } from '../../src/pipeline/middleware.js';
+import { applyMiddleware, applyMiddlewareAsync } from '../../src/pipeline/middleware.js';
 import type { RetrievalMiddleware, RetrievalQuery, RetrievalResult } from '../../src/domain/types.js';
 
 describe('applyMiddleware', () => {
@@ -54,6 +54,7 @@ describe('applyMiddleware', () => {
           temporalAnchor: q.temporalAnchor,
           limit: q.limit ?? 10,
           candidateCount: 1,
+          matchedCount: 1,
           retrievalStrategy: 'hybrid',
           vectorApplied: false,
           bm25Applied: false,
@@ -66,5 +67,41 @@ describe('applyMiddleware', () => {
     expect(order).toEqual(['global-before', 'call-before', 'core:1:2', 'call-after', 'global-after']);
     expect(result.results[0]?.score).toBe(2);
     expect(result.meta.candidateCount).toBe(1);
+  });
+
+  it('supports an async core while preserving hook ordering', async () => {
+    const order: string[] = [];
+    const globalMiddleware: RetrievalMiddleware = {
+      before: (query) => {
+        order.push('before');
+        return { ...query, limit: 2 };
+      },
+      after: (results) => {
+        order.push('after');
+        return results;
+      },
+    };
+    const query: RetrievalQuery = { namespace: 'mw', queryEmbedding: new Float32Array([1]), temporalAnchor: 1 };
+    const result = await applyMiddlewareAsync([globalMiddleware], [], query, async (q): Promise<RetrievalResult> => {
+      order.push(`core:${String(q.limit)}`);
+      return {
+        results: [],
+        meta: {
+          namespace: q.namespace,
+          temporalAnchor: q.temporalAnchor,
+          limit: q.limit ?? 10,
+          candidateCount: 0,
+          matchedCount: 0,
+          retrievalStrategy: 'hybrid',
+          vectorApplied: false,
+          bm25Applied: false,
+          queryTextMode: null,
+          warnings: [],
+        },
+      };
+    });
+
+    expect(order).toEqual(['before', 'core:2', 'after']);
+    expect(result.meta.limit).toBe(2);
   });
 });

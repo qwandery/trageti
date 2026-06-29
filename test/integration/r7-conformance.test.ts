@@ -229,8 +229,8 @@ describe('per-namespace embedding providers drive indexing', () => {
   });
 });
 
-describe('hybrid retrieval — BM25 attaches to vector-selected candidates only', () => {
-  it('a BM25-strong but vector-absent assertion is excluded from a hybrid result', async () => {
+describe('hybrid retrieval includes independent BM25 candidates', () => {
+  it('a BM25-strong but vector-absent assertion is included in a hybrid result', async () => {
     const store = new TragetiStore(openTestDb(), { namespace: 'ns', embeddingDimension: DIM });
     await store.init();
     await writeEpisode(store, 'ns');
@@ -247,8 +247,8 @@ describe('hybrid retrieval — BM25 attaches to vector-selected candidates only'
     });
     const hybridIds = hybrid.results.map((r) => r.id);
     expect(hybridIds).toContain('a-vec');
-    // a-text matches the keyword but was never vector-selected.
-    expect(hybridIds).not.toContain('a-text');
+    expect(hybridIds).toContain('a-text');
+    expect(hybrid.meta.matchedCount).toBe(2);
 
     // Under bm25 strategy Step 2 is skipped, so a-text is reachable.
     const bm25 = await store.retrieve({
@@ -258,6 +258,65 @@ describe('hybrid retrieval — BM25 attaches to vector-selected candidates only'
       temporalAnchor: 5,
     });
     expect(bm25.results.map((r) => r.id)).toContain('a-text');
+    await store.close();
+  });
+
+  it('applies an opt-in reranker over fused top candidates before truncation', async () => {
+    const store = new TragetiStore(openTestDb(), {
+      namespace: 'ns',
+      embeddingDimension: DIM,
+      reranker: {
+        rerank: (candidates) => candidates.map((candidate) => (candidate.assertion.id === 'a-text' ? 10 : 0)),
+      },
+    });
+    await store.init();
+    await writeEpisode(store, 'ns');
+    await writeAssertion(store, 'ns', 'a-vec', 'alpha apple', 1);
+    await writeAssertion(store, 'ns', 'a-text', 'beta keyword zebra', 2);
+    await store.indexAssertion('a-vec', new Float32Array([1, 0, 0, 0]));
+
+    const reranked = await store.retrieve({
+      namespace: 'ns',
+      queryEmbedding: new Float32Array([1, 0, 0, 0]),
+      queryText: 'keyword',
+      temporalAnchor: 5,
+      limit: 1,
+    });
+    expect(reranked.results.map((r) => r.id)).toEqual(['a-text']);
+
+    await expect(
+      store.retrieve({
+        namespace: 'ns',
+        queryEmbedding: new Float32Array([1, 0, 0, 0]),
+        queryText: 'keyword',
+        temporalAnchor: 5,
+        reranker: { rerank: () => [Number.NaN, 0] },
+      }),
+    ).rejects.toMatchObject({ code: 'RERANKER_INVALID_OUTPUT' });
+
+    await expect(
+      store.retrieve({
+        namespace: 'ns',
+        queryEmbedding: new Float32Array([1, 0, 0, 0]),
+        queryText: 'keyword',
+        temporalAnchor: 5,
+        reranker: { rerank: () => [1] },
+      }),
+    ).rejects.toMatchObject({ code: 'RERANKER_BATCH_LENGTH_MISMATCH' });
+
+    await expect(
+      store.retrieve({
+        namespace: 'ns',
+        queryEmbedding: new Float32Array([1, 0, 0, 0]),
+        queryText: 'keyword',
+        temporalAnchor: 5,
+        reranker: {
+          rerank: () => {
+            throw new Error('reranker failed');
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'RERANKER_ERROR' });
     await store.close();
   });
 });

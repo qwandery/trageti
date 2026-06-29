@@ -188,6 +188,84 @@ describe('TragetiStore — graph traversal', () => {
     expect(path).toEqual([]);
   });
 
+  it('findPath returns null for zero-hop when the assertion does not exist in the namespace', async () => {
+    const path = await store.findPath({
+      namespace: NS,
+      fromAssertionId: 'missing',
+      toAssertionId: 'missing',
+      maxDepth: 5,
+      temporalAnchor: 10,
+    });
+    expect(path).toBeNull();
+  });
+
+  it('continues traversal in the destination namespace after a cross-namespace hop', async () => {
+    await store.initNamespace('other', { embeddingDimension: DIM });
+    await store.writeEpisode({
+      id: 'ep-other',
+      namespace: 'other',
+      position: 1,
+      occurredAt: '',
+      type: 'doc',
+      content: 'other episode',
+    });
+    for (const id of ['b-1', 'b-2']) {
+      await store.writeAssertion({
+        id,
+        namespace: 'other',
+        type: 'fact',
+        content: id,
+        validFrom: 1,
+        validUntil: null,
+        confidence: 1,
+        sourceEpisodeId: 'ep-other',
+        supersedesId: null,
+        entityId: id,
+        entityType: 'topic',
+        citations: [citationFor(id, 'ep-other')],
+      });
+    }
+    await store.writeLink({
+      id: 'l-cross',
+      namespace: NS,
+      fromId: 'a-1',
+      toId: 'b-1',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-1',
+    });
+    await store.writeLink({
+      id: 'l-other',
+      namespace: 'other',
+      fromId: 'b-1',
+      toId: 'b-2',
+      linkType: 'related',
+      validFrom: 1,
+      validUntil: null,
+      sourceEpisodeId: 'ep-other',
+    });
+
+    const connected = await store.getConnected({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      maxDepth: 2,
+      temporalAnchor: 10,
+      linkTypes: ['related'],
+    });
+    expect(connected.map((assertion) => assertion.id)).toContain('b-2');
+
+    const path = await store.findPath({
+      namespace: NS,
+      fromAssertionId: 'a-1',
+      toAssertionId: 'b-2',
+      maxDepth: 2,
+      temporalAnchor: 10,
+      linkTypes: ['related'],
+    });
+    expect(path?.map((link) => link.id)).toEqual(['l-cross', 'l-other']);
+  });
+
   it('findPath handles cycles without infinite loop or repeated assertions', async () => {
     // Construct a cycle: a-2 → a-1 (closing a-1 → a-2 → a-1)
     await store.writeLink({

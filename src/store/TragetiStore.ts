@@ -214,7 +214,18 @@ export class TragetiStore {
     const store = new TragetiStore(db, options, {
       closeDatabaseOnStoreClose: options.closeDatabaseOnStoreClose ?? typeof options.database === 'string',
     });
-    await store.init();
+    try {
+      await store.init();
+    } catch (err) {
+      if (options.closeDatabaseOnStoreClose ?? typeof options.database === 'string') {
+        try {
+          await store.close();
+        } catch {
+          // Preserve the init failure as the primary error.
+        }
+      }
+      throw err;
+    }
     return store;
   }
 
@@ -223,6 +234,7 @@ export class TragetiStore {
     this.options = {
       graphAdapter: options.graphAdapter ?? new CTEGraphAdapter(),
       scorer: options.scorer ?? new RRFScorer(),
+      reranker: options.reranker,
       defaultFormatter: options.defaultFormatter ?? new ProseFormatter(),
       validators: options.validators ?? [],
       connectionVerifier: options.connectionVerifier ?? new DefaultConnectionVerifier(),
@@ -283,6 +295,7 @@ export class TragetiStore {
     );
     this.linkRepo = new LinkRepository(this.db, this.extensionColumnCache.get('trageti_links') ?? []);
     this.embeddingRepo = new EmbeddingRepository(this.db);
+    this.cleanupOrphanStagingEmbeddingTables();
 
     // Add default validators if none provided. The store owns citation-excerpt
     // policy (enforced in writeAssertion, so a custom validators array cannot
@@ -930,7 +943,7 @@ export class TragetiStore {
       // caller gave queryText but no queryEmbedding, or record why the vector
       // branch is skipped under hybrid degradation.
       const { query: routed, skipReason } = await this.resolveQueryEmbedding(routedBefore);
-      const result = retrieve(
+      const result = await retrieve(
         this.db,
         {
           assertionRepo: this.assertionRepo,
@@ -939,6 +952,7 @@ export class TragetiStore {
           getPositionRange: (ns) => this.namespaceRepo.getPositionRange(ns),
           getDimension: (ns) => this.namespaceRepo.get(ns)?.embeddingDimension ?? null,
           globalScorer: this.options.scorer,
+          ...(this.options.reranker !== undefined && { globalReranker: this.options.reranker }),
           globalMiddleware: this.options.middleware,
           graphAdapter: this.options.graphAdapter,
           logger: this.options.logger,
@@ -1124,6 +1138,17 @@ export class TragetiStore {
     if (!config || config.embeddingDimension === null || !tableName) {
       this.options.logger.debug('TRGT_MISSING_INDEXING_VECTORLESS', { namespace });
       return [];
+    }
+    if (!this.embeddingRepo.tableExists(tableName)) {
+      const missingIds = this.filterRequestedIndexingIds(namespace, assertionIds, options);
+      if (missingIds.length === 0) return [];
+      const assertionsById = new Map(
+        this.assertionRepo.getByIds(missingIds).map((assertion) => [assertion.id, assertion]),
+      );
+      return missingIds.flatMap((id) => {
+        const assertion = assertionsById.get(id);
+        return assertion && assertion.namespace === namespace ? [{ id, content: assertion.content }] : [];
+      });
     }
     const table = this.ensureVectorReadable(namespace);
     const missingIds =
@@ -1404,6 +1429,12 @@ export class TragetiStore {
     const hasQueryText = typeof query.queryText === 'string' && query.queryText.trim().length > 0;
     const hasQueryEmbedding = Boolean(query.queryEmbedding);
     const notes: string[] = [];
+    if (query.queryEmbedding) {
+      const vectorError = vectorValidationError(query.queryEmbedding, config?.embeddingDimension ?? null, 'queryEmbedding');
+      if (vectorError) {
+        throw new RetrievalInputError(ErrorCode.RETRIEVAL_DIMENSION_MISMATCH, vectorError);
+      }
+    }
 
     // wouldApplyVector — true iff Step 2 (vector candidate selection) would run.
     let wouldApplyVector = false;
@@ -1455,7 +1486,11 @@ export class TragetiStore {
     }
     // `rank` follows `score` and precedes the optional graph / trajectory
     // expansion steps — the same order the retrieval pipeline emits them in.
-    steps.push({ step: 'score' }, { step: 'rank' });
+    steps.push({ step: 'score' });
+    if (query.reranker !== null && (query.reranker !== undefined || this.options.reranker !== undefined)) {
+      steps.push({ step: 'rerank' });
+    }
+    steps.push({ step: 'rank' });
     if (query.expandLinks && (query.maxDepth ?? 1) > 0) {
       steps.push({ step: 'graph-expand' });
     }
@@ -1765,6 +1800,19 @@ export class TragetiStore {
     for (const table of tables) {
       const cols = this.extensionApplier.getExtensionColumns(this.db, table);
       this.extensionColumnCache.set(table, cols);
+    }
+  }
+
+  private cleanupOrphanStagingEmbeddingTables(): void {
+    const referencedRows = this.db
+      .prepare<[], { embedding_table: string | null }>(
+        'SELECT embedding_table FROM trageti_namespaces WHERE embedding_table IS NOT NULL',
+      )
+      .all();
+    const referenced = new Set(referencedRows.flatMap((row) => (row.embedding_table ? [row.embedding_table] : [])));
+    for (const table of this.embeddingRepo.listOrphanStagingTables(referenced)) {
+      this.embeddingRepo.dropTable(table);
+      this.options.logger.warn('TRGT_ORPHAN_STAGING_EMBEDDING_TABLE_DROPPED', { table });
     }
   }
 

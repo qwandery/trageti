@@ -63,10 +63,10 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     // node ids already on the path so the recursive step never re-enters a
     // node — cycle protection (spec §695).
     const sql = `
-      WITH RECURSIVE traversal(id, namespace, from_id, to_id, link_type,
+      WITH RECURSIVE traversal(id, namespace, from_id, to_id, to_namespace, link_type,
                                 valid_from, valid_until, source_episode_id, created_at,
                                 depth, visited) AS (
-        SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
+        SELECT l.id, l.namespace, l.from_id, l.to_id, target.namespace, l.link_type,
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
                1 AS depth,
                json_array(l.from_id, l.to_id) AS visited
@@ -82,14 +82,14 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
         UNION ALL
 
-        SELECT l.id, l.namespace, l.from_id, l.to_id, l.link_type,
+        SELECT l.id, l.namespace, l.from_id, l.to_id, target.namespace, l.link_type,
                l.valid_from, l.valid_until, l.source_episode_id, l.created_at,
                t.depth + 1,
                json_insert(t.visited, '$[#]', l.to_id)
         FROM trageti_links l
         JOIN traversal t ON l.from_id = t.to_id
         JOIN trageti_assertions target ON target.id = l.to_id
-        WHERE l.namespace = ?
+        WHERE l.namespace = t.to_namespace
           AND l.valid_from <= ?
           ${linkValidity}
           AND target.valid_from <= ?
@@ -119,7 +119,6 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       temporalAnchor,
       ...targetValidityParams,
       ...linkTypeParams,
-      namespace,
       temporalAnchor,
       ...validityParams,
       temporalAnchor,
@@ -139,9 +138,20 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     toId: string,
     options: GraphAdapterTraversalOptions,
   ): GraphAdapterLink[] | null {
-    if (fromId === toId) return [];
-
     const { temporalAnchor, maxDepth, linkTypes, includeSuperseded } = options;
+    if (fromId === toId) {
+      const targetValidity = includeSuperseded ? '' : 'AND (valid_until IS NULL OR valid_until > ?)';
+      const params: unknown[] = includeSuperseded
+        ? [fromId, namespace, temporalAnchor]
+        : [fromId, namespace, temporalAnchor, temporalAnchor];
+      const row = db
+        .prepare<unknown[], { id: string }>(
+          `SELECT id FROM trageti_assertions
+           WHERE id = ? AND namespace = ? AND valid_from <= ? ${targetValidity}`,
+        )
+        .get(...params);
+      return row ? [] : null;
+    }
     // maxDepth: 0 permits only the zero-hop path (from === toId, handled
     // above); any from !== toId path needs at least one hop (spec §2029).
     if (maxDepth <= 0) return null;
@@ -155,8 +165,9 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
     const targetValidityParams: number[] = includeSuperseded ? [] : [temporalAnchor];
 
     const sql = `
-      WITH RECURSIVE path_search(to_id, depth, path_ids, visited_to_ids, path_sort_key) AS (
+      WITH RECURSIVE path_search(to_id, to_namespace, depth, path_ids, visited_to_ids, path_sort_key) AS (
         SELECT l.to_id,
+               target.namespace,
                1,
                json_array(l.id),
                json_array(l.from_id, l.to_id),
@@ -173,14 +184,14 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
 
         UNION ALL
 
-        SELECT l.to_id, p.depth + 1,
+        SELECT l.to_id, target.namespace, p.depth + 1,
                json_insert(p.path_ids, '$[#]', l.id),
                json_insert(p.visited_to_ids, '$[#]', l.to_id),
                p.path_sort_key || char(30) || l.created_at || char(31) || l.id
         FROM trageti_links l
         JOIN path_search p ON l.from_id = p.to_id
         JOIN trageti_assertions target ON target.id = l.to_id
-        WHERE l.namespace = ?
+        WHERE l.namespace = p.to_namespace
           AND l.valid_from <= ?
           ${linkValidity}
           AND target.valid_from <= ?
@@ -206,7 +217,6 @@ export class CTEGraphAdapter implements GraphQueryAdapter {
       temporalAnchor,
       ...targetValidityParams,
       ...linkTypeParams,
-      namespace,
       temporalAnchor,
       ...validityParams,
       temporalAnchor,

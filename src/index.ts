@@ -29,6 +29,8 @@ export type {
   RetrievedAssertion,
   ScoredCandidate,
   ScoringContext,
+  RerankCandidate,
+  RerankingContext,
   ContextAssemblyOptions,
   AssembledContext,
   FormattedContext,
@@ -69,13 +71,18 @@ export type {
   // Extension interfaces
   GraphQueryAdapter,
   IRetrievalScorer,
+  IRetrievalReranker,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- deliberate public back-compat alias
   RetrievalScorer,
+  TokenCounter,
+  FormatterTokenOptions,
   ContextFormatter,
   AssertionValidator,
   ConnectionVerifier,
   RetrievalMiddleware,
 } from './domain/types.js';
+export { selfCitation } from './domain/citations.js';
+export type { SelfCitationInput } from './domain/citations.js';
 export type { Logger, Metrics, LogFields } from './internal/logger.js';
 
 // ─── Vocabulary constants ──────────────────────────────────────────────────────
